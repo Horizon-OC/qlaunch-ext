@@ -1,3 +1,6 @@
+/* qlaunch-ext (C) 2026 Souldbminer */
+/* Pain... And suffering. */
+
 #include <shared/logging.hpp>
 #include <switch.h>
 
@@ -8,6 +11,8 @@ extern "C" {
     size_t __nx_heap_size = 0x800000;
     TimeServiceType __nx_time_service_type = TimeServiceType_System;
 }
+
+ViDisplay g_Display;
 
 extern "C" void __appInit(void) {
     smInitialize();
@@ -29,6 +34,7 @@ extern "C" void __appInit(void) {
     lblInitialize();
     hidInitialize();
     fsdevMountSdmc();
+    viInitialize();
     logging::Initialize();
     logging::SetLogOutput(logging::LogOutput_File);
     logging::SetFileLoggingPath("sdmc:/qlaunch-ext-log.txt");
@@ -37,7 +43,7 @@ extern "C" void __appInit(void) {
 
 extern "C" void __appExit(void) {
     logging::Exit();
-
+    viExit();
     hidExit();
     lblExit();
     psmExit();
