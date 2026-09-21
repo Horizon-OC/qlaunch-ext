@@ -16,11 +16,19 @@ if [ -z "${DEVKITPRO:-}" ]; then
     fi
 fi
 
+make -C "$ROOT/neko3d-module" -j"$(nproc)"
+make -C "$ROOT/menu" -j"$(nproc)"
 make -C "$ROOT/loader" -j"$(nproc)"
 
 rm -rf "$DEST"
 mkdir -p "$DEST"
+mkdir -p "$PKG/lib"
+mkdir -p "$PKG/switch/qlaunch-ext/menus"
 cp "$ROOT/loader/loader.nsp" "$DEST/exefs.nsp"
+cp "$ROOT/neko3d-module/neko3d.dnro" "$PKG/lib/neko3d.dnro"
+cp "$ROOT/menu/menu.dnro" "$PKG/switch/qlaunch-ext/menus/menu.dnro"
+echo "copy dist/lib/* -> sdmc:/lib/"
+echo "copy dist/switch/* -> sdmc:/switch/"
 
 echo "built at:"
 find "$PKG" -type f | sort

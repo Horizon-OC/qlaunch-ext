@@ -57,15 +57,20 @@ CFLAGS	+=	$(INCLUDE) -D__SWITCH__
 CXXFLAGS	:= $(CFLAGS) -fno-rtti -fno-exceptions
 
 ASFLAGS	:=	-g $(ARCH)
-LDFLAGS	=	-specs=$(DEVKITPRO)/libnx/switch.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
+comma := ,
+NEKO_UNDEFS := $(shell cat $(TOPDIR)/../neko3d-module/neko3d.undef 2>/dev/null)
+NEKO_DEFS := $(shell cat $(TOPDIR)/../neko3d-module/neko3d.def 2>/dev/null)
+MENU_UNDEFS := $(shell cat $(TOPDIR)/../menu/menu.undef 2>/dev/null)
+HOST_NEEDS := $(filter-out $(NEKO_DEFS),$(NEKO_UNDEFS) $(MENU_UNDEFS))
+LDFLAGS	=	-specs=$(DEVKITPRO)/libnx/switch.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map) -Wl,--export-dynamic $(foreach s,$(HOST_NEEDS),-Wl$(comma)-u$(s))
 
-LIBS	:= -lnx
+LIBS	:= -ldlink -lnx -lm
 
 #---------------------------------------------------------------------------------
 # list of directories containing libraries, this must be the top level containing
 # include and lib
 #---------------------------------------------------------------------------------
-LIBDIRS	:= $(PORTLIBS) $(LIBNX)
+LIBDIRS	:= $(PORTLIBS) $(LIBNX) $(TOPDIR)/../extern/libnx-dlink
 
 
 #---------------------------------------------------------------------------------
@@ -203,7 +208,11 @@ $(OUTPUT).nso	:	$(OUTPUT).elf
 
 endif
 
-$(OUTPUT).elf	:	$(OFILES)
+.PHONY: dlink-lib
+dlink-lib:
+	@$(MAKE) -C $(TOPDIR)/../extern/libnx-dlink
+
+$(OUTPUT).elf	:	$(OFILES) dlink-lib
 
 $(OFILES_SRC)	: $(HFILES_BIN)
 

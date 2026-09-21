@@ -1,3 +1,9 @@
 # qlaunch-ext
 
-True qlaunch reimplemention (aka how to lose your mind in 1 easy step)
+*An fast, open source and extendable reimplementation of the Nintendo Switch home menu.*
+
+**HEAVY WIP, DO NOT USE THIS FOR NOW!**
+
+/* qlaunch-ext (C) 2026 Souldbminer */
+/* Licensed under the GPLv2         */
+/* Pain... and suffering.           */

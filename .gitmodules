@@ -1,0 +1,3 @@
+[submodule "extern/libnx-dlink"]
+	path = extern/libnx-dlink
+	url = https://github.com/souldbminerr/libnx-dlink.git

@@ -42,4 +42,6 @@ build/
 *.nsp
 *.map
 dist/
-
+*.dnro
+*.nro
+*.dksh
