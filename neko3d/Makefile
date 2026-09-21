@@ -111,19 +111,19 @@ export INCLUDE	:=	$(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
 .PHONY: clean all
 
 #---------------------------------------------------------------------------------
-all: lib/libdeko3d.a lib/libdeko3dd.a
+all: lib/libneko3d.a lib/libneko3dd.a
 
 dist-bin: all
-	@tar --exclude=*~ -cjf deko3d-$(VERSION).tar.bz2 include lib
+	@tar --exclude=*~ -cjf neko3d-$(VERSION).tar.bz2 include lib
 
 dist-src:
-	@tar --exclude=*~ -cjf deko3d-src-$(VERSION).tar.bz2 include source Makefile
+	@tar --exclude=*~ -cjf neko3d-src-$(VERSION).tar.bz2 include source Makefile
 
 dist: dist-src dist-bin
 
 install: dist-bin
 	mkdir -p $(DESTDIR)$(LIBNX)
-	bzip2 -cd deko3d-$(VERSION).tar.bz2 | tar -xf - -C $(DESTDIR)$(LIBNX)
+	bzip2 -cd neko3d-$(VERSION).tar.bz2 | tar -xf - -C $(DESTDIR)$(LIBNX)
 
 lib:
 	@[ -d $@ ] || mkdir -p $@
@@ -134,14 +134,14 @@ release:
 debug:
 	@[ -d $@ ] || mkdir -p $@
 
-lib/libdeko3d.a : lib release $(SOURCES) $(INCLUDES)
+lib/libneko3d.a : lib release $(SOURCES) $(INCLUDES)
 	@$(MAKE) BUILD=release OUTPUT=$(CURDIR)/$@ \
 	BUILD_CFLAGS="-DNDEBUG=1 -O2 $(EXTRAOPT)" \
 	DEPSDIR=$(CURDIR)/release \
 	--no-print-directory -C release \
 	-f $(CURDIR)/Makefile
 
-lib/libdeko3dd.a : lib debug $(SOURCES) $(INCLUDES)
+lib/libneko3dd.a : lib debug $(SOURCES) $(INCLUDES)
 	@$(MAKE) BUILD=debug OUTPUT=$(CURDIR)/$@ \
 	BUILD_CFLAGS="-DDEBUG=1 -O2" \
 	DEPSDIR=$(CURDIR)/debug \
