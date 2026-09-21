@@ -7,6 +7,10 @@
 #include <switch.h>
 #include <dlink/dlink.h>
 #include <shared/logging.hpp>
+#include "app.hpp"
+#include "la.hpp"
+#include "sys.hpp"
+#include "titles.hpp"
 
 extern "C" {
     /* Otherwise nothing will work*/
@@ -413,20 +417,225 @@ extern "C" void __appExit(void)
     smExit();
 }
 
+static bool g_displayApproved = false;
+static bool g_homePending = false;
+static u64 g_homePendingAt = 0;
+static bool g_overlayShown = false;
+static bool g_menuRefreshPending = false;
+
+static u64 now_ms(void)
+{
+    return svcGetSystemTick() / 19200ULL;
+}
+
+static void reopen_menu(const char *source)
+{
+    titles::Refresh();
+    if (g_booted && s_onOpen)
+        s_onOpen();
+    g_homePending = false;
+    logging::LogLine("[qlaunch-ext] reopening from %s t=%llu", source,
+                     (unsigned long long)now_ms());
+}
+
+static void do_home(const char *source)
+{
+    logging::LogLine("[qlaunch-ext] Home request (%s) t=%llu", source,
+                     (unsigned long long)now_ms());
+    if (la::IsActive()) {
+        la::Terminate();
+        reopen_menu(source);
+        return;
+    }
+    if (app::IsActive() && app::HasForeground()) {
+        Result rc = sys::SetForeground();
+        logging::LogLine("[qlaunch-ext] fg request rc=0x%X", rc);
+        if (R_SUCCEEDED(rc)) {
+            g_homePending = true;
+            g_homePendingAt = now_ms();
+        }
+        return;
+    }
+    if (g_booted && s_onHomeButton)
+        s_onHomeButton();
+}
+
+static void do_sleep(const char *source)
+{
+    logging::LogLine("[qlaunch-ext] sleep request (%s) t=%llu", source,
+                     (unsigned long long)now_ms());
+    sys::EnterSleep();
+}
+
+static void pump_general_channel(void)
+{
+    struct SamsHdr {
+        u32 magic;
+        u32 ver;
+        u32 msg;
+        u32 rsv;
+    };
+    for (int i = 0; i < 16; i++) {
+        AppletStorage st{};
+        if (R_FAILED(appletPopFromGeneralChannel(&st)))
+            return;
+        SamsHdr h{};
+        s64 sz = 0;
+        appletStorageGetSize(&st, &sz);
+        if (sz >= (s64)sizeof(h))
+            appletStorageRead(&st, 0, &h, sizeof(h));
+        appletStorageClose(&st);
+        if (h.magic != 0x534D4153) {
+            logging::LogLine("[qlaunch-ext] sams invalid magic=0x%X sz=%lld", h.magic,
+                             (long long)sz);
+            continue;
+        }
+        logging::LogLine("[qlaunch-ext] sams msg=%u t=%llu", h.msg,
+                         (unsigned long long)now_ms());
+        switch (h.msg) {
+        case 2:
+            do_home("sams");
+            break;
+        case 3:
+            do_sleep("sams");
+            break;
+        case 5:
+            appletStartShutdownSequence();
+            break;
+        case 6:
+            appletStartRebootSequence();
+            break;
+        case 16:
+            g_overlayShown = true;
+            break;
+        case 17:
+            g_overlayShown = false;
+            if (g_booted)
+                g_menuRefreshPending = true;
+            break;
+        default:
+            break;
+        }
+    }
+}
+
+static void pump_applet_messages(void)
+{
+    for (int i = 0; i < 32; i++) {
+        u32 msg = 0;
+        if (R_FAILED(appletGetMessage(&msg)))
+            return;
+        logging::LogLine("[qlaunch-ext] ae msg=%u t=%llu", msg,
+                         (unsigned long long)now_ms());
+        switch (msg) {
+        case 1: /* ChangeIntoForeground */
+            if (!g_displayApproved) {
+                appletApproveToDisplay();
+                g_displayApproved = true;
+            }
+            if (g_homePending)
+                reopen_menu("fg");
+            break;
+        case 2: /* ChangeIntoBackground */
+            break;
+        case 6: /* ApplicationExited */
+            titles::Refresh();
+            if (g_booted)
+                g_menuRefreshPending = true;
+            break;
+        case 15: /* FocusStateChanged */
+            break;
+        case 20: /* DetectShortPressingHomeButton */
+            do_home("ae");
+            break;
+        case 22: /* DetectShortPressingPowerButton */
+        case 29: /* AutoPowerDown */
+        case 32: /* DetectReceivingCecSystemStandby */
+            do_sleep("ae");
+            break;
+        case 26: /* FinishedSleepSequence (wakeup) */
+            appletRequestToGetForeground();
+            if (g_booted)
+                g_menuRefreshPending = true;
+            break;
+        case 35: /* RequestToDisplay */
+            if (!g_displayApproved) {
+                appletApproveToDisplay();
+                g_displayApproved = true;
+            }
+            break;
+        default:
+            break;
+        }
+    }
+}
+
 int main(int argc, char **argv)
 {
     (void)argc;
     (void)argv;
-    /* Main loop */
-    bool approved = false;
-    while (appletMainLoop()) {
-        u32 msg = 0;
-        /* Only do it if we can get the notification message */
-        while (R_SUCCEEDED(appletGetMessage(&msg))) {
-            if (msg == (u32)AppletMessage_RequestToDisplay && !approved) {
-                appletApproveToDisplay();
-                approved = true;
+    logging::LogLine("[qlaunch-ext] initialized (build %s %s)", __DATE__, __TIME__);
+    {
+        u32 hv = hosversionGet();
+        logging::LogLine("[qlaunch-ext] fw %u.%u.%u", HOSVER_MAJOR(hv), HOSVER_MINOR(hv), HOSVER_MICRO(hv));
+    }
+    {
+        Result iprc = appletLoadAndApplyIdlePolicySettings();
+        logging::LogLine("[qlaunch-ext] idle policy rc=0x%X", iprc);
+    }
+    /* Drain anything queued during boot. */
+    pump_general_channel();
+    pump_applet_messages();
+    static bool was_active = false;
+    static bool was_overlay = false;
+    static u64 last_hb = 0;
+
+    while (true) {
+        pump_general_channel();
+        pump_applet_messages();
+        /* game exit */
+        bool active = app::IsActive();
+        if (was_active && !active) {
+            logging::LogLine("[qlaunch-ext] game exited t=%llu",
+                             (unsigned long long)now_ms());
+            titles::Refresh();
+            if (g_booted)
+                g_menuRefreshPending = true;
+        }
+        was_active = active;
+        bool overlay_now = la::IsActive() || g_overlayShown;
+        if (was_overlay && !overlay_now) {
+            logging::LogLine("[qlaunch-ext] applet exited t=%llu",
+                             (unsigned long long)now_ms());
+            if (g_booted)
+                g_menuRefreshPending = true;
+        }
+        was_overlay = overlay_now;
+
+        if (g_homePending && now_ms() - g_homePendingAt > 2000) {
+            logging::LogLine("[qlaunch-ext] home pending timeout, reopening");
+            reopen_menu("timeout");
+        }
+
+        /* Stop rendering on a app */
+        bool want_menu = !(app::IsActive() && app::HasForeground()) && !overlay_now;
+        if (!want_menu) {
+            u64 now = now_ms();
+            if (now - last_hb > 5000) {
+                last_hb = now;
+                logging::LogLine("[qlaunch-ext] hb: app=%d fg=%d ov=%d t=%llu",
+                                 app::IsActive() ? 1 : 0,
+                                 app::HasForeground() ? 1 : 0,
+                                 overlay_now ? 1 : 0,
+                                 (unsigned long long)now);
             }
+            svcSleepThread(16000000ULL);
+            continue;
+        }
+        if (g_menuRefreshPending && g_booted) {
+            g_menuRefreshPending = false;
+            if (s_onOpen)
+                s_onOpen();
         }
         if (!g_booted) {
             Result brc = boot_step();

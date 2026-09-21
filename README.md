@@ -4,6 +4,23 @@
 
 **HEAVY WIP, DO NOT USE THIS FOR NOW!**
 
+
+## Making your own menu
+
+TODO: Write something here later
+
+## Theming
+
+TODO
+
+## Plugins
+
+TODO
+
+## Credits
+
 /* qlaunch-ext (C) 2026 Souldbminer */
 /* Licensed under the GPLv2         */
 /* Pain... and suffering.           */
+
+Special thanks to XolTroll and PoloNX for uLaunch and SwitchU. Their implementation is very helpful as reference and certan parts are adapted from them <3
