@@ -34,3 +34,12 @@
 # VS Code
 
 .vscode/
+# Build outputs
+build/
+*.elf
+*.nso
+*.npdm
+*.nsp
+*.map
+dist/
+

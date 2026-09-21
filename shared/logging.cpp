@@ -1,68 +1,71 @@
 #include "logging.hpp"
+#include <cstring>
 
 namespace logging {
 
-    constexpr kMaxBufSize = 128;
+static constexpr size_t kMaxBufSize = 256;
+static constexpr size_t kMaxPathSize = 256;
+static LogOutput CurrentLogOutput = LogOutput_None;
+static char LogPath[kMaxPathSize] = {0};
+static FILE *fp = nullptr;
 
-    LogOutput CurrentLogOutput;
-    std::string path LogPath;
-    FILE* fp;
-
-    void Initialize() {
-        CurrentLogOutput = LogOutput_None;
-    }
-
-    void Exit() {
-        /* Close the file if nessesary */
-        if(CurrentLogOutput == LogOutput_File) {
-            fclose(&fp);
-        }
-        CurrentLogOutput = LogOutput_None;
-    }
-
-    void SetFileLoggingPath(std::string path) {
-        LogPath = path;
-    }
-    
-    void LogLine(const char* fmt, ...) {
-        /* Variadic arguments */
-        va_list ap;
-        va_start(ap, fmt);
-
-        if(CurrentLogOutput == LogOutput_File) {
-
-            /* Open file and append to it once */
-            if(fp == nullptr) {
-                fp = fopen(path.c_str(), "a+");
-            }
-
-            /* Actually print to the file if it opened correctly */
-            if(fp != nullptr) {
-                vfprintf(&fp, fmt, ap);
-            }
-        } else if(CurrentLogOutput == LogOutput_UART) {
-            char buf[kMaxBufSize] = { 0 };
-
-            /* Populate the buffer*/
-            vsnprintf(buf, kMaxBufSize, fmt, ap);
-
-            /* Output to uart, accounting for null terminator*/
-            svcOutputDebugString(buf, strlen(buf) + 1);
-        }
-        
-        va_end(ap);
-    }
-
-    void SetLogOutput(LogOutput output) {
-        CurrentLogOutput = output;
-    }
-
-    LogOutput GetLogOutput() {
-        return CurrentLogOutput;
-    }
-
-    std::string GetCurrentLogPath() {
-        return LogPath;
-    }
-
+void Initialize() {
+    CurrentLogOutput = LogOutput_None;
+    LogPath[0] = 0;
+    fp = nullptr;
 }
+
+void Exit() {
+    if (fp != nullptr) {
+        fclose(fp);
+        fp = nullptr;
+    }
+    CurrentLogOutput = LogOutput_None;
+}
+
+void SetFileLoggingPath(const char *path) {
+    if (path == nullptr) {
+        LogPath[0] = 0;
+        return;
+    }
+    strncpy(LogPath, path, sizeof(LogPath) - 1);
+    LogPath[sizeof(LogPath) - 1] = 0;
+}
+
+void LogLine(const char *fmt, ...) {
+    char buf[kMaxBufSize];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+
+    if (CurrentLogOutput == LogOutput_File) {
+        if (fp == nullptr && LogPath[0] != 0) {
+            fp = fopen(LogPath, "w");
+        }
+        if (fp != nullptr) {
+            fputs(buf, fp);
+            fputc(10, fp);
+            fflush(fp);
+            return;
+        }
+        /* SD not ready */
+    }
+    if (CurrentLogOutput != LogOutput_None) {
+        svcOutputDebugString(buf, strlen(buf));
+    }
+}
+
+void SetLogOutput(LogOutput output) {
+    CurrentLogOutput = output;
+}
+
+LogOutput GetLogOutput() {
+    return CurrentLogOutput;
+}
+
+const char *GetCurrentLogPath() {
+    return LogPath;
+}
+
+} // namespace logging
