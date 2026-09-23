@@ -18,17 +18,32 @@ fi
 
 make -C "$ROOT/neko3d-module" -j"$(nproc)"
 make -C "$ROOT/menu" -j"$(nproc)"
+if [ -d "$ROOT/plugins" ]; then
+    for p in "$ROOT"/plugins/*/; do
+        if [ -f "${p}Makefile" ]; then
+            make -C "$p" -j"$(nproc)"
+        fi
+    done
+fi
 make -C "$ROOT/loader" -j"$(nproc)"
 
 rm -rf "$DEST"
 mkdir -p "$DEST"
 mkdir -p "$PKG/lib"
-mkdir -p "$PKG/switch/qlaunch-ext/menus"
+rm -rf "$PKG/switch"
+rm -rf "$PKG/sdroot"
+mkdir -p "$PKG/qlaunch-ext/plugins"
 cp "$ROOT/loader/loader.nsp" "$DEST/exefs.nsp"
 cp "$ROOT/neko3d-module/neko3d.dnro" "$PKG/lib/neko3d.dnro"
-cp "$ROOT/menu/menu.dnro" "$PKG/switch/qlaunch-ext/menus/menu.dnro"
+mkdir -p "$PKG/qlaunch-ext/menus"
+cp "$ROOT/menu/menu.dnro" "$PKG/qlaunch-ext/menus/menu.dnro"
+for f in "$ROOT"/plugins/*/*.dnro; do
+    if [ -f "$f" ]; then
+        cp "$f" "$PKG/qlaunch-ext/plugins/"
+    fi
+done
 echo "copy dist/lib/* -> sdmc:/lib/"
-echo "copy dist/switch/* -> sdmc:/switch/"
+echo "copy dist/qlaunch-ext/* -> sdmc:/qlaunch-ext/"
 
 echo "built at:"
 find "$PKG" -type f | sort

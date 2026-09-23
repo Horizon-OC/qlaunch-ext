@@ -9,6 +9,7 @@
 #include <shared/logging.hpp>
 #include "app.hpp"
 #include "la.hpp"
+#include "plugins.hpp"
 #include "sys.hpp"
 #include "titles.hpp"
 
@@ -70,6 +71,10 @@ static Result heap_set(size_t target)
 #define FB_W 1280
 #define FB_H 720
 
+/* Default framebuffer size */
+int g_fbW = FB_W;
+int g_fbH = FB_H;
+
 /* Global layers/windows */
 static ViDisplay g_display{};
 static ViLayer g_layer{};
@@ -122,8 +127,16 @@ static Result gfx_layer_init(void)
             return rc;
         g_layerLive = true;
 
-        /* Fit the layer to the display. TODO: add 480/1080p support */
-        viSetLayerSize(&g_layer, FB_W, FB_H);
+        /* Scale layer to logical resolution */
+        s32 lw = 0, lh = 0;
+        if (R_SUCCEEDED(viGetDisplayLogicalResolution(&g_display, &lw, &lh)) &&
+            lw >= 640 && lh >= 360 && lw <= 7680 && lh <= 4320) {
+            g_fbW = lw;
+            g_fbH = lh;
+        }
+
+        /* Set the layer size to the new resolution*/
+        viSetLayerSize(&g_layer, (s32)g_fbW, (s32)g_fbH);
 
         /* Use a low priority to avoid overwriting other system UI */
         viSetLayerZ(&g_layer, 1);
@@ -269,6 +282,10 @@ static void wait_wake(uint64_t timeout_ns)
 
 static Result boot_fail(Result rc)
 {
+    /* If the menu was already resolved, let it release GPU state first
+       so a later retry starts clean instead of leaking device/blocks. */
+    if (s_onShutdown)
+        s_onShutdown();
     menu_unload();
     g_bootStage = BootStage_Provide;
     return rc;
@@ -309,7 +326,7 @@ static Result boot_step(void)
             dlclose(g_menu);
             g_menu = nullptr;
         }
-        g_menu = dlopen("sdmc:/switch/qlaunch-ext/menus/menu.dnro", RTLD_LOCAL);
+        g_menu = dlopen("sdmc:/qlaunch-ext/menus/menu.dnro", RTLD_LOCAL);
         logging::LogLine("[qlaunch-ext] opening menu at %p (dlerr=%s)", g_menu,
                          g_menu ? "NONE" : dlerror());
         if (!g_menu)
@@ -433,6 +450,7 @@ static void reopen_menu(const char *source)
     titles::Refresh();
     if (g_booted && s_onOpen)
         s_onOpen();
+    plugins::OpenAll();
     g_homePending = false;
     logging::LogLine("[qlaunch-ext] reopening from %s t=%llu", source,
                      (unsigned long long)now_ms());
@@ -464,6 +482,7 @@ static void do_sleep(const char *source)
 {
     logging::LogLine("[qlaunch-ext] sleep request (%s) t=%llu", source,
                      (unsigned long long)now_ms());
+    plugins::PowerAll();
     sys::EnterSleep();
 }
 
@@ -588,7 +607,6 @@ int main(int argc, char **argv)
     pump_applet_messages();
     static bool was_active = false;
     static bool was_overlay = false;
-    static u64 last_hb = 0;
 
     while (true) {
         pump_general_channel();
@@ -620,15 +638,8 @@ int main(int argc, char **argv)
         /* Stop rendering on a app */
         bool want_menu = !(app::IsActive() && app::HasForeground()) && !overlay_now;
         if (!want_menu) {
-            u64 now = now_ms();
-            if (now - last_hb > 5000) {
-                last_hb = now;
-                logging::LogLine("[qlaunch-ext] hb: app=%d fg=%d ov=%d t=%llu",
-                                 app::IsActive() ? 1 : 0,
-                                 app::HasForeground() ? 1 : 0,
-                                 overlay_now ? 1 : 0,
-                                 (unsigned long long)now);
-            }
+            /* Persistent plugins keep ticking even when a game is loaded. */
+            plugins::Loop(true);
             svcSleepThread(16000000ULL);
             continue;
         }
@@ -636,6 +647,7 @@ int main(int argc, char **argv)
             g_menuRefreshPending = false;
             if (s_onOpen)
                 s_onOpen();
+            plugins::OpenAll();
         }
         if (!g_booted) {
             Result brc = boot_step();
@@ -647,6 +659,7 @@ int main(int argc, char **argv)
             if (g_bootStage == BootStage_Done) {
                 g_booted = true;
                 logging::LogLine("[qlaunch-ext] booted menu");
+                plugins::Boot(&g_win);
             } else {
                 wait_wake(16000000ULL);
                 continue;
@@ -657,6 +670,7 @@ int main(int argc, char **argv)
             logging::LogLine("[qlaunch-ext] exited menu loop (rc=0x%d)", lrc);
             break;
         }
+        plugins::Loop(false);
     }
 
     if (g_booted) {
@@ -664,6 +678,7 @@ int main(int argc, char **argv)
             s_onShutdown();
         menu_unload();
     }
+    plugins::Shutdown();
     gfx_exit();
     /* Stop our heap */
     heap_set(kHeapFloor);

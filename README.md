@@ -15,7 +15,8 @@ TODO
 
 ## Plugins
 
-TODO
+- Inbuilt:
+    - MTPPlugin: MTP server that runs all the time
 
 ## Credits
 

@@ -1,0 +1,8 @@
+{"name": "light",
+ "colors": {
+  "bg": "#f1f1f3", "panel": "#ffffff", "ink": "#45454d", "dim": "#77777f",
+  "accent": "#5aa9e6", "selring": "#7fb8ee", "good": "#35c759",
+  "warn": "#f0a020", "bad": "#f05050", "dock": "#ffffff",
+  "tile_game": "#8e8e96", "tile_album": "#4a90d9", "tile_ctrl": "#5cb85c",
+  "avatar": "#f06292", "battery": "#55555c"},
+ "metrics": {"corner": 30, "frame": 10, "dock_h": 110}}

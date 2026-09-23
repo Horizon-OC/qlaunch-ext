@@ -62,7 +62,17 @@ NEKO_UNDEFS := $(shell cat $(TOPDIR)/../neko3d-module/neko3d.undef 2>/dev/null)
 NEKO_DEFS := $(shell cat $(TOPDIR)/../neko3d-module/neko3d.def 2>/dev/null)
 MENU_UNDEFS := $(shell cat $(TOPDIR)/../menu/menu.undef 2>/dev/null)
 HOST_NEEDS := $(filter-out $(NEKO_DEFS),$(NEKO_UNDEFS) $(MENU_UNDEFS))
-LDFLAGS	=	-specs=$(DEVKITPRO)/libnx/switch.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map) -Wl,--export-dynamic $(foreach s,$(HOST_NEEDS),-Wl$(comma)-u$(s))
+LDFLAGS	=	-specs=$(DEVKITPRO)/libnx/switch.specs
+# Full libc/libnx surface for plugins, no per-plugin lists, no loader
+# rebuilds when plugins change: whole-archive the runtime libs so every
+# API they provide stays linked and exported via --export-dynamic.
+# Every libnx API, forever, with no lists: libnx.a is self-contained so
+# whole-archive links clean (libc/libm drag POSIX corners libnx cannot
+# satisfy, so those stay curated in src/hostapi.c instead).
+WA_LIBS := $(LIBNX)/lib/libnx.a
+#WA_LIBS += $(shell $(CXX) -print-file-name=libstdc++.a)
+LDFLAGS += -Wl,--whole-archive $(WA_LIBS) -Wl,--no-whole-archive
+LDFLAGS += -g $(ARCH) -Wl,-Map,$(notdir $*.map) -Wl,--export-dynamic $(foreach s,$(HOST_NEEDS),-Wl$(comma)-u$(s))
 
 LIBS	:= -ldlink -lnx -lm
 

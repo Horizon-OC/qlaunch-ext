@@ -21,6 +21,7 @@ Result qext_resume_game(void);
 Result qext_terminate_game(void);
 /* Open a home-menu applet: 0 album, 1 controllers, 2 mii editor. */
 Result qext_launch_applet(int kind);
+void qext_display_size(int *w, int *h);
 int qext_game_running(void);
 int qext_game_has_foreground(void);
 u64 qext_suspended_title(void);

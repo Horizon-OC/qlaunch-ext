@@ -75,6 +75,16 @@ extern "C" Result qext_terminate_game(void)
     return app::Terminate();
 }
 
+extern "C" void qext_display_size(int *w, int *h)
+{
+    extern int g_fbW;
+    extern int g_fbH;
+    if (w)
+        *w = g_fbW;
+    if (h)
+        *h = g_fbH;
+}
+
 extern "C" int qext_game_running(void) { return app::IsActive() ? 1 : 0; }
 extern "C" int qext_game_has_foreground(void) { return app::HasForeground() ? 1 : 0; }
 extern "C" u64 qext_suspended_title(void) { return app::IsActive() ? app::GetId() : 0; }
