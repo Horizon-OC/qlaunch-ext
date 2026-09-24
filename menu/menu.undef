@@ -1,4 +1,3 @@
-_ZN7logging7LogLineEPKcz
 acosf
 atoi
 calloc
@@ -92,3 +91,4 @@ timeGetCurrentTime
 timeToCalendarTimeWithMyRule
 ungetc
 vsnprintf
+_ZN7logging7LogLineEPKcz
