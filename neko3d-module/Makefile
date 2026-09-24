@@ -1,6 +1,11 @@
 TOP := $(CURDIR)
 NEKO := $(TOP)/../neko3d
 DLINK := $(TOP)/../extern/libnx-dlink
+GEN := $(TOP)/build/gen
+
+# deko3d generates its engine headers with dekotools (https://github.com/devkitPro/dekotools)
+DEKODEF ?= dekodef
+DEKOMME ?= dekomme
 
 DEVKITPRO ?= /opt/devkitpro
 DKA64 := $(DEVKITPRO)/devkitA64
@@ -9,7 +14,7 @@ CXX := $(DKA64)/bin/aarch64-none-elf-g++
 PY := python3
 
 ARCH := -march=armv8-a -mtune=cortex-a57 -mtp=soft -fPIC
-CFLAGS := -g -O2 -ffunction-sections -fdata-sections $(ARCH) -D__SWITCH__ -D__DK_INTERNAL__ -I$(NEKO)/include -I$(DEVKITPRO)/libnx/include -I$(NEKO)/release
+CFLAGS := -g -O2 -ffunction-sections -fdata-sections $(ARCH) -D__SWITCH__ -D__DK_INTERNAL__ -I$(NEKO)/include -I$(DEVKITPRO)/libnx/include -I$(GEN)
 CXXFLAGS := $(CFLAGS) -fno-rtti -fno-exceptions -std=gnu++17
 RENDERER_CFLAGS := $(subst -D__DK_INTERNAL__,, $(CFLAGS))
 ASFLAGS := -g $(ARCH)
@@ -17,6 +22,10 @@ LDFLAGS := -specs=$(DLINK)/tools/module.specs -g $(ARCH) -shared -nodefaultlibs 
 
 SRCS := $(wildcard $(NEKO)/source/*.cpp) $(wildcard $(NEKO)/source/maxwell/*.cpp)
 OBJS := $(patsubst $(NEKO)/source/%.cpp,$(TOP)/build/%.o,$(SRCS)) $(TOP)/build/stub/stub.o $(TOP)/build/stub/crt0.o
+
+DEFS := $(wildcard $(NEKO)/source/maxwell/*.def)
+MMES := $(wildcard $(NEKO)/source/maxwell/*.mme)
+GEN_HDRS := $(patsubst $(NEKO)/source/maxwell/%.def,$(GEN)/%.h,$(DEFS)) $(GEN)/mme_macros.h
 
 all: $(TOP)/neko3d.dnro $(TOP)/neko3d.undef $(TOP)/neko3d.def
 
@@ -31,6 +40,19 @@ $(TOP)/neko3d.dnro: $(TOP)/neko3d.elf
 
 $(TOP)/neko3d.elf: $(OBJS)
 	$(CXX) $(LDFLAGS) -o $@ $(OBJS)
+
+$(OBJS): $(GEN_HDRS)
+
+$(GEN)/engine_3d.h $(GEN)/engine_3d.mme &: $(NEKO)/source/maxwell/engine_3d.def
+	@mkdir -p $(GEN)
+	$(DEKODEF) -h $(GEN)/engine_3d.h -m $(GEN)/engine_3d.mme $<
+
+$(GEN)/%.h: $(NEKO)/source/maxwell/%.def
+	@mkdir -p $(GEN)
+	$(DEKODEF) -h $@ $<
+
+$(GEN)/mme_macros.h: $(GEN)/engine_3d.mme $(MMES)
+	$(DEKOMME) -o $@ $^
 
 $(TOP)/build/%.o: $(NEKO)/source/%.cpp
 	@mkdir -p $(dir $@)
