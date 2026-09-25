@@ -105,3 +105,4 @@ timeGetCurrentTime
 timeToCalendarTimeWithMyRule
 ungetc
 vsnprintf
+_ZN7logging7LogLineEPKcz

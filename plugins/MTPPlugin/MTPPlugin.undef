@@ -1,10 +1,9 @@
-_ZN7logging7LogLineEPKcz
-_ZdlPvm
 eventClear
 fclose
 fgets
 fopen
 free
+fsdevGetDeviceFileSystem
 fsDirClose
 fsDirGetEntryCount
 fsDirRead
@@ -24,7 +23,6 @@ fsFsOpenDirectory
 fsFsOpenFile
 fsFsRenameDirectory
 fsFsRenameFile
-fsdevGetDeviceFileSystem
 hosversionGet
 malloc
 memcpy
@@ -67,3 +65,5 @@ usbDsSetBinaryObjectStore
 usbDsSetUsbDeviceDescriptor
 vsnprintf
 waitObjects
+_ZdlPvm
+_ZN7logging7LogLineEPKcz

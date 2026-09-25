@@ -9,6 +9,7 @@
 #include <shared/logging.hpp>
 #include "app.hpp"
 #include "la.hpp"
+#include "messages.hpp"
 #include "plugins.hpp"
 #include "sys.hpp"
 #include "titles.hpp"
@@ -147,7 +148,7 @@ static Result gfx_layer_init(void)
 
         /* Actually show the layer*/
         viSetContentVisibility(true);
-        
+
         /* If the alpha is the default it won't display our layer correctly */
         viSetDisplayAlpha(&g_display, 1.0f);
     }
@@ -207,7 +208,7 @@ static Result host_provide_all(void)
 
     if (!hash || !strtab || !symtab)
         return MAKERESULT(Module_Libnx, LibnxError_NotFound);
-    
+
     uint32_t nchain = hash[1];
     uint32_t count = 0;
 
@@ -227,7 +228,7 @@ static Result host_provide_all(void)
 
         if (name[0] == 0)
             continue;
-    
+
         if (R_SUCCEEDED(dlink_provide(name, (void *)dyn_fix(base, s->st_value))))
             count++;
     }
@@ -417,7 +418,7 @@ extern "C" void __appExit(void)
     /* Exit logger */
     logging::LogLine("[qlaunch-ext] exiting");
     logging::Exit();
-    
+
     /* Exit services */
     album::Exit();
     gfx_exit();
@@ -493,46 +494,42 @@ static void do_sleep(const char *source)
 
 static void pump_general_channel(void)
 {
-    struct SamsHdr {
-        u32 magic;
-        u32 ver;
-        u32 msg;
-        u32 rsv;
-    };
+    using msg::GeneralChannelMessage;
+
     for (int i = 0; i < 16; i++) {
         AppletStorage st{};
         if (R_FAILED(appletPopFromGeneralChannel(&st)))
             return;
-        SamsHdr h{};
+        msg::SystemAppletMessageHeader h{};
         s64 sz = 0;
         appletStorageGetSize(&st, &sz);
         if (sz >= (s64)sizeof(h))
             appletStorageRead(&st, 0, &h, sizeof(h));
         appletStorageClose(&st);
-        if (h.magic != 0x534D4153) {
+        if (!h.IsValid()) {
             logging::LogLine("[qlaunch-ext] sams invalid magic=0x%X sz=%lld", h.magic,
                              (long long)sz);
             continue;
         }
-        logging::LogLine("[qlaunch-ext] sams msg=%u t=%llu", h.msg,
+        logging::LogLine("[qlaunch-ext] sams msg=%u t=%llu", (u32)h.msg,
                          (unsigned long long)now_ms());
         switch (h.msg) {
-        case 2:
+        case GeneralChannelMessage::RequestHomeMenu:
             do_home("sams");
             break;
-        case 3:
+        case GeneralChannelMessage::Sleep:
             do_sleep("sams");
             break;
-        case 5:
+        case GeneralChannelMessage::Shutdown:
             appletStartShutdownSequence();
             break;
-        case 6:
+        case GeneralChannelMessage::Reboot:
             appletStartRebootSequence();
             break;
-        case 16:
+        case GeneralChannelMessage::OverlayShown:
             g_overlayShown = true;
             break;
-        case 17:
+        case GeneralChannelMessage::OverlayHidden:
             g_overlayShown = false;
             if (g_booted)
                 g_menuRefreshPending = true;
@@ -545,14 +542,18 @@ static void pump_general_channel(void)
 
 static void pump_applet_messages(void)
 {
-    for (int i = 0; i < 32; i++) {
-        u32 msg = 0;
-        if (R_FAILED(appletGetMessage(&msg)))
+    using msg::AppletMessage;
+
+    constexpr int AppletMessagePumpMax = 32;
+
+    for (int i = 0; i < AppletMessagePumpMax; i++) {
+        u32 raw = 0;
+        if (R_FAILED(appletGetMessage(&raw)))
             return;
-        logging::LogLine("[qlaunch-ext] ae msg=%u t=%llu", msg,
-                         (unsigned long long)now_ms());
-        switch (msg) {
-        case 1: /* ChangeIntoForeground */
+        logging::LogLine("[qlaunch-ext] ae msg=%u t=%llu", raw, (unsigned long long)now_ms());
+
+        switch ((AppletMessage)raw) {
+        case AppletMessage::ChangeIntoForeground:
             if (!g_displayApproved) {
                 appletApproveToDisplay();
                 g_displayApproved = true;
@@ -560,30 +561,30 @@ static void pump_applet_messages(void)
             if (g_homePending)
                 reopen_menu("fg");
             break;
-        case 2: /* ChangeIntoBackground */
+        case AppletMessage::ChangeIntoBackground:
             break;
-        case 6: /* ApplicationExited */
-            titles::Refresh(); 
+        case AppletMessage::ApplicationExited:
+            titles::Refresh();
             album::Refresh();
             if (g_booted)
                 g_menuRefreshPending = true;
             break;
-        case 15: /* FocusStateChanged */
+        case AppletMessage::FocusStateChanged:
             break;
-        case 20: /* DetectShortPressingHomeButton */
+        case AppletMessage::DetectShortPressingHomeButton:
             do_home("ae");
             break;
-        case 22: /* DetectShortPressingPowerButton */
-        case 29: /* AutoPowerDown */
-        case 32: /* DetectReceivingCecSystemStandby */
+        case AppletMessage::DetectShortPressingPowerButton:
+        case AppletMessage::AutoPowerDown:
+        case AppletMessage::DetectReceivingCecSystemStandby:
             do_sleep("ae");
             break;
-        case 26: /* FinishedSleepSequence (wakeup) */
+        case AppletMessage::FinishedSleepSequence:
             appletRequestToGetForeground();
             if (g_booted)
                 g_menuRefreshPending = true;
             break;
-        case 35: /* RequestToDisplay */
+        case AppletMessage::RequestToDisplay:
             if (!g_displayApproved) {
                 appletApproveToDisplay();
                 g_displayApproved = true;
