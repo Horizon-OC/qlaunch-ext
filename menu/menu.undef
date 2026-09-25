@@ -21,8 +21,8 @@ dkCmdBufBindShaders
 dkCmdBufBindTextures
 dkCmdBufBindUniformBuffers
 dkCmdBufBindVtxAttribState
-dkCmdBufBindVtxBuffers
 dkCmdBufBindVtxBufferState
+dkCmdBufBindVtxBuffers
 dkCmdBufClear
 dkCmdBufCreate
 dkCmdBufDestroy
@@ -105,4 +105,3 @@ timeGetCurrentTime
 timeToCalendarTimeWithMyRule
 ungetc
 vsnprintf
-_ZN7logging7LogLineEPKcz

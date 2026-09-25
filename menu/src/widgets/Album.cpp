@@ -20,10 +20,10 @@ namespace WAlbum {
 static bool s_open = false;
 static bool s_full = false;
 static int s_sel = 0;
-static int s_page = 0;
+static int s_top = 0;
 static int s_count = 0;
 
-enum { COLS = 4, ROWS = 2, PER_PAGE = COLS * ROWS };
+enum { COLS = 4, ROWS = 2, VIS = COLS * ROWS };
 enum { THUMB_SLOTS = 8, FULL_SLOT = 8 };
 
 struct Slot {
@@ -204,14 +204,22 @@ static void ClampSel()
 {
     if (s_count <= 0) {
         s_sel = 0;
-        s_page = 0;
+        s_top = 0;
         return;
     }
     if (s_sel < 0)
         s_sel = 0;
     if (s_sel >= s_count)
         s_sel = s_count - 1;
-    s_page = s_sel / PER_PAGE;
+    s_top -= s_top % COLS;
+    if (s_top < 0)
+        s_top = 0;
+    while (s_sel < s_top)
+        s_top -= COLS;
+    while (s_sel >= s_top + VIS)
+        s_top += COLS;
+    if (s_top < 0)
+        s_top = 0;
 }
 
 bool IsOpen()
@@ -228,7 +236,7 @@ void Open()
     if (s_count < 0)
         s_count = 0;
     s_sel = 0;
-    s_page = 0;
+    s_top = 0;
     s_full = false;
     s_fresh = true;
     ClearThumbs();
@@ -279,8 +287,8 @@ static void DrawGrid()
         float totalW = COLS * tw + (COLS - 1) * gap;
         float x0 = (1920.0f - totalW) * 0.5f;
         float y0 = 240.0f;
-        int base = s_page * PER_PAGE;
-        for (int p = 0; p < PER_PAGE; p++) {
+        int base = s_top;
+        for (int p = 0; p < VIS; p++) {
             int idx = base + p;
             if (idx >= s_count)
                 break;
@@ -303,16 +311,7 @@ static void DrawGrid()
             if (qext_album_label(idx, lb, sizeof(lb)) > 0)
                 Font::Draw(lb, x, y + th + 52.0f, 24.0f, dimR, dimG, dimB);
         }
-        int pages = (s_count + PER_PAGE - 1) / PER_PAGE;
-        if (pages > 1) {
-            char pg[32];
-            snprintf(pg, sizeof(pg), "%d / %d", s_page + 1, pages);
-            Font::Centered(pg, 960.0f, 880.0f, 30.0f, 400.0f, dimR, dimG, dimB);
-        }
     }
-    /* Hints */
-    Font::Draw("A View   B Back   L/R Page   + Refresh", 120.0f, 990.0f, 30.0f,
-               dimR, dimG, dimB);
 }
 
 static void DrawFull()
@@ -413,35 +412,10 @@ bool Input(u64 down, u64 held)
         return true;
     }
 
-    int pages = (s_count + PER_PAGE - 1) / PER_PAGE;
-    if (down & HidNpadButton_L) {
-        if (s_page > 0) {
-            s_page--;
-            s_sel = s_page * PER_PAGE;
-            ClampSel();
-            ClearThumbs();
-        }
-        return true;
-    }
-
-    if (down & HidNpadButton_R) {
-        if (s_page < pages - 1) {
-            s_page++;
-            s_sel = s_page * PER_PAGE;
-            ClampSel();
-            ClearThumbs();
-        }
-        return true;
-    }
-
     if (down & HidNpadButton_AnyLeft) {
         if (s_sel > 0) {
             s_sel--;
-            int np = s_sel / PER_PAGE;
-            if (np != s_page) {
-                s_page = np;
-                ClearThumbs();
-            }
+            ClampSel();
         }
         return true;
     }
@@ -449,11 +423,7 @@ bool Input(u64 down, u64 held)
     if (down & HidNpadButton_AnyRight) {
         if (s_sel < s_count - 1) {
             s_sel++;
-            int np = s_sel / PER_PAGE;
-            if (np != s_page) {
-                s_page = np;
-                ClearThumbs();
-            }
+            ClampSel();
         }
         return true;
     }
@@ -461,11 +431,7 @@ bool Input(u64 down, u64 held)
     if (down & HidNpadButton_AnyUp) {
         if (s_sel - COLS >= 0) {
             s_sel -= COLS;
-            int np = s_sel / PER_PAGE;
-            if (np != s_page) {
-                s_page = np;
-                ClearThumbs();
-            }
+            ClampSel();
         }
         return true;
     }
@@ -473,11 +439,7 @@ bool Input(u64 down, u64 held)
     if (down & HidNpadButton_AnyDown) {
         if (s_sel + COLS < s_count) {
             s_sel += COLS;
-            int np = s_sel / PER_PAGE;
-            if (np != s_page) {
-                s_page = np;
-                ClearThumbs();
-            }
+            ClampSel();
         }
         return true;
     }
