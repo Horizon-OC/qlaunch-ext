@@ -16,8 +16,6 @@
 namespace Layout {
 
 static LayoutNode nodes_[LAYOUT_MAX_NODES];
-static int iconSlots_[GFX_ICONQ_MAX / 6];
-static unsigned iconSlotCount_;
 static int nodeCount_;
 
 static void ClearNode(LayoutNode *n)
@@ -77,6 +75,7 @@ bool LoadJson(const char *json, unsigned len)
         nd->gap = JNum(doc, on, "gap", 24.0f);
         nd->label = JBool(doc, on, "label", false);
         int di = Jx::ObjGet(doc, on, "items");
+
         /* dock items: {glyph, action?}  hints: {button, label} */
         if (Jx::TokType(doc, di) == 2) {
             int m = Jx::ArrSize(doc, di);
@@ -144,87 +143,101 @@ bool LoadAuto()
     return LoadBuiltin();
 }
 
-void BeginIconSlots()
+
+static float s_shiftX;
+
+float ShiftX()
 {
-    iconSlotCount_ = 0;
+    return s_shiftX;
 }
 
-void PushIconSlot(int slot)
-{
-    if (iconSlotCount_ < (unsigned)(GFX_ICONQ_MAX / 6))
-        iconSlots_[iconSlotCount_++] = slot;
-}
-
-void IconSlots(int *out)
-{
-    for (unsigned i = 0; i < (unsigned)(GFX_ICONQ_MAX / 6); i++)
-        out[i] = i < iconSlotCount_ ? iconSlots_[i] : 0;
-}
-
-static const LayoutNode *FindDock()
+static const LayoutNode *FindStrip()
 {
     for (int i = 0; i < nodeCount_; i++) {
-        if (strcmp(nodes_[i].type, "dock") == 0)
+        if (strcmp(nodes_[i].type, "gamestrip") == 0)
             return &nodes_[i];
     }
     return 0;
 }
 
-static int Actionable(const LayoutNode *nd, int *idx, int cap)
+void ActivateTop()
 {
-    int n = 0;
-    for (int i = 0; i < nd->dockCount && n < cap; i++) {
-        if (nd->dock[i].action[0])
-            idx[n++] = i;
-    }
-    return n;
+    App::SwitchMenu(App::TopSel());
 }
 
-void ActivateDock()
+static void DrawMenu(int m)
 {
-    const LayoutNode *nd = FindDock();
-    if (!nd)
-        return;
-    int idx[LAYOUT_MAX_DOCK];
-    int n = Actionable(nd, idx, LAYOUT_MAX_DOCK);
-    if (n <= 0)
-        return;
-    int ds = App::DockSel();
-    if (ds < 0)
-        ds = 0;
-    if (ds >= n)
-        ds = n - 1;
-    const char *a = nd->dock[idx[ds]].action;
-    if (strncmp(a, "applet:", 7) == 0)
-        qext_launch_applet(atoi(a + 7));
+    if (m == MENU_HOME) {
+        const LayoutNode *strip = FindStrip();
+        if (strip)
+            WStrip::Draw(*strip);
+        WStrip::DrawSubs();
+    } else if (m == MENU_CONNECT) {
+        WConnect::Draw();
+    } else if (m == MENU_ESHOP) {
+        WEShop::Draw();
+    } else if (m == MENU_SETTINGS) {
+        WSettings::Draw();
+    }
 }
 
 void Draw()
 {
-    BeginIconSlots();
     for (int i = 0; i < nodeCount_; i++) {
         const LayoutNode &nd = nodes_[i];
         if (strcmp(nd.type, "background") == 0)
             WBackground::Draw(nd);
-        else if (strcmp(nd.type, "topbar") == 0)
-            WTopBar::Draw(nd);
-        else if (strcmp(nd.type, "gamestrip") == 0)
-            WStrip::Draw(nd);
-        else if (strcmp(nd.type, "dock") == 0)
-            WDock::Draw(nd);
-        else if (strcmp(nd.type, "hints") == 0)
-            WHints::Draw(nd);
     }
+
+    float e = App::MenuT();
+    if (e >= 1.0f) {
+        s_shiftX = 0.0f;
+        DrawMenu(App::Menu());
+    } else {
+        float eo = 1.0f - (1.0f - e) * (1.0f - e) * (1.0f - e);
+        int dir = App::MenuDir();
+        s_shiftX = -eo * (float)dir * 1920.0f;
+        DrawMenu(App::MenuFrom());
+        s_shiftX = (1.0f - eo) * (float)dir * 1920.0f;
+        DrawMenu(App::Menu());
+        s_shiftX = 0.0f;
+    }
+    for (int i = 0; i < nodeCount_; i++) {
+        const LayoutNode &nd = nodes_[i];
+        if (strcmp(nd.type, "topbar") == 0)
+            WTopBar::Draw(nd);
+    }
+    WBottomBar::Draw();
+
+    if (WAlbum::IsOpen())
+        WAlbum::Draw();
 }
 
 void Input(u64 down, u64 held)
 {
-    for (int i = 0; i < nodeCount_; i++) {
-        const LayoutNode &nd = nodes_[i];
-        if (strcmp(nd.type, "gamestrip") == 0)
-            WStrip::Input(nd, down, held);
-        else if (strcmp(nd.type, "dock") == 0)
-            WDock::Input(nd, down, held);
+    if (WAlbum::IsOpen()) {
+        WAlbum::Input(down, held);
+        return;
+    }
+    if (App::TopFocus()) {
+        WTopBar::Input(down, held);
+        return;
+    }
+    if (App::BottomFocus()) {
+        WBottomBar::Input(down, held);
+        return;
+    }
+    int m = App::Menu();
+    if (m == MENU_HOME || m == MENU_ALBUM) {
+        const LayoutNode *strip = FindStrip();
+        if (strip)
+            WStrip::Input(*strip, down, held);
+    } else if (m == MENU_SETTINGS) {
+        WSettings::Input(down, held);
+    } else if (m == MENU_CONNECT) {
+        WConnect::Input(down, held);
+    } else if (m == MENU_ESHOP) {
+        WEShop::Input(down, held);
     }
 }
 

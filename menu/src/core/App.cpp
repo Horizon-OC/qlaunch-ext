@@ -9,6 +9,9 @@
 #include "Theme.hpp"
 #include "Layout.hpp"
 #include "Clock.hpp"
+#include "PadIcon.hpp"
+#include "../widgets/Widgets.hpp"
+#include "Avatars.hpp"
 #include "Qext.hpp"
 #include "Log.hpp"
 #include <string.h>
@@ -18,13 +21,27 @@ namespace App {
 static AppRow rows_[APP_MAX_TITLES + APP_APPLETS];
 static int rowCount_;
 static int sel_;
-static bool dockFocus_;
-static int dockSel_;
+static bool topFocus_;
+static int topSel_;
+static int menu_;
+static int menuFrom_;
+static float menuT_;
+static int menuDir_;
+static unsigned topDebounce_;
+static int homeSub_;
+static float homeShiftY_;
+static bool bottomFocus_;
+static int bottomSel_;
+static int settingsPage_;
+static int settingsRow_;
+static bool eshopNews_;
+static int friendSel_;
 static bool launchBlack_;
 static PadState pad_;
 static bool padReady_;
 static unsigned frame_;
 static unsigned holdFrames_;
+static unsigned tick_;
 
 static void Reload();
 static void Present(bool black);
@@ -54,6 +71,8 @@ bool Boot(NWindow *win)
         Shutdown();
         return false;
     }
+    logging::LogLine("[menu] build %s %s", __DATE__, __TIME__);
+    Icons::InitHud();
     if (!Layout::LoadAuto()) {
         Shutdown();
         return false;
@@ -64,9 +83,23 @@ bool Boot(NWindow *win)
     padReady_ = true;
 
     Clock::Tick();
+    Avatars::Refresh();
     sel_ = 0;
-    dockFocus_ = false;
-    dockSel_ = 0;
+    topFocus_ = false;
+    topSel_ = 0;
+    menu_ = MENU_HOME;
+    menuFrom_ = MENU_HOME;
+    menuT_ = 1.0f;
+    menuDir_ = 1;
+    topDebounce_ = 0;
+    homeSub_ = HOMESUB_GAMES;
+    homeShiftY_ = 0.0f;
+    bottomFocus_ = false;
+    bottomSel_ = 0;
+    settingsPage_ = -1;
+    settingsRow_ = 0;
+    eshopNews_ = false;
+    friendSel_ = 0;
     launchBlack_ = false;
     frame_ = 0;
     holdFrames_ = 0;
@@ -101,14 +134,9 @@ void RefreshTitles()
 void Reload()
 {
     static const char fallback[] = "Unknown title";
-    static const char *const appletNames[APP_APPLETS] = { "Album", "Controllers" };
     u64 keepTid = 0;
-    int keepApplet = -2;
-    bool keepGame = true;
     if (sel_ >= 0 && sel_ < rowCount_) {
-        keepGame = rows_[sel_].isGame;
         keepTid = rows_[sel_].tid;
-        keepApplet = rows_[sel_].applet;
     }
     int n = qext_title_count();
     if (n < 0)
@@ -135,22 +163,9 @@ void Reload()
             r->name[APP_NAME_MAX - 1] = 0;
         }
     }
-    for (int k = 0; k < APP_APPLETS; k++) {
-        AppRow *a = &rows_[rowCount_++];
-        a->isGame = false;
-        a->tid = 0;
-        a->applet = k;
-        a->iconSlot = -1;
-        size_t len = strlen(appletNames[k]) + 1;
-        if (len > APP_NAME_MAX)
-            len = APP_NAME_MAX;
-        memcpy(a->name, appletNames[k], len);
-        a->name[APP_NAME_MAX - 1] = 0;
-    }
     int want = -1;
     for (int i = 0; i < rowCount_; i++) {
-        if (rows_[i].isGame == keepGame && rows_[i].tid == keepTid &&
-            rows_[i].applet == keepApplet) {
+        if (rows_[i].tid == keepTid) {
             want = i;
             break;
         }
@@ -161,8 +176,10 @@ void Reload()
         sel_ = rowCount_ > 0 ? rowCount_ - 1 : 0;
     if (sel_ < 0)
         sel_ = 0;
-    if (dockSel_ < 0)
-        dockSel_ = 0;
+    if (topSel_ < 0)
+        topSel_ = 0;
+    if (topSel_ > 4)
+        topSel_ = 4;
 }
 
 void MoveSel(int delta)
@@ -174,11 +191,12 @@ void MoveSel(int delta)
         sel_ = 0;
     if (sel_ >= rowCount_)
         sel_ = rowCount_ - 1;
-    dockFocus_ = false;
+    topFocus_ = false;
 }
 
 void Present(bool black)
 {
+    Gfx::WaitIdle();
     Gfx::ResetCounts();
     if (black) {
         Gfx::PushQuad(0.0f, 0.0f, 1920.0f, 1080.0f, 0.0f, 0.0f, 0.0f, 1.0f);
@@ -190,9 +208,8 @@ void Present(bool black)
     Gfx::DrawColor();
     Gfx::DrawPanelsBg();
     Gfx::DrawPanels();
-    int slots[GFX_ICONQ_MAX / 6];
-    Layout::IconSlots(slots);
-    Gfx::DrawIcons(slots);
+    Gfx::DrawHighlights();
+    Gfx::DrawIcons();
     Gfx::DrawTextBuf(0, 0);
     Gfx::DrawTextBuf(1, 1);
     Gfx::DrawTextBuf(2, 2);
@@ -205,14 +222,33 @@ void Blackout()
     Present(true);
 }
 
+static void TopSwitch(int delta)
+{
+    if (topDebounce_ > 0)
+        return;
+    topDebounce_ = 39;
+    int m = (menu_ + delta + MENU_COUNT) % MENU_COUNT;
+    topSel_ = m;
+    SwitchMenu(m);
+}
+
 void Activate()
 {
-    if (sel_ < 0 || sel_ >= rowCount_)
+    if (WAlbum::IsOpen())
         return;
-    if (dockFocus_) {
-        Layout::ActivateDock();
+    if (topFocus_) {
+        Layout::ActivateTop();
         return;
     }
+    if (bottomFocus_) {
+        ActivateBottom();
+        return;
+    }
+    if (menu_ != MENU_HOME || bottomFocus_ || topFocus_ ||
+        (homeSub_ != HOMESUB_GAMES && homeSub_ != HOMESUB_VGC))
+        return;
+    if (sel_ < 0 || sel_ >= rowCount_)
+        return;
     AppRow *r = &rows_[sel_];
     if (r->isGame) {
         u64 susp = qext_suspended_title();
@@ -239,15 +275,33 @@ void Loop()
     u64 down = padGetButtonsDown(&pad_);
     u64 held = padGetButtons(&pad_);
 
-    if (down & HidNpadButton_X)
-        qext_terminate_game();
-    if (down & HidNpadButton_Plus)
-        RefreshTitles();
-    if (down & HidNpadButton_A)
-        Activate();
-    Layout::Input(down, held);
+    PadIcon::Tick();
+    UpdateMenuAnim();
+    UpdateHomeShift();
+    if (topDebounce_ > 0)
+        topDebounce_--;
+    if (WAlbum::IsOpen()) {
+        Layout::Input(down, held);
+    } else if (menuT_ < 1.0f) {
+        /* menus.gd switching: input locked mid-slide. */
+    } else if (down & HidNpadButton_L) {
+        TopSwitch(-1);
+    } else if (down & HidNpadButton_R) {
+        TopSwitch(1);
+    } else {
+        if (menu_ == MENU_HOME && !topFocus_) {
+            if (down & HidNpadButton_X)
+                qext_terminate_game();
+            if (down & HidNpadButton_Plus)
+                RefreshTitles();
+        }
+        if (down & HidNpadButton_A)
+            Activate();
+        Layout::Input(down, held);
+    }
 
     frame_++;
+    tick_++;
     if ((frame_ % 60) == 0)
         Clock::Tick();
     if (frame_ >= 300) {
@@ -262,6 +316,8 @@ void OnOpen()
     launchBlack_ = false;
     Font::Refresh();
     RefreshTitles();
+    Avatars::Refresh();
+    WAlbum::OnRefresh();
 }
 
 void OnReload()
@@ -269,12 +325,22 @@ void OnReload()
     launchBlack_ = false;
     Font::Refresh();
     RefreshTitles();
+    WAlbum::OnRefresh();
 }
 
 void OnHome()
 {
+    if (WAlbum::IsOpen())
+        WAlbum::Close();
+    menu_ = MENU_HOME;
+    menuFrom_ = MENU_HOME;
+    menuT_ = 1.0f;
+    topSel_ = MENU_HOME;
     sel_ = 0;
-    dockFocus_ = false;
+    topFocus_ = false;
+    homeSub_ = HOMESUB_GAMES;
+    settingsPage_ = -1;
+    settingsRow_ = 0;
 }
 
 void OnPower()
@@ -301,29 +367,229 @@ void SetSel(int s)
     sel_ = s;
 }
 
-bool DockFocus()
+bool TopFocus()
 {
-    return dockFocus_;
+    return topFocus_;
 }
 
-void SetDockFocus(bool f)
+void SetTopFocus(bool f)
 {
-    dockFocus_ = f;
+    topFocus_ = f;
 }
 
-int DockSel()
+int TopSel()
 {
-    return dockSel_;
+    return topSel_;
 }
 
-void SetDockSel(int s)
+void SetTopSel(int s)
 {
-    dockSel_ = s;
+    if (s < 0)
+        s = 0;
+    if (s > 4)
+        s = 4;
+    topSel_ = s;
+}
+
+int Menu()
+{
+    return menu_;
+}
+
+int MenuFrom()
+{
+    return menuFrom_;
+}
+
+float MenuT()
+{
+    float t = menuT_;
+    if (t < 0.0f)
+        t = 0.0f;
+    if (t > 1.0f)
+        t = 1.0f;
+    /* Tween.TRANS_CUBIC easeInOut like menus.gd. */
+    if (t < 0.5f)
+        return 4.0f * t * t * t;
+    float u = -2.0f * t + 2.0f;
+    return 1.0f - u * u * u / 2.0f;
+}
+
+int MenuDir()
+{
+    return menuDir_;
+}
+
+void SwitchMenu(int m)
+{
+    if (m < 0 || m >= MENU_COUNT)
+        return;
+    if (m == MENU_ALBUM) {
+        if (menu_ != MENU_ALBUM) {
+            menuFrom_ = menu_;
+            menu_ = MENU_ALBUM;
+            menuDir_ = (MENU_ALBUM > menuFrom_) ? 1 : -1;
+            menuT_ = 0.0f;
+        }
+        topSel_ = MENU_ALBUM;
+        WAlbum::Open();
+        return;
+    }
+    if (menu_ == MENU_ALBUM && WAlbum::IsOpen())
+        WAlbum::Close();
+    if (m == menu_ && menuT_ >= 1.0f)
+        return;
+    menuFrom_ = menu_;
+    menu_ = m;
+    menuDir_ = (menu_ > menuFrom_) ? 1 : -1;
+    if (menu_ == menuFrom_)
+        menuDir_ = 1;
+    menuT_ = 0.0f;
+    topSel_ = m;
+    topFocus_ = false;
+}
+
+void UpdateMenuAnim()
+{
+    if (menuT_ < 1.0f) {
+        menuT_ += 1.0f / 15.0f;
+        if (menuT_ > 1.0f)
+            menuT_ = 1.0f;
+    }
+}
+
+int HomeSub()
+{
+    return homeSub_;
+}
+
+void SetHomeSub(int s)
+{
+    if (s < 0)
+        s = 0;
+    if (s > 2)
+        s = 2;
+    homeSub_ = s;
+}
+
+float HomeShiftY()
+{
+    return homeShiftY_;
+}
+
+bool HomeShiftBusy()
+{
+    float target = 0.0f;
+    if (homeSub_ == HOMESUB_FOLDERS)
+        target = -830.0f;
+    else if (homeSub_ == HOMESUB_VGC)
+        target = 935.0f;
+    float d = target - homeShiftY_;
+    return d <= -1.0f || d >= 1.0f;
+}
+
+void UpdateHomeShift()
+{
+    float target = 0.0f;
+    if (homeSub_ == HOMESUB_FOLDERS)
+        target = -830.0f;
+    else if (homeSub_ == HOMESUB_VGC)
+        target = 935.0f;
+    float d = target - homeShiftY_;
+    if (d > -1.0f && d < 1.0f)
+        homeShiftY_ = target;
+    else
+        homeShiftY_ += d * 0.12f;
+}
+
+int SettingsPage()
+{
+    return settingsPage_;
+}
+
+void SetSettingsPage(int p)
+{
+    settingsPage_ = p;
+    settingsRow_ = 0;
+}
+
+int SettingsRow()
+{
+    return settingsRow_;
+}
+
+void SetSettingsRow(int r)
+{
+    settingsRow_ = r < 0 ? 0 : r;
+}
+
+bool EShopNews()
+{
+    return eshopNews_;
+}
+
+void SetEShopNews(bool n)
+{
+    eshopNews_ = n;
+}
+
+bool BottomFocus()
+{
+    return bottomFocus_;
+}
+
+void SetBottomFocus(bool f)
+{
+    bottomFocus_ = f;
+}
+
+int BottomSel()
+{
+    return bottomSel_;
+}
+
+void SetBottomSel(int s)
+{
+    if (s < 0)
+        s = 0;
+    if (s > 2)
+        s = 2;
+    bottomSel_ = s;
+}
+
+void ActivateBottom()
+{
+    if (HomeShiftBusy())
+        return;
+    /* Bottom-middle icons: folders / game cards toggle their Home
+       sub-screen, sleep sleeps the console. */
+    if (BottomSel() == 2) {
+        qext_sleep();
+        return;
+    }
+    int want = BottomSel() == 0 ? HOMESUB_FOLDERS : HOMESUB_VGC;
+    SetHomeSub(want == HomeSub() ? HOMESUB_GAMES : want);
+    SetBottomFocus(false);
+}
+
+int FriendSel()
+{
+    return friendSel_;
+}
+
+void SetFriendSel(int s)
+{
+    friendSel_ = s < 0 ? 0 : s;
 }
 
 bool LaunchBlack()
 {
     return launchBlack_;
+}
+
+float Time()
+{
+    return (float)tick_ / 60.0f;
 }
 
 } /* namespace App */

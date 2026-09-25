@@ -9,12 +9,15 @@ layout (location = 1) in vec2 inUv;
 layout (location = 2) in vec2 inOrg;
 layout (location = 3) in vec4 inShape;
 layout (location = 4) in vec4 inColor;
+layout (location = 6) in float inBot;
 
 layout (location = 0) out vec2 fragUv;
 layout (location = 1) out vec2 fragLocal;
 layout (location = 2) out vec2 fragWH;
 layout (location = 3) out float fragRad;
 layout (location = 4) out vec4 fragColor;
+layout (location = 6) out float fragBot;
+layout (location = 5) out float fragPad;
 
 void main()
 {
@@ -25,6 +28,8 @@ void main()
     fragLocal = inPos - inOrg;
     fragWH = inShape.xy;
     fragRad = inShape.z;
+    fragPad = inShape.w;
     fragColor = inColor;
+    fragBot = inBot;
 }
 

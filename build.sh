@@ -16,7 +16,12 @@ if [ -z "${DEVKITPRO:-}" ]; then
     fi
 fi
 
-make -C "$ROOT/neko3d-module" -j"$(nproc)"
+# neko3d-module cannot rebuild from scratch in this tree (its sources reference
+# generated headers that are not present); its binary never changes, so only
+# build it when the artifact is missing.
+if [ ! -f "$ROOT/neko3d-module/neko3d.dnro" ]; then
+    make -C "$ROOT/neko3d-module" -j"$(nproc)"
+fi
 make -C "$ROOT/menu" -j"$(nproc)"
 if [ -d "$ROOT/plugins" ]; then
     for p in "$ROOT"/plugins/*/; do
@@ -26,6 +31,20 @@ if [ -d "$ROOT/plugins" ]; then
     done
 fi
 make -C "$ROOT/loader" -j"$(nproc)"
+
+# ABI check: every menu import must resolve from the loader or neko3d.
+# Fails the build instead of shipping a menu that cannot open.
+NM="$DEVKITPRO/devkitA64/bin/aarch64-none-elf-nm"
+"$NM" -D -u "$ROOT/menu/menu.elf" | awk "{print \$NF}" | sort -u > "$ROOT/build.menuneed"
+{ "$NM" -D --defined-only "$ROOT/loader/loader.elf" | awk "{print \$NF}"; cat "$ROOT/neko3d-module/neko3d.def"; } | sort -u > "$ROOT/build.hosthave"
+MISSING=$(comm -23 "$ROOT/build.menuneed" "$ROOT/build.hosthave" | grep -v "^dk" || true)
+rm -f "$ROOT/build.menuneed" "$ROOT/build.hosthave"
+if [ -n "$MISSING" ]; then
+    echo "error: menu imports the host does not provide:" >&2
+    echo "$MISSING" >&2
+    exit 1
+fi
+echo "abi check: menu imports all resolve"
 
 rm -rf "$DEST"
 mkdir -p "$DEST"

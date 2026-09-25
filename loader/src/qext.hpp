@@ -16,9 +16,19 @@ int qext_title_name(int index, char *out, unsigned out_cap);
 int qext_title_icon_size(int index);
 int qext_title_icon(int index, void *out, unsigned cap);
 
+int qext_album_refresh(void);
+int qext_album_count(void);
+int qext_album_thumb_size(int index);
+int qext_album_thumb(int index, void *out, unsigned cap);
+int qext_album_image_size(int index);
+int qext_album_image(int index, void *out, unsigned cap);
+int qext_album_label(int index, char *out, unsigned cap);
+int qext_album_fileid(int index, CapsAlbumFileId *out);
+
 Result qext_launch_title(u64 tid);
 Result qext_resume_game(void);
 Result qext_terminate_game(void);
+Result qext_sleep(void);
 /* Open a home-menu applet: 0 album, 1 controllers, 2 mii editor. */
 Result qext_launch_applet(int kind);
 void qext_display_size(int *w, int *h);

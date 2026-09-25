@@ -12,6 +12,7 @@
 #include "plugins.hpp"
 #include "sys.hpp"
 #include "titles.hpp"
+#include "album.hpp"
 
 extern "C" {
     /* Otherwise nothing will work*/
@@ -27,8 +28,8 @@ extern "C" {
     TimeServiceType __nx_time_service_type = TimeServiceType_System;
 }
 
-static constexpr size_t kHeapFloor = 32u * 1024u * 1024u; /* 32MB */
-static constexpr size_t kHeapCap = 96u * 1024u * 1024u; /* 96MB */
+static constexpr size_t kHeapFloor = 96u * 1024u * 1024u; /* 96MB */
+static constexpr size_t kHeapCap = 441u * 1024u * 1024u; /* 441MB (Video/Burst) */
 static size_t g_heapSize = 0;
 extern char *fake_heap_start;
 extern char *fake_heap_end;
@@ -282,12 +283,13 @@ static void wait_wake(uint64_t timeout_ns)
 
 static Result boot_fail(Result rc)
 {
-    /* If the menu was already resolved, let it release GPU state first
-       so a later retry starts clean instead of leaking device/blocks. */
     if (s_onShutdown)
         s_onShutdown();
     menu_unload();
     g_bootStage = BootStage_Provide;
+    static int fails = 0;
+    if (++fails == 3)
+        logging::LogLine("[qlaunch-ext] Can't open menu");
     return rc;
 }
 
@@ -406,6 +408,8 @@ extern "C" void __appInit(void)
     }
 
     logging::LogLine("[qlaunch-ext] initialized");
+
+    album::Init();
 }
 
 extern "C" void __appExit(void)
@@ -415,6 +419,7 @@ extern "C" void __appExit(void)
     logging::Exit();
     
     /* Exit services */
+    album::Exit();
     gfx_exit();
     viExit();
     hidExit();
@@ -447,7 +452,7 @@ static u64 now_ms(void)
 
 static void reopen_menu(const char *source)
 {
-    titles::Refresh();
+    titles::Refresh(); album::Refresh();
     if (g_booted && s_onOpen)
         s_onOpen();
     plugins::OpenAll();
@@ -558,7 +563,8 @@ static void pump_applet_messages(void)
         case 2: /* ChangeIntoBackground */
             break;
         case 6: /* ApplicationExited */
-            titles::Refresh();
+            titles::Refresh(); 
+            album::Refresh();
             if (g_booted)
                 g_menuRefreshPending = true;
             break;
@@ -616,7 +622,7 @@ int main(int argc, char **argv)
         if (was_active && !active) {
             logging::LogLine("[qlaunch-ext] game exited t=%llu",
                              (unsigned long long)now_ms());
-            titles::Refresh();
+            titles::Refresh(); album::Refresh();
             if (g_booted)
                 g_menuRefreshPending = true;
         }

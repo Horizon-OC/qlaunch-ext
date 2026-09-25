@@ -9,7 +9,6 @@ enum { FONT_ATLAS_W = 1024, FONT_ATLAS_H = 1024 };
 
 /* Texture slots / text buffers. */
 enum { FONT_SLOT_LATIN = 0, FONT_SLOT_KANA = 1, FONT_SLOT_ICON = 2 };
-enum { ICONS_FIRST_TEX = 3 };
 
 namespace Font {
 bool Init();

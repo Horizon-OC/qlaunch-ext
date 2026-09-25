@@ -24,6 +24,10 @@ extern const uint8_t icon_fsh_dksh[];
 extern const uint32_t icon_fsh_dksh_size;
 extern const uint8_t bg_fsh_dksh[];
 extern const uint32_t bg_fsh_dksh_size;
+extern const uint8_t hl_vsh_dksh[];
+extern const uint32_t hl_vsh_dksh_size;
+extern const uint8_t hl_fsh_dksh[];
+extern const uint32_t hl_fsh_dksh_size;
 
 namespace Gfx {
 static DkDevice device_;
@@ -37,6 +41,7 @@ static DkShader tvsh_, tfsh_;
 static DkShader pvsh_, pfsh_;
 static DkShader ivsh_, ifsh_;
 static DkShader bfsh_;
+static DkShader hvsh_, hfsh_;
 static DkMemBlock cmdMem_;
 static DkCmdBuf cmdbuf_;
 static DkQueue queue_;
@@ -55,6 +60,11 @@ static DkMemBlock icoMem_;
 static IconVtx *icoCpu_;
 static DkGpuAddr icoGpu_;
 static unsigned icoCount_;
+static DkMemBlock hlMem_;
+static HighlightVtx *hlCpu_;
+static DkGpuAddr hlGpu_;
+static unsigned hlCount_;
+static bool texUsed_[GFX_MAX_TEX];
 static DkMemBlock descMem_;
 static DkGpuAddr descGpu_;
 static DkMemBlock uboMem_;
@@ -181,7 +191,20 @@ bool Gfx::Init(NWindow *win, int fbW, int fbH)
     if (!icoCpu_ || icoGpu_ == DK_GPU_ADDR_INVALID)
         return false;
 
-    dkMemBlockMakerDefaults(&memMk, device_, 0x1000);
+    /* Highlight ring queue: 64 quads max, 4K-rounded (neko3d rule). */
+    dkMemBlockMakerDefaults(&memMk, device_,
+                            (uint32_t)(((GFX_HL_MAX * 6 * sizeof(HighlightVtx) + 0xFFFU) & ~0xFFFU)));
+    memMk.flags = DkMemBlockFlags_CpuUncached | DkMemBlockFlags_GpuCached;
+    hlMem_ = dkMemBlockCreate(&memMk);
+    if (!hlMem_)
+        return false;
+    hlCpu_ = (HighlightVtx *)dkMemBlockGetCpuAddr(hlMem_);
+    hlGpu_ = dkMemBlockGetGpuAddr(hlMem_);
+    if (!hlCpu_ || hlGpu_ == DK_GPU_ADDR_INVALID)
+        return false;
+
+    /* Image descriptors for GFX_MAX_TEX slots plus samplers. */
+    dkMemBlockMakerDefaults(&memMk, device_, 0x4000);
     memMk.flags = DkMemBlockFlags_CpuUncached | DkMemBlockFlags_GpuCached;
     descMem_ = dkMemBlockCreate(&memMk);
     if (!descMem_)
@@ -190,6 +213,7 @@ bool Gfx::Init(NWindow *win, int fbW, int fbH)
     if (!dkMemBlockGetCpuAddr(descMem_) || descGpu_ == DK_GPU_ADDR_INVALID)
         return false;
     ClearDescs();
+    texUsed_[0] = texUsed_[1] = texUsed_[2] = true; /* font atlases */
 
     dkMemBlockMakerDefaults(&memMk, device_, 0x1000); /* neko3d aborts unless size is a 4K multiple */
     memMk.flags = DkMemBlockFlags_CpuUncached | DkMemBlockFlags_GpuCached;
@@ -236,6 +260,8 @@ bool Gfx::LoadShaders()
     LoadOne(codeMem_, &codeOff_, &ivsh_, icon_vsh_dksh, icon_vsh_dksh_size);
     LoadOne(codeMem_, &codeOff_, &ifsh_, icon_fsh_dksh, icon_fsh_dksh_size);
     LoadOne(codeMem_, &codeOff_, &bfsh_, bg_fsh_dksh, bg_fsh_dksh_size);
+    LoadOne(codeMem_, &codeOff_, &hvsh_, hl_vsh_dksh, hl_vsh_dksh_size);
+    LoadOne(codeMem_, &codeOff_, &hfsh_, hl_fsh_dksh, hl_fsh_dksh_size);
     return codeOff_ <= GFX_CODE_SIZE;
 }
 
@@ -250,6 +276,7 @@ void Gfx::Destroy()
     dkMemBlockDestroy(uboMem_);
     dkMemBlockDestroy(descMem_);
     dkMemBlockDestroy(icoMem_);
+    dkMemBlockDestroy(hlMem_);
     dkMemBlockDestroy(pnlMem_);
     dkMemBlockDestroy(vtxMem_);
     dkMemBlockDestroy(cmdMem_);
@@ -258,6 +285,7 @@ void Gfx::Destroy()
     dkMemBlockDestroy(fbMem_);
     dkDeviceDestroy(device_);
     icoCpu_ = 0;
+    hlCpu_ = 0;
     pnlCpu_ = 0;
     txtCpu_[0] = 0; txtCpu_[1] = 0; txtCpu_[2] = 0;
     vtxCpu_ = 0;
@@ -267,6 +295,23 @@ void Gfx::WaitIdle()
 {
     if (live_)
         dkQueueWaitIdle(queue_);
+}
+
+int Gfx::TexAlloc()
+{
+    for (int i = 3; i < GFX_MAX_TEX; i++) {
+        if (!texUsed_[i]) {
+            texUsed_[i] = true;
+            return i;
+        }
+    }
+    return -1;
+}
+
+void Gfx::TexFree(int slot)
+{
+    if (slot >= 3 && slot < GFX_MAX_TEX)
+        texUsed_[slot] = false;
 }
 
 void Gfx::WriteImageDesc(int slot, const DkImageView *view)
@@ -298,7 +343,7 @@ void Gfx::ClearDescs()
 {
     uint8_t *dcpu = (uint8_t *)dkMemBlockGetCpuAddr(descMem_);
     if (dcpu)
-        memset(dcpu, 0, 0x1000);
+        memset(dcpu, 0, 0x4000);
 }
 
 void Gfx::PushQuad(float x, float y, float w, float h,
@@ -345,7 +390,8 @@ void Gfx::PushPanel(float x, float y, float w, float h, float rad,
 }
 
 unsigned Gfx::PushIcon(float x, float y, float w, float h, float rad,
-                       float r, float g, float b)
+                       float r, float g, float b, float border, int tex, float brad,
+                       float u0, float v0, float u1, float v1)
 {
     if (icoCount_ + 6 > GFX_ICONQ_MAX)
         return 0xFFFFFFFFu;
@@ -355,16 +401,18 @@ unsigned Gfx::PushIcon(float x, float y, float w, float h, float rad,
     float X0 = X(x), Y0 = Y(y), X1 = X(x + w), Y1 = Y(y + h);
     float W = SC(w), H = SC(h), R = SC(rad);
     IconVtx *v = &icoCpu_[icoCount_];
-    v[0].x = X0; v[0].y = Y0; v[0].u = 0.0f; v[0].v = 0.0f;
-    v[1].x = X0; v[1].y = Y1; v[1].u = 0.0f; v[1].v = 1.0f;
-    v[2].x = X1; v[2].y = Y0; v[2].u = 1.0f; v[2].v = 0.0f;
-    v[3].x = X1; v[3].y = Y0; v[3].u = 1.0f; v[3].v = 0.0f;
-    v[4].x = X0; v[4].y = Y1; v[4].u = 0.0f; v[4].v = 1.0f;
-    v[5].x = X1; v[5].y = Y1; v[5].u = 1.0f; v[5].v = 1.0f;
+    v[0].x = X0; v[0].y = Y0; v[0].u = u0; v[0].v = v0;
+    v[1].x = X0; v[1].y = Y1; v[1].u = u0; v[1].v = v1;
+    v[2].x = X1; v[2].y = Y0; v[2].u = u1; v[2].v = v0;
+    v[3].x = X1; v[3].y = Y0; v[3].u = u1; v[3].v = v0;
+    v[4].x = X0; v[4].y = Y1; v[4].u = u0; v[4].v = v1;
+    v[5].x = X1; v[5].y = Y1; v[5].u = u1; v[5].v = v1;
     for (int i = 0; i < 6; i++) {
         v[i].ox = X0; v[i].oy = Y0;
-        v[i].w = W; v[i].h = H; v[i].rad = R; v[i].pad = 0.0f;
+        v[i].w = W; v[i].h = H; v[i].rad = R; v[i].pad = border;
         v[i].r = r; v[i].g = g; v[i].b = b; v[i].a = 1.0f;
+        v[i].tslot = (float)tex;
+        v[i].brad = (brad < 0.0f) ? rad : brad;
     }
     icoCount_ += 6;
     return q;
@@ -507,7 +555,7 @@ void Gfx::DrawPanelsBg()
 
 void Gfx::BindPanelAttribs()
 {
-    DkVtxAttribState patt[3];
+    DkVtxAttribState patt[4];
     memset(patt, 0, sizeof(patt));
     patt[0].bufferId = 0;
     patt[0].offset = 0;
@@ -521,10 +569,14 @@ void Gfx::BindPanelAttribs()
     patt[2].offset = 16;
     patt[2].size = DkVtxAttribSize_4x32;
     patt[2].type = DkVtxAttribType_Float;
+    patt[3].bufferId = 0;
+    patt[3].offset = 32;
+    patt[3].size = DkVtxAttribSize_4x32;
+    patt[3].type = DkVtxAttribType_Float;
     DkVtxBufferState pvtx[1];
     pvtx[0].stride = sizeof(PanelVtx);
     pvtx[0].divisor = 0;
-    dkCmdBufBindVtxAttribState(cmdbuf_, patt, 3);
+    dkCmdBufBindVtxAttribState(cmdbuf_, patt, 4);
     dkCmdBufBindVtxBufferState(cmdbuf_, pvtx, 1);
 }
 
@@ -548,7 +600,7 @@ void Gfx::DrawPanels()
     dkCmdBufDraw(cmdbuf_, DkPrimitive_Triangles, pnlCount_ - 6, 1, 0, 0);
 }
 
-void Gfx::DrawIcons(const int *slots)
+void Gfx::DrawIcons()
 {
     unsigned nq = icoCount_ / 6;
     if (nq == 0)
@@ -563,7 +615,7 @@ void Gfx::DrawIcons(const int *slots)
     BindUbo();
     BindTexSets();
 
-    DkVtxAttribState iatt[5];
+    DkVtxAttribState iatt[7];
     memset(iatt, 0, sizeof(iatt));
     iatt[0].bufferId = 0;
     iatt[0].offset = 0;
@@ -585,14 +637,22 @@ void Gfx::DrawIcons(const int *slots)
     iatt[4].offset = 40;
     iatt[4].size = DkVtxAttribSize_4x32;
     iatt[4].type = DkVtxAttribType_Float;
+    iatt[5].bufferId = 0;
+    iatt[5].offset = 56;
+    iatt[5].size = DkVtxAttribSize_1x32;
+    iatt[5].type = DkVtxAttribType_Float;
+    iatt[6].bufferId = 0;
+    iatt[6].offset = 60;
+    iatt[6].size = DkVtxAttribSize_1x32;
+    iatt[6].type = DkVtxAttribType_Float;
     DkVtxBufferState ivtx[1];
     ivtx[0].stride = sizeof(IconVtx);
     ivtx[0].divisor = 0;
-    dkCmdBufBindVtxAttribState(cmdbuf_, iatt, 5);
+    dkCmdBufBindVtxAttribState(cmdbuf_, iatt, 7);
     dkCmdBufBindVtxBufferState(cmdbuf_, ivtx, 1);
 
     for (unsigned j = 0; j < nq; j++) {
-        int tslot = (slots && j < GFX_ICONQ_MAX / 6) ? slots[j] : 0;
+        int tslot = (int)icoCpu_[j * 6].tslot;
         if (tslot <= 0 || tslot >= GFX_MAX_TEX)
             continue;
         DkBufExtents ixExt;
@@ -660,14 +720,122 @@ bool Gfx::Ready() { return live_; }
 float Gfx::X(float x) { return ox_ + x * s_; }
 float Gfx::Y(float y) { return oy_ + y * s_; }
 float Gfx::SC(float v) { return v * s_; }
+static float s_ringRot = 0.0f;
+
+void Gfx::PushSelectRing(float x, float y, float w, float h, float rad, float thick)
+{
+    /* Dynamic selection border (mockup Gradient Outline colors). */
+    static const float c0[3] = { 0.537f, 0.584f, 0.945f };
+    static const float c1[3] = { 0.384f, 0.588f, 0.949f };
+    static const float c2[3] = { 0.863f, 0.722f, 0.875f };
+    static const float c3[3] = { 1.0f, 1.0f, 1.0f };
+    PushHighlight(x, y, w, h, rad, thick, c0, c1, c2, c3, s_ringRot);
+}
+
+void Gfx::PushHighlight(float x, float y, float w, float h, float rad,
+                           float thick, const float *c0, const float *c1,
+                           const float *c2, const float *c3, float rot)
+{
+    if (hlCount_ + 6 > GFX_HL_MAX * 6)
+        return;
+    if (w <= 0.0f || h <= 0.0f || thick <= 0.0f)
+        return;
+    float X0 = X(x), Y0 = Y(y), X1 = X(x + w), Y1 = Y(y + h);
+    float W = SC(w), H = SC(h), R = SC(rad), T = SC(thick);
+    HighlightVtx *v = &hlCpu_[hlCount_];
+    v[0].x = X0; v[0].y = Y0;
+    v[1].x = X0; v[1].y = Y1;
+    v[2].x = X1; v[2].y = Y0;
+    v[3].x = X1; v[3].y = Y0;
+    v[4].x = X0; v[4].y = Y1;
+    v[5].x = X1; v[5].y = Y1;
+    for (int i = 0; i < 6; i++) {
+        v[i].ox = X0; v[i].oy = Y0;
+        v[i].w = W; v[i].h = H; v[i].rad = R; v[i].thick = T;
+        v[i].c0r = c0[0]; v[i].c0g = c0[1]; v[i].c0b = c0[2]; v[i].c0a = 1.0f;
+        v[i].c1r = c1[0]; v[i].c1g = c1[1]; v[i].c1b = c1[2]; v[i].c1a = 1.0f;
+        v[i].c2r = c2[0]; v[i].c2g = c2[1]; v[i].c2b = c2[2]; v[i].c2a = 1.0f;
+        v[i].c3r = c3[0]; v[i].c3g = c3[1]; v[i].c3b = c3[2]; v[i].c3a = 1.0f;
+        v[i].rot = rot;
+    }
+    hlCount_ += 6;
+}
+
+void Gfx::BindHlAttribs()
+{
+    DkVtxAttribState hatt[8];
+    memset(hatt, 0, sizeof(hatt));
+    hatt[0].bufferId = 0;
+    hatt[0].offset = 0;
+    hatt[0].size = DkVtxAttribSize_2x32;
+    hatt[0].type = DkVtxAttribType_Float;
+    hatt[1].bufferId = 0;
+    hatt[1].offset = 8;
+    hatt[1].size = DkVtxAttribSize_2x32;
+    hatt[1].type = DkVtxAttribType_Float;
+    hatt[2].bufferId = 0;
+    hatt[2].offset = 16;
+    hatt[2].size = DkVtxAttribSize_4x32;
+    hatt[2].type = DkVtxAttribType_Float;
+    hatt[3].bufferId = 0;
+    hatt[3].offset = 32;
+    hatt[3].size = DkVtxAttribSize_4x32;
+    hatt[3].type = DkVtxAttribType_Float;
+    hatt[4].bufferId = 0;
+    hatt[4].offset = 48;
+    hatt[4].size = DkVtxAttribSize_4x32;
+    hatt[4].type = DkVtxAttribType_Float;
+    hatt[5].bufferId = 0;
+    hatt[5].offset = 64;
+    hatt[5].size = DkVtxAttribSize_4x32;
+    hatt[5].type = DkVtxAttribType_Float;
+    hatt[6].bufferId = 0;
+    hatt[6].offset = 80;
+    hatt[6].size = DkVtxAttribSize_4x32;
+    hatt[6].type = DkVtxAttribType_Float;
+    hatt[7].bufferId = 0;
+    hatt[7].offset = 96;
+    hatt[7].size = DkVtxAttribSize_1x32;
+    hatt[7].type = DkVtxAttribType_Float;
+    DkVtxBufferState hvtx[1];
+    hvtx[0].stride = sizeof(HighlightVtx);
+    hvtx[0].divisor = 0;
+    dkCmdBufBindVtxAttribState(cmdbuf_, hatt, 8);
+    dkCmdBufBindVtxBufferState(cmdbuf_, hvtx, 1);
+}
+
+void Gfx::DrawHighlights()
+{
+    if (hlCount_ == 0)
+        return;
+    DkShader const *hsh[] = { &hvsh_, &hfsh_ };
+    DkRasterizerState rast;
+    DkColorWriteState colW;
+    DkColorState tcol;
+    DkBlendState bl;
+    dkCmdBufBindShaders(cmdbuf_, DkStageFlag_GraphicsMask, hsh, 2);
+    BlendedState(&rast, &colW, &tcol, &bl);
+    BindUbo();
+    BindHlAttribs();
+    DkBufExtents hlExt;
+    hlExt.addr = hlGpu_;
+    hlExt.size = hlCount_ * (uint32_t)sizeof(HighlightVtx);
+    dkCmdBufBindVtxBuffers(cmdbuf_, 0, &hlExt, 1);
+    dkCmdBufDraw(cmdbuf_, DkPrimitive_Triangles, hlCount_, 1, 0, 0);
+}
+
 void Gfx::ResetCounts()
 {
+    s_ringRot += 0.5f / 60.0f;
+    if (s_ringRot >= 1.0f)
+        s_ringRot -= 1.0f;
     vtxCount_ = 0;
     txtCount_[0] = 0;
     txtCount_[1] = 0;
     txtCount_[2] = 0;
     pnlCount_ = 0;
     icoCount_ = 0;
+    hlCount_ = 0;
 }
 unsigned Gfx::IconQuads() { return icoCount_ / 6; }
 DkDevice Gfx::Device() { return device_; }

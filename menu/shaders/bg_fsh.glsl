@@ -9,9 +9,6 @@ layout (location = 0) out vec4 outColor;
 
 void main()
 {
-    vec2 g = fract(fragLocal / 16.0) - 0.5;
-    float m = smoothstep(0.20, 0.10, length(g));
-    vec3 col = mix(fragColor.rgb, fragColor.rgb * 0.955, m);
-    outColor = vec4(col, 1.0);
+    outColor = vec4(fragColor.rgb, 1.0);
 }
 

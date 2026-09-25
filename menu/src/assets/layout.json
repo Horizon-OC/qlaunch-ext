@@ -2,15 +2,6 @@
  "children": [
   {"type": "background"},
   {"type": "topbar"},
-  {"type": "gamestrip", "id": "games", "x": 96, "y": 225, "tile": 300, "gap": 36, "label": true},
-  {"type": "dock", "y": 702, "items": [
-    {"glyph": "nso"},
-    {"glyph": "chat"},
-    {"glyph": "news"},
-    {"glyph": "eshop"},
-    {"glyph": "album", "action": "applet:0"},
-    {"glyph": "controllers", "action": "applet:1"},
-    {"glyph": "settings"},
-    {"glyph": "power"}]},
-  {"type": "hints", "items": [{"button": "A", "label": "OK"}]}
+  {"type": "gamestrip", "id": "games", "x": 120, "y": 293, "tile": 384, "gap": 25, "label": true},
+  {"type": "bottombar"}
  ]}

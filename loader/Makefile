@@ -61,7 +61,14 @@ comma := ,
 NEKO_UNDEFS := $(shell cat $(TOPDIR)/../neko3d-module/neko3d.undef 2>/dev/null)
 NEKO_DEFS := $(shell cat $(TOPDIR)/../neko3d-module/neko3d.def 2>/dev/null)
 MENU_UNDEFS := $(shell cat $(TOPDIR)/../menu/menu.undef 2>/dev/null)
-HOST_NEEDS := $(filter-out $(NEKO_DEFS),$(NEKO_UNDEFS) $(MENU_UNDEFS))
+# FIXED loader ABI: every libc/libm leaf any menu build (past or future) may
+# import, independent of menu.undef. The loader never needs a relink for menu
+# changes; menus must stay within this surface (build.sh checks and fails
+# the build otherwise). libnx is whole-archived (all of it, forever); qext and
+# logging are loader sources (always exported).
+FIXED_ABI_LIBM := sin cos tan asin acos atan atan2 sinh cosh tanh asinh acosh atanh exp exp2 expm1 log log2 log10 pow sqrt cbrt hypot erf erfc lgamma tgamma ceil floor trunc round fmod remainder fma fmax fmin fdim fabs copysign nan frexp ldexp modf sincos ilogb logb scalbn sinf cosf tanf asinf acosf atanf atan2f sinhf coshf tanhf asinhf acoshf atanhf expf exp2f expm1f logf log2f log10f powf sqrtf cbrtf hypotf erff erfcf lgammaf tgammaf ceilf floorf truncf roundf fmodf remainderf fmaf fmaxf fminf fdimf fabsf copysignf nanf frexpf ldexpf modff sincosf ilogbf logbf scalbnf
+FIXED_ABI_LIBC := calloc free malloc realloc memchr memcmp memcpy memmove memset strcat strchr strcmp strcpy strcspn strdup strlen strncat strncmp strncpy strpbrk strrchr strspn strstr strtok strtok_r strtol strtoll strtoul strtoull strtod strtof strcasecmp strncasecmp abort atoi atol atof rand srand qsort bsearch abs labs fclose feof ferror fgetc fgets fopen fprintf fread fwrite fseek ftell fputs getc getchar printf putc putchar puts remove rewind ungetc sprintf snprintf vsnprintf sscanf
+HOST_NEEDS := $(sort $(filter-out $(NEKO_DEFS),$(NEKO_UNDEFS) $(MENU_UNDEFS) $(FIXED_ABI_LIBM) $(FIXED_ABI_LIBC)))
 LDFLAGS	=	-specs=$(DEVKITPRO)/libnx/switch.specs
 # Full libc/libnx surface for plugins, no per-plugin lists, no loader
 # rebuilds when plugins change: whole-archive the runtime libs so every
@@ -222,7 +229,8 @@ endif
 dlink-lib:
 	@$(MAKE) -C $(TOPDIR)/../extern/libnx-dlink
 
-$(OUTPUT).elf	:	$(OFILES) dlink-lib
+# menu.undef feeds HOST_NEEDS (-u); relink the loader whenever the menu adds imports.
+$(OUTPUT).elf	:	$(OFILES) dlink-lib $(TOPDIR)/../menu/menu.undef
 
 $(OFILES_SRC)	: $(HFILES_BIN)
 

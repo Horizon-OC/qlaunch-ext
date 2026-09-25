@@ -35,10 +35,8 @@ bool LoadBuiltin();
 bool LoadFile(const char *path);
 void Draw();
 void Input(u64 down, u64 held);
-void IconSlots(int *out);
-void BeginIconSlots();
-void PushIconSlot(int slot);
-void ActivateDock();
+void ActivateTop();
+float ShiftX();
 int NodeCount();
 const LayoutNode &Node(int i);
 } /* namespace Layout */

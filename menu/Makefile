@@ -12,9 +12,9 @@ UAM := $(DEVKITPRO)/tools/bin/uam
 ARCH := -march=armv8-a -mtune=cortex-a57 -mtp=soft -fPIC
 BASEFLAGS := -g -O2 -ffunction-sections -fdata-sections $(ARCH) -D__SWITCH__ -I$(NEKO)/include -I$(DEVKITPRO)/libnx/include -I$(TOP)/src
 CFLAGS := $(BASEFLAGS)
-CXXFLAGS := $(BASEFLAGS) -std=c++17 -fno-exceptions -fno-rtti -fno-threadsafe-statics
+CXXFLAGS := $(BASEFLAGS) -std=c++17 -fno-exceptions -fno-rtti -fno-threadsafe-statics -MMD -MP
 ASFLAGS := -g $(ARCH)
-LDFLAGS := -specs=$(DLINK)/tools/module.specs -g $(ARCH) -shared -nodefaultlibs -Wl,--export-dynamic -Wl,-Map,$(TOP)/menu.map
+LDFLAGS := -specs=$(DLINK)/tools/module.specs -g $(ARCH) -shared -nodefaultlibs -Wl,--export-dynamic -Wl,-Map,$(TOP)/menu.map -Wl,-z,nopack-relative-relocs
 
 SRCS := $(wildcard $(TOP)/src/*.cpp $(TOP)/src/core/*.cpp $(TOP)/src/widgets/*.cpp)
 OBJS := $(patsubst $(TOP)/%.cpp,$(TOP)/build/%.o,$(SRCS))
@@ -24,10 +24,23 @@ OBJS += $(TOP)/build/shaders/text_vsh.dksh.o $(TOP)/build/shaders/text_fsh.dksh.
 OBJS += $(TOP)/build/shaders/panel_vsh.dksh.o $(TOP)/build/shaders/panel_fsh.dksh.o
 OBJS += $(TOP)/build/shaders/icon_vsh.dksh.o $(TOP)/build/shaders/icon_fsh.dksh.o
 OBJS += $(TOP)/build/shaders/bg_fsh.dksh.o
+OBJS += $(TOP)/build/shaders/hl_vsh.dksh.o $(TOP)/build/shaders/hl_fsh.dksh.o
 OBJS += $(TOP)/build/assets/font.o $(TOP)/build/assets/iconfont.o $(TOP)/build/assets/layout.o
-OBJS += $(TOP)/build/assets/theme_light.o $(TOP)/build/assets/theme_dark.o
+OBJS += $(TOP)/build/assets/hud/hud_wifi.o $(TOP)/build/assets/hud/hud_battery.o
+OBJS += $(TOP)/build/assets/hud/hud_user.o $(TOP)/build/assets/hud/hud_btn_a.o
+OBJS += $(TOP)/build/assets/hud/hud_btn_plus.o
+OBJS += $(TOP)/build/assets/hud/hud_folder.o $(TOP)/build/assets/hud/hud_vgccard.o
+OBJS += $(TOP)/build/assets/hud/top_sel_home.o $(TOP)/build/assets/hud/top_sel_connect.o
+OBJS += $(TOP)/build/assets/hud/top_sel_eshop.o $(TOP)/build/assets/hud/top_sel_album.o
+OBJS += $(TOP)/build/assets/hud/top_sel_settings.o $(TOP)/build/assets/hud/top_des_home.o
+OBJS += $(TOP)/build/assets/hud/top_des_connect.o $(TOP)/build/assets/hud/top_des_eshop.o
+OBJS += $(TOP)/build/assets/hud/top_des_album.o $(TOP)/build/assets/hud/top_des_settings.o
+OBJS += $(TOP)/build/assets/hud/marker_sheet.o
+OBJS += $(TOP)/build/assets/theme_light.o $(TOP)/build/assets/theme_dark.o $(TOP)/build/assets/themes.o
 
 all: $(TOP)/menu.dnro $(TOP)/menu.undef
+
+-include $(OBJS:.o=.d)
 
 $(TOP)/menu.undef: $(TOP)/menu.elf
 	$(DKA64)/bin/aarch64-none-elf-nm -u -D $< | awk '{print $$NF}' | sort -u > $@
@@ -66,6 +79,11 @@ $(TOP)/build/assets/iconfont.o: $(TOP)/assets/switch_icons.ttf
 	@mkdir -p $(dir $@)
 	$(DEVKITPRO)/tools/bin/bin2s $< > $(TOP)/build/assets/iconfont.s
 	$(CC) $(ASFLAGS) -c $(TOP)/build/assets/iconfont.s -o $@
+
+$(TOP)/build/assets/hud/%.o: $(TOP)/assets/hud/%.png
+	@mkdir -p $(dir $@)
+	$(DEVKITPRO)/tools/bin/bin2s $< > $(TOP)/build/assets/hud/$*.s
+	$(CC) $(ASFLAGS) -c $(TOP)/build/assets/hud/$*.s -o $@
 
 $(TOP)/build/assets/%.o: $(TOP)/src/assets/%.json
 	@mkdir -p $(dir $@)

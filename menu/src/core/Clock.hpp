@@ -7,7 +7,8 @@
 namespace Clock {
 void Tick();
 const char *Str();
+const char *TimeStr(); /* "h:mm" */
+const char *AmPm();    /* "AM"/"PM" */
 const char *Date();
 unsigned Batt();
 } /* namespace Clock */
-
