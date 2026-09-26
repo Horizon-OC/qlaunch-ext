@@ -7,6 +7,7 @@
 #include "Gfx.hpp"
 #include "Assets.hpp"
 #include "App.hpp"
+#include "Sfx.hpp"
 #include "Qext.hpp"
 #include "../widgets/Widgets.hpp"
 #include <string.h>
@@ -162,7 +163,9 @@ static const LayoutNode *FindStrip()
 
 void ActivateTop()
 {
-    App::SwitchMenu(App::TopSel());
+    int m = App::TopSel();
+    App::MenuJingle(m);
+    App::SwitchMenu(m);
 }
 
 static void DrawMenu(int m)
@@ -183,6 +186,11 @@ static void DrawMenu(int m)
 
 void Draw()
 {
+    if (WAlbum::IsFull()) {
+        Gfx::PushPanel(0.0f, 0.0f, 1920.0f, 1080.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f);
+        WAlbum::Draw();
+        return;
+    }
     for (int i = 0; i < nodeCount_; i++) {
         const LayoutNode &nd = nodes_[i];
         if (strcmp(nd.type, "background") == 0)

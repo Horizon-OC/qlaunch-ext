@@ -8,6 +8,7 @@
 #include "../core/Theme.hpp"
 #include "../core/Layout.hpp"
 #include "../core/App.hpp"
+#include "../core/Sfx.hpp"
 #include "../core/Qext.hpp"
 #include <string.h>
 #include <stdlib.h>
@@ -227,6 +228,11 @@ bool IsOpen()
     return s_open;
 }
 
+bool IsFull()
+{
+    return s_open && s_full;
+}
+
 void Open()
 {
     s_count = 0;
@@ -325,7 +331,8 @@ static void DrawFull()
         Gfx::PushPanel(0.0f, 0.0f, 1920.0f, 1080.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f);
         Font::Centered("No image", 960.0f, 540.0f, 40.0f, 800.0f, inkR, inkG, inkB);
     } else if (EnsureFull(s_sel)) {
-        Gfx::PushIcon(0.0f, 0.0f, 1920.0f, 1080.0f, 0.0f, 1.0f, 1.0f, 1.0f, 0.0f, s_fullImg.tex);
+        Gfx::PushPanel(0.0f, 0.0f, 1920.0f, 1080.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f);
+        Gfx::PushIcon(0.0f, 0.0f, 1920.0f, 1080.0f, 0.0f, 1.0f, 1.0f, 1.0f, 0.0f, s_fullImg.tex, -1.0f, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f);
     } else {
         Gfx::PushPanel(0.0f, 0.0f, 1920.0f, 1080.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f);
         Font::Centered("Could not load image", 960.0f, 540.0f, 40.0f, 800.0f,
@@ -359,12 +366,14 @@ bool Input(u64 down, u64 held)
         if (down & HidNpadButton_B) {
             s_full = false;
             FreeSlot(&s_fullImg);
+            Sfx::Play(Sfx::Back);
             return true;
         }
         if (down & HidNpadButton_AnyLeft) {
             if (s_sel > 0) {
                 s_sel--;
                 ClampSel();
+                Sfx::Play(Sfx::Hover);
             }
             return true;
         }
@@ -372,6 +381,7 @@ bool Input(u64 down, u64 held)
             if (s_sel < s_count - 1) {
                 s_sel++;
                 ClampSel();
+                Sfx::Play(Sfx::Hover);
             }
             return true;
         }
@@ -386,20 +396,24 @@ bool Input(u64 down, u64 held)
         if (down & HidNpadButton_A) {
             s_full = false;
             FreeSlot(&s_fullImg);
+            Sfx::Play(Sfx::Back);
             return true;
         }
         return true;
     }
 
     if (down & HidNpadButton_B) {
+        Sfx::Play(Sfx::Back);
         Close();
         App::SwitchMenu(MENU_HOME);
         return true;
     }
 
     if (down & HidNpadButton_A) {
-        if (s_count > 0)
+        if (s_count > 0) {
             s_full = true;
+            Sfx::Play(Sfx::Click);
+        }
         return true;
     }
 
@@ -416,6 +430,7 @@ bool Input(u64 down, u64 held)
         if (s_sel > 0) {
             s_sel--;
             ClampSel();
+            Sfx::Play(Sfx::Hover);
         }
         return true;
     }
@@ -424,6 +439,7 @@ bool Input(u64 down, u64 held)
         if (s_sel < s_count - 1) {
             s_sel++;
             ClampSel();
+            Sfx::Play(Sfx::Hover);
         }
         return true;
     }
@@ -432,6 +448,7 @@ bool Input(u64 down, u64 held)
         if (s_sel - COLS >= 0) {
             s_sel -= COLS;
             ClampSel();
+            Sfx::Play(Sfx::Hover);
         }
         return true;
     }
@@ -440,6 +457,7 @@ bool Input(u64 down, u64 held)
         if (s_sel + COLS < s_count) {
             s_sel += COLS;
             ClampSel();
+            Sfx::Play(Sfx::Hover);
         }
         return true;
     }

@@ -10,6 +10,7 @@
 #include "../core/Icons.hpp"
 #include "../core/Layout.hpp"
 #include "../core/App.hpp"
+#include "../core/Sfx.hpp"
 #include "../core/Avatars.hpp"
 #include <stdio.h>
 
@@ -34,8 +35,40 @@ static unsigned MenuGlyph(int m)
     }
 }
 
+static float s_recolorT = 0.0f;
+static int s_lastFocus = -2;
+
+/* Recolor a section with S2 gradient. */
+static void Recolor(float t, float *r, float *g, float *b)
+{
+    static const float pal[4][3] = {
+        { 0.537f, 0.584f, 0.945f },
+        { 0.384f, 0.588f, 0.949f },
+        { 0.863f, 0.722f, 0.875f },
+        { 1.0f, 1.0f, 1.0f },
+    };
+    float seg = t * 4.0f;
+    int si = (int)seg;
+    int i = si & 3;
+    float f = seg - (float)si;
+    const float *A = pal[i];
+    const float *B = pal[(i + 1) & 3];
+    *r = A[0] + (B[0] - A[0]) * f;
+    *g = A[1] + (B[1] - A[1]) * f;
+    *b = A[2] + (B[2] - A[2]) * f;
+}
+
 void Draw(const LayoutNode &nd)
 {
+    int focusId = App::TopFocus() ? App::TopSel() : -1;
+    if (focusId != s_lastFocus) {
+        s_lastFocus = focusId;
+        s_recolorT = 0.0f;
+    } else {
+        s_recolorT += 0.5f / 60.0f;
+        if (s_recolorT >= 1.0f)
+            s_recolorT -= 1.0f;
+    }
     (void)nd;
     float mbR, mbG, mbB;
     Theme::Color("menubar", &mbR, &mbG, &mbB);
@@ -80,6 +113,11 @@ void Draw(const LayoutNode &nd)
         float scale = active ? 1.2f : (focused ? 1.1f : 1.0f);
         float size = bw * scale;
         float cx = x0 + bw * (float)i + gap * (float)i + bw * 0.5f;
+        int anchor = App::TopFocus() ? App::TopSel() : cur;
+        if (i < anchor)
+            cx -= 15.0f;
+        else if (i > anchor)
+            cx += 15.0f;
         float x = cx - size * 0.5f;
         float y = by + (bw - size) * 0.5f;
         int aslot = TopArt(i, active);
@@ -87,8 +125,10 @@ void Draw(const LayoutNode &nd)
         if (aslot > 0) {
             float cr, cg, cb;
 
-            if (active) {
-                /* Filled art takes the per-button theme color. */
+            if (focused) {
+                /* Cursor highlight */
+                Recolor(s_recolorT, &cr, &cg, &cb);
+            } else if (active) {
                 Theme::MenuAccent(i, &cr, &cg, &cb);
             } else if (Theme::IsDark()) {
                 cr = cg = cb = 1.0f;
@@ -99,9 +139,6 @@ void Draw(const LayoutNode &nd)
             }
 
             Gfx::PushIcon(x, y, size, size, 0.0f, cr, cg, cb, 0.0f, aslot);
-
-            if (focused && !active)
-                Gfx::PushSelectRing(x - 7.0f, y - 7.0f, size + 14.0f, size + 14.0f, (size + 14.0f) * 0.5f, 9.0f);
         } else {
             /* Art missing: font glyph fallback. */
             unsigned cp = MenuGlyph(i);
@@ -110,7 +147,9 @@ void Draw(const LayoutNode &nd)
             
             float cr, cg, cb;
 
-            if (active) {
+            if (focused) {
+                Recolor(s_recolorT, &cr, &cg, &cb);
+            } else if (active) {
                 Theme::MenuAccent(i, &cr, &cg, &cb);
             } else {
                 cr = inkR;

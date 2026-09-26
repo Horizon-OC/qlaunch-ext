@@ -2,6 +2,6 @@
  "children": [
   {"type": "background"},
   {"type": "topbar"},
-  {"type": "gamestrip", "id": "games", "x": 120, "y": 293, "tile": 384, "gap": 25, "label": true},
+  {"type": "gamestrip", "id": "games", "x": 120, "y": 342, "tile": 384, "gap": 25, "label": true},
   {"type": "bottombar"}
  ]}

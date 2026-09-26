@@ -18,6 +18,17 @@ TODO
 - Inbuilt:
     - MTPPlugin: MTP server that runs all the time
 
+- TODO:
+    - FakeForwarderPlugin: Fake forwarders
+    - Ultrahand: ultrahand as a plugin, so it can use applet ram
+    - FTPPlugin: FTP server
+    - JellyfinPlugin: Replace album with Jellyfin client
+    - PluginPlugin: Plugin manager plugin
+    - AppstorePlugin: HB apppstore integration
+    - SocialPlugin: Social feature from a selfhosted server
+    - EmulationPlugin: Depends on FakeForwarderPlugin, emulator integration
+    - FileManagerPlugin: Self explanitory
+    
 ## Credits
 
 /* qlaunch-ext (C) 2026 Souldbminer */

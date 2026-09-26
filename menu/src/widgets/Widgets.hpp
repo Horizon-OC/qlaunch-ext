@@ -46,6 +46,7 @@ namespace WHints {
 } /* namespace WHints */
 
 namespace WAlbum {
+    bool IsFull();
     bool IsOpen();
     void Open();
     void Close();

@@ -12,7 +12,7 @@ struct PanelVtx {
     float x, y, ox, oy, w, h, rad, pad, r, g, b, a;
 };
 struct IconVtx {
-    float x, y, u, v, ox, oy, w, h, rad, pad, r, g, b, a, tslot, brad;
+    float x, y, u, v, ox, oy, w, h, rad, pad, r, g, b, a, tslot, brad, edge;
 };
 struct HighlightVtx {
     float x, y, ox, oy, w, h, rad, thick;
@@ -65,7 +65,7 @@ namespace Gfx {
                    float r, float g, float b, float a);
     unsigned PushIcon(float x, float y, float w, float h, float rad,
                       float r, float g, float b, float border, int tex, float brad = -1.0f,
-                      float u0 = 0.0f, float v0 = 0.0f, float u1 = 1.0f, float v1 = 1.0f);
+                      float u0 = 0.0f, float v0 = 0.0f, float u1 = 1.0f, float v1 = 1.0f, float edgeBlend = 1.0f);
     void PushSelectRing(float x, float y, float w, float h, float rad, float thick);
     void PushHighlight(float x, float y, float w, float h, float rad,
                        float thick, const float *c0, const float *c1,

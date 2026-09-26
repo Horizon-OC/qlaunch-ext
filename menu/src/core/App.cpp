@@ -9,6 +9,7 @@
 #include "Theme.hpp"
 #include "Layout.hpp"
 #include "Clock.hpp"
+#include "Sfx.hpp"
 #include "PadIcon.hpp"
 #include "../widgets/Widgets.hpp"
 #include "Avatars.hpp"
@@ -77,6 +78,8 @@ bool Boot(NWindow *win)
         Shutdown();
         return false;
     }
+    Sfx::Init();
+    Sfx::Play(Sfx::HomeBoot);
 
     padConfigureInput(1, HidNpadStyleSet_NpadStandard);
     padInitializeDefault(&pad_);
@@ -110,6 +113,7 @@ bool Boot(NWindow *win)
 void Shutdown()
 {
     padReady_ = false;
+    Sfx::Shutdown();
     Icons::FreeAll();
     Font::Shutdown();
     Gfx::Destroy();
@@ -230,25 +234,26 @@ static void TopSwitch(int delta)
     int m = (menu_ + delta + MENU_COUNT) % MENU_COUNT;
     topSel_ = m;
     SwitchMenu(m);
+    MenuJingle(m);
 }
 
-void Activate()
+bool Activate()
 {
     if (WAlbum::IsOpen())
-        return;
+        return false;
     if (topFocus_) {
         Layout::ActivateTop();
-        return;
+        return true;
     }
     if (bottomFocus_) {
         ActivateBottom();
-        return;
+        return true;
     }
     if (menu_ != MENU_HOME || bottomFocus_ || topFocus_ ||
         (homeSub_ != HOMESUB_GAMES && homeSub_ != HOMESUB_VGC))
-        return;
+        return false;
     if (sel_ < 0 || sel_ >= rowCount_)
-        return;
+        return false;
     AppRow *r = &rows_[sel_];
     if (r->isGame) {
         u64 susp = qext_suspended_title();
@@ -257,13 +262,20 @@ void Activate()
             launchBlack_ = true;
             Blackout();
             qext_resume_game();
+            Sfx::Play(Sfx::Click);
+            return true;
         } else if (!qext_game_has_foreground()) {
             launchBlack_ = true;
             Blackout();
             qext_launch_title(r->tid);
+            Sfx::Play(Sfx::Click);
+            return true;
         }
+        return false;
     } else {
         qext_launch_applet(r->applet);
+        Sfx::Play(Sfx::Click);
+        return true;
     }
 }
 
@@ -295,8 +307,10 @@ void Loop()
             if (down & HidNpadButton_Plus)
                 RefreshTitles();
         }
-        if (down & HidNpadButton_A)
-            Activate();
+        if (down & HidNpadButton_A) {
+            if (Activate())
+                down &= ~HidNpadButton_A;
+        }
         Layout::Input(down, held);
     }
 
@@ -309,6 +323,7 @@ void Loop()
         RefreshTitles();
     }
     Present(launchBlack_);
+    Sfx::Tick();
 }
 
 void OnOpen()
@@ -420,10 +435,26 @@ int MenuDir()
     return menuDir_;
 }
 
+void MenuJingle(int m)
+{
+    if (m == MENU_ALBUM)
+        Sfx::Play(Sfx::AlbumJ);
+    else if (m == MENU_SETTINGS)
+        Sfx::Play(Sfx::SettingsJ);
+    else if (m == MENU_HOME)
+        Sfx::Play(Sfx::HomeJ);
+    else if (m == MENU_ESHOP)
+        Sfx::Play(Sfx::EshopJ);
+    else if (m == MENU_CONNECT)
+        Sfx::Play(Sfx::ChatJ);
+}
+
 void SwitchMenu(int m)
 {
     if (m < 0 || m >= MENU_COUNT)
         return;
+    topFocus_ = false;
+    bottomFocus_ = false;
     if (m == MENU_ALBUM) {
         if (menu_ != MENU_ALBUM) {
             menuFrom_ = menu_;
@@ -568,6 +599,10 @@ void ActivateBottom()
         return;
     }
     int want = BottomSel() == 0 ? HOMESUB_FOLDERS : HOMESUB_VGC;
+    if (BottomSel() == 0)
+        Sfx::Play(Sfx::FolderJ);
+    else
+        Sfx::Play(Sfx::VgcJ);
     SetHomeSub(want == HomeSub() ? HOMESUB_GAMES : want);
     SetBottomFocus(false);
 }

@@ -8,6 +8,7 @@
 #include "../core/Theme.hpp"
 #include "../core/Layout.hpp"
 #include "../core/App.hpp"
+#include "../core/Sfx.hpp"
 #include "../core/Icons.hpp"
 #include "../core/Qext.hpp"
 #include <string.h>
@@ -275,7 +276,7 @@ void Draw(const LayoutNode &nd)
 
         /* More gamecard stuff. */
         float grow = 84.0f * t;
-        float gx = x, gy = y - 64.0f * t, gw = outer, gh = outer + grow;
+        float gx = x, gy = y - 84.0f * t, gw = outer, gh = outer + grow;
         Gfx::PushSelectRing(gx - 9.0f, gy - 9.0f, gw + 18.0f, gh + 18.0f, corner + 9.0f, 12.0f);
 
         /* Rounded top and square bottom. */
@@ -361,11 +362,11 @@ void DrawSubs()
     }
 }
 
-static void StepSel(int delta)
+static bool StepSel(int delta)
 {
     int n = App::RowCount();
     if (n <= 0)
-        return;
+        return false;
 
     int sel = App::Sel();
     sel += delta;
@@ -380,9 +381,13 @@ static void StepSel(int delta)
     if (sel != App::Sel()) {
         App::SetSel(sel);
         s_hlT = 0.0f;
+        Sfx::Play(Sfx::Hover);
+        App::SetTopFocus(false);
+        return true;
     }
 
     App::SetTopFocus(false);
+    return false;
 }
 
 void Input(const LayoutNode &nd, u64 down, u64 held)
@@ -397,8 +402,13 @@ void Input(const LayoutNode &nd, u64 down, u64 held)
     
     /* Folders / VGC submenus. */
     if (App::HomeSub() == HOMESUB_FOLDERS) {
-        if (down & (HidNpadButton_A | HidNpadButton_B | HidNpadButton_AnyUp))
+        if (down & HidNpadButton_A) {
             App::SetHomeSub(HOMESUB_GAMES);
+            Sfx::Play(Sfx::Click);
+        } else if (down & (HidNpadButton_B | HidNpadButton_AnyUp)) {
+            App::SetHomeSub(HOMESUB_GAMES);
+            Sfx::Play(Sfx::Back);
+        }
         return;
     }
 
@@ -411,8 +421,10 @@ void Input(const LayoutNode &nd, u64 down, u64 held)
             StepSel(1);
             return;
         }
-        if (down & (HidNpadButton_B | HidNpadButton_AnyUp))
+        if (down & (HidNpadButton_B | HidNpadButton_AnyUp)) {
             App::SetHomeSub(HOMESUB_GAMES);
+            Sfx::Play(Sfx::Back);
+        }
         return;
     }
 
@@ -433,12 +445,14 @@ void Input(const LayoutNode &nd, u64 down, u64 held)
     if (down & HidNpadButton_AnyUp) {
         App::SetTopSel(App::Menu());
         App::SetTopFocus(true);
+        Sfx::Play(Sfx::Hover);
         moved = true;
     }
     
     if (down & HidNpadButton_AnyDown) {
         App::SetBottomSel(1);
         App::SetBottomFocus(true);
+        Sfx::Play(Sfx::Hover);
         moved = true;
     }
     

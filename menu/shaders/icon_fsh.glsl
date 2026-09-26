@@ -7,6 +7,7 @@ layout (location = 3) in float fragRad;
 layout (location = 4) in vec4 fragColor;
 layout (location = 6) in float fragBot;
 layout (location = 5) in float fragPad;
+layout (location = 7) in float fragEdge;
 
 layout (binding = 0) uniform sampler2D tex;
 
@@ -29,15 +30,16 @@ void main()
 {
     float r = min(fragRad, min(fragWH.x, fragWH.y) * 0.5);
     float rb = min(fragBot, min(fragWH.x, fragWH.y) * 0.5);
-    float dOuter = rrectTB(fragLocal, fragWH, r, rb);
-    float ao = 1.0 - smoothstep(-1.0, 1.0, dOuter);
+    float dOuter = (r <= 0.0 && rb <= 0.0) ? rrect(fragLocal, fragWH, 0.0) : rrectTB(fragLocal, fragWH, r, rb);
+    float aa = max(clamp(fragEdge, 0.0, 4.0), 0.0001);
+    float ao = 1.0 - smoothstep(-aa, aa, dOuter);
     float bw = clamp(fragPad, 0.0, 16.0);
     vec2 pI = fragLocal - vec2(bw);
     vec2 bI = fragWH - vec2(bw * 2.0);
     float rI = max(r - bw, 0.0);
     float rIb = max(rb - bw, 0.0);
-    float dInner = rrectTB(pI, bI, rI, rIb);
-    float ai = 1.0 - smoothstep(-1.0, 1.0, dInner);
+    float dInner = (rI <= 0.0 && rIb <= 0.0) ? rrect(pI, bI, 0.0) : rrectTB(pI, bI, rI, rIb);
+    float ai = 1.0 - smoothstep(-aa, aa, dInner);
     vec4 tx = texture(tex, fragUv);
     float cov = ai * tx.a;
     vec3 col = mix(fragColor.rgb, tx.rgb * fragColor.rgb, cov);

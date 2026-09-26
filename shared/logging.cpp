@@ -38,9 +38,15 @@ void SetFileLoggingPath(const char *path) {
 
 void LogLine(const char *fmt, ...) {
     char buf[kMaxBufSize];
+    unsigned long long ms = svcGetSystemTick() / 19200ULL;
+    int pre = snprintf(buf, sizeof(buf), "[%llu.%03llu] ", ms / 1000ULL, ms % 1000ULL);
+    if (pre < 0)
+        pre = 0;
+    else if ((size_t)pre >= sizeof(buf))
+        pre = (int)sizeof(buf) - 1;
     va_list ap;
     va_start(ap, fmt);
-    vsnprintf(buf, sizeof(buf), fmt, ap);
+    vsnprintf(buf + pre, sizeof(buf) - (size_t)pre, fmt, ap);
     va_end(ap);
 
     if (CurrentLogOutput == LogOutput_File) {

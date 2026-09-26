@@ -10,6 +10,7 @@ layout (location = 2) in vec2 inOrg;
 layout (location = 3) in vec4 inShape;
 layout (location = 4) in vec4 inColor;
 layout (location = 6) in float inBot;
+layout (location = 7) in float inEdge;
 
 layout (location = 0) out vec2 fragUv;
 layout (location = 1) out vec2 fragLocal;
@@ -18,6 +19,7 @@ layout (location = 3) out float fragRad;
 layout (location = 4) out vec4 fragColor;
 layout (location = 6) out float fragBot;
 layout (location = 5) out float fragPad;
+layout (location = 7) out float fragEdge;
 
 void main()
 {
@@ -29,6 +31,7 @@ void main()
     fragWH = inShape.xy;
     fragRad = inShape.z;
     fragPad = inShape.w;
+    fragEdge = inEdge;
     fragColor = inColor;
     fragBot = inBot;
 }

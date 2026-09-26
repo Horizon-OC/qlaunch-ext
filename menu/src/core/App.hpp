@@ -27,7 +27,7 @@ void OnHome();
 void OnPower();
 
 void RefreshTitles();
-void Activate();
+bool Activate();
 void Blackout();
 
 int RowCount();
@@ -45,6 +45,7 @@ int MenuFrom();
 float MenuT(); /* Progress from 0-1*/
 int MenuDir();
 void SwitchMenu(int m);
+void MenuJingle(int m);
 void UpdateMenuAnim();
 
 int HomeSub();

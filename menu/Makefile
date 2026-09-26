@@ -5,6 +5,7 @@ DLINK := $(TOP)/../extern/libnx-dlink
 DEVKITPRO ?= /opt/devkitpro
 DKA64 := $(DEVKITPRO)/devkitA64
 CC := $(DKA64)/bin/aarch64-none-elf-gcc
+AS := $(DKA64)/bin/aarch64-none-elf-gcc
 CXX := $(DKA64)/bin/aarch64-none-elf-g++
 PY := python3
 UAM := $(DEVKITPRO)/tools/bin/uam
@@ -37,6 +38,10 @@ OBJS += $(TOP)/build/assets/hud/top_des_connect.o $(TOP)/build/assets/hud/top_de
 OBJS += $(TOP)/build/assets/hud/top_des_album.o $(TOP)/build/assets/hud/top_des_settings.o
 OBJS += $(TOP)/build/assets/hud/marker_sheet.o
 OBJS += $(TOP)/build/assets/theme_light.o $(TOP)/build/assets/theme_dark.o $(TOP)/build/assets/themes.o
+OBJS += $(TOP)/build/assets/sfx/s2_cursor_move.o $(TOP)/build/assets/sfx/s2_button_click.o $(TOP)/build/assets/sfx/s2_back_select.o
+OBJS += $(TOP)/build/assets/sfx/s2_album.o $(TOP)/build/assets/sfx/s2_settings.o $(TOP)/build/assets/sfx/s2_home_menu.o
+OBJS += $(TOP)/build/assets/sfx/s2_eshop.o $(TOP)/build/assets/sfx/s2_game_chat.o $(TOP)/build/assets/sfx/s2_standby.o
+OBJS += $(TOP)/build/assets/sfx/news.o $(TOP)/build/assets/sfx/virtual_game_cards.o
 
 all: $(TOP)/menu.dnro $(TOP)/menu.undef
 
@@ -59,16 +64,17 @@ $(TOP)/build/stub/stub.o: $(TOP)/stub/stub.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(TOP)/shaders/%_vsh.dksh: $(TOP)/shaders/%_vsh.glsl
-	$(UAM) -s vert -o $@ $<
-
-$(TOP)/shaders/%_fsh.dksh: $(TOP)/shaders/%_fsh.glsl
-	$(UAM) -s frag -o $@ $<
-
-$(TOP)/build/shaders/%.dksh.o: $(TOP)/shaders/%.dksh
+$(TOP)/build/shaders/%_vsh.dksh.o: $(TOP)/shaders/%_vsh.glsl
 	@mkdir -p $(dir $@)
-	$(DEVKITPRO)/tools/bin/bin2s $< > $(TOP)/build/shaders/$*.dksh.s
-	$(CC) $(ASFLAGS) -c $(TOP)/build/shaders/$*.dksh.s -o $@
+	$(UAM) -s vert -o $(TOP)/build/shaders/$*_vsh.dksh $<
+	$(DEVKITPRO)/tools/bin/bin2s $(TOP)/build/shaders/$*_vsh.dksh > $(TOP)/build/shaders/$*_vsh.dksh.s
+	$(CC) $(ASFLAGS) -c $(TOP)/build/shaders/$*_vsh.dksh.s -o $@
+
+$(TOP)/build/shaders/%_fsh.dksh.o: $(TOP)/shaders/%_fsh.glsl
+	@mkdir -p $(dir $@)
+	$(UAM) -s frag -o $(TOP)/build/shaders/$*_fsh.dksh $<
+	$(DEVKITPRO)/tools/bin/bin2s $(TOP)/build/shaders/$*_fsh.dksh > $(TOP)/build/shaders/$*_fsh.dksh.s
+	$(CC) $(ASFLAGS) -c $(TOP)/build/shaders/$*_fsh.dksh.s -o $@
 
 $(TOP)/build/assets/font.o: $(TOP)/assets/font.otf
 	@mkdir -p $(dir $@)
@@ -84,6 +90,11 @@ $(TOP)/build/assets/hud/%.o: $(TOP)/assets/hud/%.png
 	@mkdir -p $(dir $@)
 	$(DEVKITPRO)/tools/bin/bin2s $< > $(TOP)/build/assets/hud/$*.s
 	$(CC) $(ASFLAGS) -c $(TOP)/build/assets/hud/$*.s -o $@
+
+$(TOP)/build/assets/sfx/%.o: $(TOP)/assets/sfx/%.wav
+	@mkdir -p $(dir $@)
+	$(DEVKITPRO)/tools/bin/bin2s $< > $(TOP)/build/assets/sfx/$*.s
+	$(CC) $(ASFLAGS) -c $(TOP)/build/assets/sfx/$*.s -o $@
 
 $(TOP)/build/assets/%.o: $(TOP)/src/assets/%.json
 	@mkdir -p $(dir $@)

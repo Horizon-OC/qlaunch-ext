@@ -9,6 +9,7 @@
 #include "../core/Icons.hpp"
 #include "../core/Layout.hpp"
 #include "../core/App.hpp"
+#include "../core/Sfx.hpp"
 #include "../core/PadIcon.hpp"
 
 namespace WBottomBar {
@@ -91,14 +92,18 @@ void Input(u64 down, u64 held)
 
     if (down & HidNpadButton_AnyLeft) {
         int s = App::BottomSel();
-        if (s > 0)
+        if (s > 0) {
             App::SetBottomSel(s - 1);
+            Sfx::Play(Sfx::Hover);
+        }
     }
     
     if (down & HidNpadButton_AnyRight) {
         int s = App::BottomSel();
-        if (s < 2)
+        if (s < 2) {
             App::SetBottomSel(s + 1);
+            Sfx::Play(Sfx::Hover);
+        }
     }
 
     if (down & (HidNpadButton_AnyUp | HidNpadButton_B))

@@ -391,7 +391,7 @@ void Gfx::PushPanel(float x, float y, float w, float h, float rad,
 
 unsigned Gfx::PushIcon(float x, float y, float w, float h, float rad,
                        float r, float g, float b, float border, int tex, float brad,
-                       float u0, float v0, float u1, float v1)
+                       float u0, float v0, float u1, float v1, float edgeBlend)
 {
     if (icoCount_ + 6 > GFX_ICONQ_MAX)
         return 0xFFFFFFFFu;
@@ -413,6 +413,7 @@ unsigned Gfx::PushIcon(float x, float y, float w, float h, float rad,
         v[i].r = r; v[i].g = g; v[i].b = b; v[i].a = 1.0f;
         v[i].tslot = (float)tex;
         v[i].brad = (brad < 0.0f) ? rad : brad;
+        v[i].edge = edgeBlend;
     }
     icoCount_ += 6;
     return q;
@@ -615,7 +616,7 @@ void Gfx::DrawIcons()
     BindUbo();
     BindTexSets();
 
-    DkVtxAttribState iatt[7];
+    DkVtxAttribState iatt[8];
     memset(iatt, 0, sizeof(iatt));
     iatt[0].bufferId = 0;
     iatt[0].offset = 0;
@@ -645,10 +646,14 @@ void Gfx::DrawIcons()
     iatt[6].offset = 60;
     iatt[6].size = DkVtxAttribSize_1x32;
     iatt[6].type = DkVtxAttribType_Float;
+    iatt[7].bufferId = 0;
+    iatt[7].offset = 64;
+    iatt[7].size = DkVtxAttribSize_1x32;
+    iatt[7].type = DkVtxAttribType_Float;
     DkVtxBufferState ivtx[1];
     ivtx[0].stride = sizeof(IconVtx);
     ivtx[0].divisor = 0;
-    dkCmdBufBindVtxAttribState(cmdbuf_, iatt, 7);
+    dkCmdBufBindVtxAttribState(cmdbuf_, iatt, 8);
     dkCmdBufBindVtxBufferState(cmdbuf_, ivtx, 1);
 
     for (unsigned j = 0; j < nq; j++) {

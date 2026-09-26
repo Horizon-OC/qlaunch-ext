@@ -8,6 +8,7 @@
 #include "../core/Theme.hpp"
 #include "../core/Layout.hpp"
 #include "../core/App.hpp"
+#include "../core/Sfx.hpp"
 #include "../core/Qext.hpp"
 #include <string.h>
 
@@ -289,16 +290,22 @@ void Input(u64 down, u64 held)
     if (page < 0) {
         if (down & HidNpadButton_AnyUp) {
             row = (row + 17) % 18;
-            App::SetSettingsRow(row);
+            if (row != App::SettingsRow()) Sfx::Play(Sfx::Hover);
+        App::SetSettingsRow(row);
         }
         if (down & HidNpadButton_AnyDown) {
             row = (row + 1) % 18;
-            App::SetSettingsRow(row);
+            if (row != App::SettingsRow()) Sfx::Play(Sfx::Hover);
+        App::SetSettingsRow(row);
         }
-        if (down & HidNpadButton_A)
+        if (down & HidNpadButton_A) {
             App::SetSettingsPage(row);
-        if (down & HidNpadButton_B)
+            Sfx::Play(Sfx::Click);
+        }
+        if (down & HidNpadButton_B) {
             App::SwitchMenu(MENU_HOME);
+            Sfx::Play(Sfx::Back);
+        }
         return;
     }
     int n = (page == 11) ? Theme::ThemeCount()
@@ -308,24 +315,31 @@ void Input(u64 down, u64 held)
     int cols = (page == 11) ? 2 : 1;
     if (down & HidNpadButton_AnyLeft) {
         row = (row + n - 1) % n;
+        if (row != App::SettingsRow()) Sfx::Play(Sfx::Hover);
         App::SetSettingsRow(row);
     }
     if (down & HidNpadButton_AnyRight) {
         row = (row + 1) % n;
+        if (row != App::SettingsRow()) Sfx::Play(Sfx::Hover);
         App::SetSettingsRow(row);
     }
     if (down & HidNpadButton_AnyUp) {
         row = (row + n - cols) % n;
+        if (row != App::SettingsRow()) Sfx::Play(Sfx::Hover);
         App::SetSettingsRow(row);
     }
     if (down & HidNpadButton_AnyDown) {
         row = (row + cols) % n;
+        if (row != App::SettingsRow()) Sfx::Play(Sfx::Hover);
         App::SetSettingsRow(row);
     }
-    if (down & HidNpadButton_A)
+    if (down & HidNpadButton_A) {
         ActivateRow();
+        Sfx::Play(Sfx::Click);
+    }
     if (down & HidNpadButton_B)
         App::SetSettingsPage(-1);
+        Sfx::Play(Sfx::Back);
 }
 
 } /* namespace WSettings */

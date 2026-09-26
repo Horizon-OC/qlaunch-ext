@@ -5,6 +5,17 @@ accountProfileClose
 accountProfileGetImageSize
 accountProfileLoadImage
 acosf
+audoutAppendAudioOutBuffer
+audoutExit
+audoutGetAudioOutState
+audoutGetChannelCount
+audoutGetReleasedAudioOutBuffer
+audoutGetSampleRate
+audoutInitialize
+audoutListAudioOuts
+audoutOpenAudioOut
+audoutSetAudioOutVolume
+audoutStartAudioOut
 calloc
 cos
 cosf
