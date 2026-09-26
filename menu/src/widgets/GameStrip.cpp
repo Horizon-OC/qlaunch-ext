@@ -156,7 +156,7 @@ static void DrawWrappedName(const char *name, float tcx, float yTop)
                 while (words[wi][vl] != 0 && tl + 1 < sizeof(trial))
                     trial[tl++] = words[wi][vl++];
                 trial[tl] = 0;
-                if (Font::Measure(trial, 30.0f) > 500.0f)
+                if (Font::Measure(trial, 30.0f) > 460.0f)
                     break;
             }
         }
@@ -179,7 +179,7 @@ static void DrawWrappedName(const char *name, float tcx, float yTop)
         line[nl - 1][len] = 0;
     }
     for (int li = 0; li < nl; li++)
-        Font::Centered(line[li], tcx, yTop + (float)li * 36.0f, 30.0f, 500.0f, 0.043f, 0.337f, 0.804f);
+        Font::Centered(line[li], tcx, yTop + (float)li * 36.0f, 30.0f, 460.0f, 0.043f, 0.337f, 0.804f);
 }
 void Draw(const LayoutNode &nd)
 {
@@ -207,7 +207,7 @@ void Draw(const LayoutNode &nd)
     }
 
     float viewW = 1920.0f - nd.x;
-    s_maxS = (float)n * pitch + 120.0f - viewW;
+    s_maxS = (float)(n - 1) * pitch + outer + nd.x * 2.0f - 1920.0f;
     if (s_maxS < 0.0f)
         s_maxS = 0.0f;
     
@@ -220,8 +220,8 @@ void Draw(const LayoutNode &nd)
     if (n > 0 && sel >= 0 && sel < n) {
         float tl = (float)sel * pitch;
         float tr = tl + outer;
-        if (tr - s_target > viewW)
-            s_target = tr - viewW;
+        if (tr - s_target > viewW - nd.x)
+            s_target = tr - (viewW - nd.x);
         if (tl - s_target < 0.0f)
             s_target = tl;
     }

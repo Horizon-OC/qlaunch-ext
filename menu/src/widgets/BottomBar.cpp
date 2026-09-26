@@ -106,8 +106,11 @@ void Input(u64 down, u64 held)
         }
     }
 
-    if (down & (HidNpadButton_AnyUp | HidNpadButton_B))
+    if (down & HidNpadButton_AnyUp) {
         App::SetBottomFocus(false);
+        Sfx::Play(Sfx::Hover);
+    }
+    if (down & HidNpadButton_B) { App::SetBottomFocus(false); Sfx::Play(Sfx::Back); }
 }
 
 } /* namespace WBottomBar */

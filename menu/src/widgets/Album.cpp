@@ -273,25 +273,26 @@ static void DrawGrid()
     Theme::Color("ink", &inkR, &inkG, &inkB);
     float dimR, dimG, dimB;
     Theme::Color("dim", &dimR, &dimG, &dimB);
+    float shx = Layout::ShiftX();
 
     /* Opaque viewer: the home strip stays hidden underneath. */
     float bgR, bgG, bgB;
-    Theme::Color("bg", &bgR, &bgG, &bgB);
-    Gfx::PushPanel(0.0f, 0.0f, 1920.0f, 1080.0f, 0.0f, bgR, bgG, bgB, 1.0f);
+    Theme::MenuColor(MENU_ALBUM, &bgR, &bgG, &bgB);
+    Gfx::PushPanel(shx, 0.0f, 1920.0f, 1080.0f, 0.0f, bgR, bgG, bgB, 1.0f);
 
     (void)inkR;
     (void)inkG;
     (void)inkB;
 
     if (s_count <= 0) {
-        Font::Centered("No screenshots yet", 960.0f, 500.0f, 40.0f, 1200.0f,
+        Font::Centered("No screenshots yet", 960.0f + shx, 500.0f, 40.0f, 1200.0f,
                        dimR, dimG, dimB);
-        Font::Centered("Capture with the Share button", 960.0f, 560.0f, 32.0f,
+        Font::Centered("Capture with the Share button", 960.0f + shx, 560.0f, 32.0f,
                        1200.0f, dimR, dimG, dimB);
     } else {
         float tw = 400.0f, th = 225.0f, gap = 32.0f;
         float totalW = COLS * tw + (COLS - 1) * gap;
-        float x0 = (1920.0f - totalW) * 0.5f;
+        float x0 = (1920.0f - totalW) * 0.5f + shx;
         float y0 = 240.0f;
         int base = s_top;
         for (int p = 0; p < VIS; p++) {
@@ -404,7 +405,6 @@ bool Input(u64 down, u64 held)
 
     if (down & HidNpadButton_B) {
         Sfx::Play(Sfx::Back);
-        Close();
         App::SwitchMenu(MENU_HOME);
         return true;
     }

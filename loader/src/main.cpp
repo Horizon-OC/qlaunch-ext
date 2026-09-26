@@ -210,6 +210,14 @@ static Result host_provide_all(void)
         return MAKERESULT(Module_Libnx, LibnxError_NotFound);
 
     uint32_t nchain = hash[1];
+
+    const char **names = (const char **)malloc((size_t)nchain * sizeof(*names));
+    void **addrs = (void **)malloc((size_t)nchain * sizeof(*addrs));
+    if (!names || !addrs) {
+        free(names);
+        free(addrs);
+        return MAKERESULT(Module_Libnx, LibnxError_OutOfMemory);
+    }
     uint32_t count = 0;
 
     /* Iterate over functions and their names to provide them */
@@ -229,9 +237,16 @@ static Result host_provide_all(void)
         if (name[0] == 0)
             continue;
 
-        if (R_SUCCEEDED(dlink_provide(name, (void *)dyn_fix(base, s->st_value))))
-            count++;
+        names[count] = name;
+        addrs[count] = (void *)dyn_fix(base, s->st_value);
+        count++;
     }
+
+    Result brc = dlink_provide_bulk(names, addrs, count);
+    free(names);
+    free(addrs);
+    if (R_FAILED(brc))
+        return brc;
 
     logging::LogLine("[qlaunch-ext] provided %u functions to libraries", count);
     return 0;

@@ -79,9 +79,6 @@ void Draw(const LayoutNode &nd)
     float dimR, dimG, dimB;
     Theme::Color("dim", &dimR, &dimG, &dimB);
 
-    /* TODO: Fix weird pink background */
-    float avR, avG, avB;
-    Theme::Color("avatar", &avR, &avG, &avB);
     int nusers = Avatars::Count();
 
     if (nusers > 2)
@@ -91,8 +88,6 @@ void Draw(const LayoutNode &nd)
         float ax = 75.0f + (float)i * 103.0f;
         Gfx::PushPanel(ax, 66.0f, 92.0f, 92.0f, 46.0f, dimR, dimG, dimB,
                        1.0f);
-        Gfx::PushPanel(ax + 5.0f, 71.0f, 82.0f, 82.0f, 41.0f, avR, avG,
-                       avB, 1.0f);
         int aslot = Avatars::Slot(i);
         if (aslot <= 0)
             aslot = Icons::HudSlot(HUD_USER);
@@ -219,16 +214,23 @@ void Input(u64 down, u64 held)
         return;
     int s = App::TopSel();
     if (down & HidNpadButton_AnyLeft) {
-        if (s > 0)
+        if (s > 0) {
             App::SetTopSel(s - 1);
+            Sfx::Play(Sfx::Hover);
+        }
     }
     if (down & HidNpadButton_AnyRight) {
-        if (s < 4)
+        if (s < 4) {
             App::SetTopSel(s + 1);
+            Sfx::Play(Sfx::Hover);
+        }
     }
 
-    if (down & (HidNpadButton_AnyDown | HidNpadButton_B))
+    if (down & HidNpadButton_AnyDown) {
         App::SetTopFocus(false);
+        Sfx::Play(Sfx::Hover);
+    }
+    if (down & HidNpadButton_B) { App::SetTopFocus(false); Sfx::Play(Sfx::Back); }
 }
 
 } /* namespace WTopBar */

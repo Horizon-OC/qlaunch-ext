@@ -292,7 +292,7 @@ void Loop()
     UpdateHomeShift();
     if (topDebounce_ > 0)
         topDebounce_--;
-    if (WAlbum::IsOpen()) {
+    if (WAlbum::IsOpen() && menuT_ >= 1.0f) {
         Layout::Input(down, held);
     } else if (menuT_ < 1.0f) {
         /* menus.gd switching: input locked mid-slide. */
@@ -466,8 +466,6 @@ void SwitchMenu(int m)
         WAlbum::Open();
         return;
     }
-    if (menu_ == MENU_ALBUM && WAlbum::IsOpen())
-        WAlbum::Close();
     if (m == menu_ && menuT_ >= 1.0f)
         return;
     menuFrom_ = menu_;
@@ -486,6 +484,7 @@ void UpdateMenuAnim()
         menuT_ += 1.0f / 15.0f;
         if (menuT_ > 1.0f)
             menuT_ = 1.0f;
+        if (menuT_ >= 1.0f && menu_ != MENU_ALBUM && WAlbum::IsOpen()) WAlbum::Close();
     }
 }
 

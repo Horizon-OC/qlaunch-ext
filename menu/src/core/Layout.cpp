@@ -170,11 +170,15 @@ void ActivateTop()
 
 static void DrawMenu(int m)
 {
+    float br, bg, bb;
+    Theme::MenuColor(m, &br, &bg, &bb);
+    Gfx::PushPanel(s_shiftX, 0.0f, 1920.0f, 1080.0f, 0.0f, br, bg, bb, 1.0f);
     if (m == MENU_HOME) {
         const LayoutNode *strip = FindStrip();
         if (strip)
             WStrip::Draw(*strip);
         WStrip::DrawSubs();
+    } else if (m == MENU_ALBUM) { WAlbum::Draw();
     } else if (m == MENU_CONNECT) {
         WConnect::Draw();
     } else if (m == MENU_ESHOP) {
@@ -217,13 +221,11 @@ void Draw()
     }
     WBottomBar::Draw();
 
-    if (WAlbum::IsOpen())
-        WAlbum::Draw();
 }
 
 void Input(u64 down, u64 held)
 {
-    if (WAlbum::IsOpen()) {
+    if (WAlbum::IsOpen() && App::MenuT() >= 1.0f) {
         WAlbum::Input(down, held);
         return;
     }
