@@ -282,11 +282,18 @@ static void ActivateRow()
     }
 }
 
+static int s_rep = 0;
 void Input(u64 down, u64 held)
 {
     (void)held;
     int page = App::SettingsPage();
     int row = App::SettingsRow();
+    u64 rdirs = HidNpadButton_AnyLeft | HidNpadButton_AnyRight | HidNpadButton_AnyUp | HidNpadButton_AnyDown;
+    if (down & rdirs) s_rep = 0;
+    else if (held & rdirs) {
+        s_rep++;
+        if (s_rep > 20 && (s_rep % 6) == 0) down |= held & rdirs;
+    } else s_rep = 0;
     if (page < 0) {
         if (down & HidNpadButton_AnyUp) {
             row = (row + 17) % 18;
@@ -337,9 +344,10 @@ void Input(u64 down, u64 held)
         ActivateRow();
         Sfx::Play(Sfx::Click);
     }
-    if (down & HidNpadButton_B)
+    if (down & HidNpadButton_B) {
         App::SetSettingsPage(-1);
         Sfx::Play(Sfx::Back);
+    }
 }
 
 } /* namespace WSettings */

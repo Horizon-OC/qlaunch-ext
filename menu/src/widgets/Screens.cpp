@@ -45,9 +45,16 @@ void Draw()
     }
 }
 
+static int s_rep = 0;
 void Input(u64 down, u64 held)
 {
     (void)held;
+    u64 rdirs = HidNpadButton_AnyLeft | HidNpadButton_AnyRight;
+    if (down & rdirs) s_rep = 0;
+    else if (held & rdirs) {
+        s_rep++;
+        if (s_rep > 20 && (s_rep % 6) == 0) down |= held & rdirs;
+    } else s_rep = 0;
     if (down & HidNpadButton_AnyLeft) {
         int s = App::FriendSel();
         if (s > 0)

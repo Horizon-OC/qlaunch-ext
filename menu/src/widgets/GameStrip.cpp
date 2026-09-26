@@ -186,7 +186,7 @@ void Draw(const LayoutNode &nd)
     float corner = 24.0f;
     float frame = 6.0f;
     float tile = nd.tile > 0.0f ? nd.tile : 384.0f;
-    float gap = nd.gap > 0.0f ? nd.gap : 25.0f;
+    float gap = nd.gap > 0.0f ? nd.gap : 50.0f;
     float pitch = tile + gap;
     float shx = Layout::ShiftX();
     float shy = App::HomeShiftY();
@@ -230,11 +230,12 @@ void Draw(const LayoutNode &nd)
     if (s_scroll < 0.0f)
         s_scroll = 0.0f;
 
-    int k0 = (int)(s_scroll / pitch) - 1;
+    float slide = shx < 0.0f ? -shx : shx;
+    int k0 = (int)((s_scroll - slide) / pitch) - 2;
     if (k0 < 0)
         k0 = 0;
 
-    int k1 = (int)((s_scroll + 1920.0f) / pitch) + 2;
+    int k1 = (int)((s_scroll + 1920.0f + slide) / pitch) + 3;
     if (k1 > n)
         k1 = n;
 

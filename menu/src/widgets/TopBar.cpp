@@ -97,7 +97,9 @@ void Draw(const LayoutNode &nd)
     }
 
     float bw = 98.0f, gap = 5.0f;
-    float x0 = (1920.0f - (bw * 5.0f + gap * 4.0f)) * 0.5f;
+    float aw = bw * 1.4f;
+    float ttot = bw * 4.0f + aw + gap * 4.0f;
+    float tx = (1920.0f - ttot) * 0.5f;
     float by = 67.0f;
     int cur = App::Menu();
 
@@ -105,16 +107,12 @@ void Draw(const LayoutNode &nd)
         bool active = (i == cur);
         bool focused = App::TopFocus() && App::TopSel() == i;
 
-        float scale = active ? 1.2f : (focused ? 1.1f : 1.0f);
-        float size = bw * scale;
-        float cx = x0 + bw * (float)i + gap * (float)i + bw * 0.5f;
-        int anchor = App::TopFocus() ? App::TopSel() : cur;
-        if (i < anchor)
-            cx -= 15.0f;
-        else if (i > anchor)
-            cx += 15.0f;
+        float sw = active ? aw : bw;
+        float size = active ? sw : bw * (focused ? 1.2f : 1.0f);
+        float cx = tx + sw * 0.5f;
         float x = cx - size * 0.5f;
         float y = by + (bw - size) * 0.5f;
+        tx += sw + gap;
         int aslot = TopArt(i, active);
 
         if (aslot > 0) {
@@ -207,12 +205,19 @@ void Draw(const LayoutNode &nd)
     }
 }
 
+static int s_rep = 0;
 void Input(u64 down, u64 held)
 {
     (void)held;
     if (!App::TopFocus())
         return;
     int s = App::TopSel();
+    u64 rdirs = HidNpadButton_AnyLeft | HidNpadButton_AnyRight;
+    if (down & rdirs) s_rep = 0;
+    else if (held & rdirs) {
+        s_rep++;
+        if (s_rep > 20 && (s_rep % 6) == 0) down |= held & rdirs;
+    } else s_rep = 0;
     if (down & HidNpadButton_AnyLeft) {
         if (s > 0) {
             App::SetTopSel(s - 1);

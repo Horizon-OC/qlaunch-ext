@@ -303,10 +303,6 @@ static void DrawGrid()
             float x = x0 + cx * (tw + gap);
             float y = y0 + cy * (th + 56.0f + gap);
             bool sel = (idx == s_sel);
-            float fr, fg, fb;
-            Theme::Color("panel", &fr, &fg, &fb);
-            Gfx::PushPanel(x - 4.0f, y - 4.0f, tw + 8.0f,
-                           th + 8.0f, 10.0f, fr, fg, fb, 1.0f);
             if (sel)
                 Gfx::PushSelectRing(x - 10.0f, y - 10.0f, tw + 20.0f, th + 20.0f, 18.0f, 8.0f);
             if (EnsureThumb(p, idx)) {
@@ -318,6 +314,17 @@ static void DrawGrid()
             if (qext_album_label(idx, lb, sizeof(lb)) > 0)
                 Font::Draw(lb, x, y + th + 52.0f, 24.0f, dimR, dimG, dimB);
         }
+    int rows = (s_count + COLS - 1) / COLS;
+    if (rows > ROWS) {
+        float tx0 = 1880.0f + shx, twd = 14.0f, ty0 = 240.0f, ty1 = 830.0f;
+        Gfx::PushPanel(tx0, ty0, twd, ty1 - ty0, 7.0f, 1.0f, 1.0f, 1.0f, 1.0f);
+        int maxTop = rows - ROWS;
+        int topRow = s_top / COLS;
+        float gh = (ty1 - ty0) * (float)ROWS / (float)rows;
+        float gy = ty0;
+        if (maxTop > 0) gy += (ty1 - ty0 - gh) * (float)topRow / (float)maxTop;
+        Gfx::PushPanel(tx0 + 2.0f, gy + 2.0f, twd - 4.0f, gh - 4.0f, 5.0f, 0.731f, 0.731f, 0.731f, 1.0f);
+    }
     }
 }
 
@@ -351,6 +358,7 @@ void Draw()
         DrawGrid();
 }
 
+static int s_rep = 0;
 bool Input(u64 down, u64 held)
 {
     (void)held;
@@ -362,6 +370,12 @@ bool Input(u64 down, u64 held)
         s_fresh = false;
         return true;
     }
+    u64 rdirs = HidNpadButton_AnyLeft | HidNpadButton_AnyRight | HidNpadButton_AnyUp | HidNpadButton_AnyDown;
+    if (down & rdirs) s_rep = 0;
+    else if (held & rdirs) {
+        s_rep++;
+        if (s_rep > 20 && (s_rep % 6) == 0) down |= held & rdirs;
+    } else s_rep = 0;
 
     if (s_full) {
         if (down & HidNpadButton_B) {
