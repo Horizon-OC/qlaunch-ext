@@ -37,6 +37,8 @@ extern "C" u64 qext_title_id(int i) { return titles::Id(i); }
 extern "C" int qext_title_name(int i, char *o, unsigned c) { return titles::Name(i, o, c); }
 extern "C" int qext_title_icon_size(int i) { return titles::IconSize(i); }
 extern "C" int qext_title_icon(int i, void *o, unsigned c) { return titles::Icon(i, o, c); }
+extern "C" int qext_title_ejected(int i) { return titles::Ejected(i); }
+int qext_titles_changed(void) { return titles::TitlesChanged(); }
 
 extern "C" int qext_album_refresh(void) { return album::Refresh(); }
 extern "C" int qext_album_count(void) { return album::Count(); }

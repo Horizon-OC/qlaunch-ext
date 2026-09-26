@@ -23,7 +23,7 @@ static float s_maxS = 0.0f;
 static unsigned s_rep = 0;
 static float s_hlT = 1.0f;
 
-static void TileFallback(const AppRow &r, float x, float y, float w, float h, float rad)
+static void TileFallback(const AppRow &r, float x, float y, float w, float h, float rad, float alpha)
 {
     float cr = 0.5f, cg = 0.5f, cb = 0.55f;
     unsigned glyph = 0;
@@ -45,7 +45,7 @@ static void TileFallback(const AppRow &r, float x, float y, float w, float h, fl
         glyph = GLYPH_JOYCON;
     }
     float size = w < h ? w : h;
-    Gfx::PushPanel(x, y, w, h, rad, cr, cg, cb, 1.0f);
+    Gfx::PushPanel(x, y, w, h, rad, cr, cg, cb, alpha);
     if (glyph) {
         char gb[4] = { 0 };
         GlyphUTF8(glyph, gb);
@@ -253,6 +253,7 @@ void Draw(const LayoutNode &nd)
 
         float cx = nd.x + shx + (float)k * pitch - s_scroll + outer * 0.5f;
         const AppRow &r = App::Row(k);
+        float ta = r.ejected ? 0.50f : 1.0f;
         float x = cx - outer * 0.5f;
         float y = nd.y + shy;
 
@@ -260,20 +261,22 @@ void Draw(const LayoutNode &nd)
             continue;
         
         if (r.iconSlot > 0) {
-            unsigned q = Gfx::PushIcon(x, y, outer, outer, corner, 1.0f, 1.0f, 1.0f, 0.0f, r.iconSlot);
+            unsigned q = Gfx::PushIcon(x, y, outer, outer, corner, 1.0f, 1.0f, 1.0f, 0.0f, r.iconSlot, -1.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, ta);
             if (q >= (unsigned)(GFX_ICONQ_MAX / 6))
-                TileFallback(r, x, y, outer, outer, corner);
+                TileFallback(r, x, y, outer, outer, corner, ta);
         } else {
-            TileFallback(r, x, y, outer, outer, corner);
+            TileFallback(r, x, y, outer, outer, corner, ta);
         }
     }
 
     if (selK >= 0) {
         float cx = nd.x + shx + (float)selK * pitch - s_scroll + outer * 0.5f;
         const AppRow &r = App::Row(selK);
+        float ta = r.ejected ? 0.50f : 1.0f;
+        float brad = r.ejected ? corner : 0.0f;
         float x = cx - outer * 0.5f;
         float y = nd.y + shy;
-        float t = s_hlT < 0.0f ? 0.0f : (s_hlT > 1.0f ? 1.0f : s_hlT);
+        float t = r.ejected ? 0.0f : (s_hlT < 0.0f ? 0.0f : (s_hlT > 1.0f ? 1.0f : s_hlT));
 
         /* More gamecard stuff. */
         float grow = 84.0f * t;
@@ -282,11 +285,11 @@ void Draw(const LayoutNode &nd)
 
         /* Rounded top and square bottom. */
         if (r.iconSlot > 0) {
-            unsigned q = Gfx::PushIcon(gx, gy, outer, outer, corner, 1.0f, 1.0f, 1.0f, 0.0f, r.iconSlot, 0.0f);
+            unsigned q = Gfx::PushIcon(gx, gy, outer, outer, corner, 1.0f, 1.0f, 1.0f, 0.0f, r.iconSlot, brad, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, ta);
             if (q >= (unsigned)(GFX_ICONQ_MAX / 6))
-                TileFallback(r, gx, gy, outer, outer, corner);
+                TileFallback(r, gx, gy, outer, outer, corner, ta);
         } else {
-            TileFallback(r, gx, gy, outer, outer, corner);
+            TileFallback(r, gx, gy, outer, outer, corner, ta);
         }
 
         if (grow > 0.5f) {
@@ -348,15 +351,16 @@ void DrawSubs()
                 float x = x0 + cx * pitch;
                 float y = y0 + cy * (tw + 44.0f);
                 const AppRow &r = App::Row(k);
+                float ta = r.ejected ? 0.50f : 1.0f;
                 bool isSel = (k == sel);
                 if (isSel)
                     Gfx::PushSelectRing(x - 8.0f, y - 8.0f, tw + 16.0f, tw + 16.0f, 20.0f, 8.0f);
                 if (r.iconSlot > 0) {
-                    unsigned q = Gfx::PushIcon(x, y, tw, tw, 12.0f, 1.0f, 1.0f, 1.0f, 0.0f, r.iconSlot);
+                    unsigned q = Gfx::PushIcon(x, y, tw, tw, 12.0f, 1.0f, 1.0f, 1.0f, 0.0f, r.iconSlot, -1.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, ta);
                     if (q >= (unsigned)(GFX_ICONQ_MAX / 6))
-                        TileFallback(r, x, y, tw, tw, 12.0f);
+                        TileFallback(r, x, y, tw, tw, 12.0f, ta);
                 } else {
-                    TileFallback(r, x, y, tw, tw, 12.0f);
+                    TileFallback(r, x, y, tw, tw, 12.0f, ta);
                 }
             }
         }

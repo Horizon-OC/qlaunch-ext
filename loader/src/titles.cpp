@@ -17,10 +17,14 @@ constexpr int kChunkCount = 30;
 struct Entry {
     u64 tid = 0;
     char name[0x201] = {0};
+    bool gamecard = false;
+    bool ejected = false;
 };
 
 Entry s_list[kMaxTitles];
 int s_count = 0;
+static Event s_ev;
+static bool s_evInit = false;
 
 /* NsApplicationControlData is NACP + 128KB icon */
 NsApplicationControlData s_ctrl;
@@ -67,9 +71,19 @@ int FetchIcon(u64 tid, unsigned *out_size)
 
 } // namespace
 
+bool IsOnGameCard(u64 tid)
+{
+    NsApplicationContentMetaStatus st{};
+    s32 out = 0;
+    if (R_FAILED(nsListApplicationContentMetaStatus(tid, 0, &st, 1, &out)))
+        return false;
+    if (out <= 0)
+        return false;
+    return st.storageID == NcmStorageId_GameCard;
+}
 int Refresh()
 {
-    /* Collect the live set first (includes gamecard titles while mounted). */
+    /* Collect titles that are currently loaded first */
     u64 tids[kMaxTitles];
     int ntid = 0;
     NsApplicationRecord chunk[kChunkCount] = {};
@@ -101,7 +115,7 @@ int Refresh()
         if (got < kChunkCount)
             break;
     }
-    /* Merge: keep cached names for survivors, resolve only newcomers. */
+
     Entry next[kMaxTitles];
     int nnext = 0;
     bool changed = (ntid != s_count);
@@ -110,6 +124,8 @@ int Refresh()
         for (int j = 0; j < s_count; j++) {
             if (s_list[j].tid == tids[i]) {
                 next[nnext++] = s_list[j];
+            if (next[nnext - 1].ejected) changed = true;
+            next[nnext - 1].ejected = false;
                 kept = true;
                 break;
             }
@@ -118,12 +134,31 @@ int Refresh()
             continue;
         changed = true;
         next[nnext].tid = tids[i];
+            next[nnext].gamecard = IsOnGameCard(tids[i]);
+            next[nnext].ejected = false;
         if (!ResolveName(tids[i], next[nnext].name, sizeof(next[nnext].name)))
             snprintf(next[nnext].name, sizeof(next[nnext].name),
                      "%016llX", (unsigned long long)tids[i]);
         nnext++;
     }
-    /* Stable ascending order. */
+    for (int j = 0; j < s_count && nnext < kMaxTitles; j++) {
+        bool live = false;
+        for (int i = 0; i < ntid; i++) {
+            if (tids[i] == s_list[j].tid) {
+                live = true;
+                break;
+            }
+        }
+        if (live || !s_list[j].gamecard)
+            continue;
+        next[nnext] = s_list[j];
+        if (!next[nnext].ejected) {
+            next[nnext].ejected = true;
+            changed = true;
+        }
+        nnext++;
+    }
+    /* ascending order. */
     for (int i = 1; i < nnext; i++) {
         Entry key = next[i];
         int j = i - 1;
@@ -136,6 +171,23 @@ int Refresh()
     for (int i = 0; i < nnext; i++)
         s_list[i] = next[i];
     s_count = nnext;
+    u64 uids[kMaxTitles];
+    for (int i = 0; i < s_count; i++)
+        uids[i] = s_list[i].tid;
+    NsApplicationView views[kMaxTitles];
+    if (s_count > 0 && R_SUCCEEDED(nsGetApplicationView(views, uids, s_count))) {
+        for (int i = 0; i < s_count; i++) {
+            if (views[i].flags & BIT(6))
+                s_list[i].gamecard = true;
+            if (s_list[i].gamecard) {
+                bool ej = !(views[i].flags & BIT(7));
+                if (ej != s_list[i].ejected) {
+                    s_list[i].ejected = ej;
+                    changed = true;
+                }
+            }
+        }
+    }
     if (changed)
         logging::LogLine("[titles] refreshed: %d", s_count);
     return s_count;
@@ -151,6 +203,25 @@ u64 Id(int index)
     if (index < 0 || index >= s_count)
         return 0;
     return s_list[index].tid;
+}
+int Ejected(int index)
+{
+    if (index < 0 || index >= s_count)
+        return 0;
+    return s_list[index].ejected ? 1 : 0;
+}
+int TitlesChanged()
+{
+    if (!s_evInit) {
+        if (R_FAILED(nsGetApplicationRecordUpdateSystemEvent(&s_ev)))
+            return 0;
+        s_evInit = true;
+    }
+    if (R_SUCCEEDED(eventWait(&s_ev, 0))) {
+        svcSleepThread(100000000ULL);
+        return 1;
+    }
+    return 0;
 }
 
 int Name(int index, char *out, unsigned out_cap)

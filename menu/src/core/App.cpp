@@ -152,6 +152,7 @@ void Reload()
         AppRow *r = &rows_[rowCount_++];
         r->isGame = true;
         r->tid = qext_title_id(i);
+        r->ejected = qext_title_ejected(i) > 0;
         r->applet = -1;
         r->iconSlot = -1;
         r->name[0] = 0;
@@ -256,19 +257,32 @@ bool Activate()
         return false;
     AppRow *r = &rows_[sel_];
     if (r->isGame) {
+        if (r->ejected) {
+            Sfx::Play(Sfx::Back);
+            return true;
+        }
         u64 susp = qext_suspended_title();
         if (susp != 0 && susp == r->tid && qext_game_running() &&
             !qext_game_has_foreground()) {
             launchBlack_ = true;
             Blackout();
-            qext_resume_game();
-            Sfx::Play(Sfx::Click);
+            if (R_FAILED(qext_resume_game())) {
+                launchBlack_ = false;
+                qext_terminate_game();
+                Sfx::Play(Sfx::Back);
+            } else {
+                Sfx::Play(Sfx::Click);
+            }
             return true;
         } else if (!qext_game_has_foreground()) {
             launchBlack_ = true;
             Blackout();
-            qext_launch_title(r->tid);
-            Sfx::Play(Sfx::Click);
+            if (R_FAILED(qext_launch_title(r->tid))) {
+                launchBlack_ = false;
+                Sfx::Play(Sfx::Back);
+            } else {
+                Sfx::Play(Sfx::Click);
+            }
             return true;
         }
         return false;
@@ -318,10 +332,11 @@ void Loop()
     tick_++;
     if ((frame_ % 60) == 0)
         Clock::Tick();
-    if (frame_ >= 300) {
+    if (frame_ >= 150) {
         frame_ = 0;
         RefreshTitles();
     }
+    if (qext_titles_changed()) RefreshTitles();
     Present(launchBlack_);
     Sfx::Tick();
 }

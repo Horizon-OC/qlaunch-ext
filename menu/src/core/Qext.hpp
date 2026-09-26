@@ -15,6 +15,7 @@ u64 qext_title_id(int index);
 int qext_title_name(int index, char *out, unsigned out_cap);
 int qext_title_icon_size(int index);
 int qext_title_icon(int index, void *out, unsigned cap);
+int qext_title_ejected(int index);
 
 /* Album (images only). TODO: add support for videos */
 int qext_album_refresh(void);
@@ -44,6 +45,7 @@ Result setsysGetColorSetId(ColorSetId *out);
 
 #ifdef __cplusplus
 }
+int qext_titles_changed(void);
 #endif
 
 namespace logging {

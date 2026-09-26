@@ -14,6 +14,7 @@ struct AppRow {
     u64 tid;
     int applet; /* 0 album, 1 controllers */
     int iconSlot;
+    bool ejected;
     char name[APP_NAME_MAX];
 };
 

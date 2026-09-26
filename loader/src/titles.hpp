@@ -17,4 +17,8 @@ int IconSize(int index);
 /* Copies JPEG icon bytes. Returns bytes written (<0 on error). */
 int Icon(int index, void *out, unsigned cap);
 
+/* Is the gamecard present */
+int Ejected(int index);
+int TitlesChanged();
+
 } // namespace titles

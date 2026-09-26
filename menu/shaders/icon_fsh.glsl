@@ -43,6 +43,6 @@ void main()
     vec4 tx = texture(tex, fragUv);
     float cov = ai * tx.a;
     vec3 col = mix(fragColor.rgb, tx.rgb * fragColor.rgb, cov);
-    outColor = vec4(col, ao * cov);
+    outColor = vec4(col, ao * cov * fragColor.a);
 }
 

@@ -391,7 +391,7 @@ void Gfx::PushPanel(float x, float y, float w, float h, float rad,
 
 unsigned Gfx::PushIcon(float x, float y, float w, float h, float rad,
                        float r, float g, float b, float border, int tex, float brad,
-                       float u0, float v0, float u1, float v1, float edgeBlend)
+                      float u0, float v0, float u1, float v1, float edgeBlend, float alpha)
 {
     if (icoCount_ + 6 > GFX_ICONQ_MAX)
         return 0xFFFFFFFFu;
@@ -410,7 +410,7 @@ unsigned Gfx::PushIcon(float x, float y, float w, float h, float rad,
     for (int i = 0; i < 6; i++) {
         v[i].ox = X0; v[i].oy = Y0;
         v[i].w = W; v[i].h = H; v[i].rad = R; v[i].pad = border;
-        v[i].r = r; v[i].g = g; v[i].b = b; v[i].a = 1.0f;
+        v[i].r = r; v[i].g = g; v[i].b = b; v[i].a = alpha;
         v[i].tslot = (float)tex;
         v[i].brad = (brad < 0.0f) ? rad : brad;
         v[i].edge = edgeBlend;

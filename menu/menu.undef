@@ -1,3 +1,4 @@
+_Z19qext_titles_changedv
 _ZN7logging7LogLineEPKcz
 accountGetProfile
 accountListAllUsers
@@ -102,6 +103,7 @@ qext_sleep
 qext_suspended_title
 qext_terminate_game
 qext_title_count
+qext_title_ejected
 qext_title_icon
 qext_title_icon_size
 qext_title_id
