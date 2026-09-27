@@ -13,6 +13,11 @@ int Refresh();
 int Count();
 
 int FileId(int index, CapsAlbumFileId *out);
+int IsMovie(int index);
+int MovieOpen(int index);
+u64 MovieSize(int h);
+int MovieRead(int h, u64 off, void *out, unsigned cap);
+int MovieClose(int h);
 
 int ThumbSize(int index);
 

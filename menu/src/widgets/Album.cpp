@@ -234,7 +234,7 @@ bool IsOpen()
 
 bool IsFull()
 {
-    return s_open && s_full;
+    return s_open && (s_full || WVideo::IsOpen());
 }
 
 void Open()
@@ -242,6 +242,7 @@ void Open()
     s_count = 0;
     for (int r = 0; r < 3 && s_count <= 0; r++)
         s_count = qext_album_refresh();
+        WVideo::DurReset();
     logging::LogLine("[album] opened: %d images", s_count);
     if (s_count < 0)
         s_count = 0;
@@ -251,7 +252,25 @@ void Open()
     s_fresh = true;
     ClearThumbs();
     FreeSlot(&s_fullImg);
+    WVideo::DurReset();
     s_open = true;
+}
+
+void OpenFull(int albumIndex)
+{
+    if (!s_open || albumIndex < 0 || albumIndex >= s_count) {
+        return;
+    }
+
+    if (qext_album_is_movie(albumIndex) > 0) {
+        return;
+    }
+
+    s_sel = albumIndex;
+    ClampSel();
+    s_full = true;
+    s_fresh = false;
+    Sfx::Play(Sfx::Hover);
 }
 
 void Close()
@@ -315,6 +334,21 @@ static void DrawGrid()
             } else {
                 Gfx::PushPanel(x, y, tw, th, 8.0f, 0.25f, 0.26f, 0.30f, 1.0f);
             }
+            if (qext_album_is_movie(idx) > 0) {
+                double vd = WVideo::Duration(idx);
+                if (vd > 0.0) {
+                    char db[16];
+                    int dmm = (int)(vd / 60.0);
+                    int dss = (int)(vd - (double)(dmm * 60));
+                    snprintf(db, sizeof(db), "%d:%02d", dmm, dss);
+                    float twn = Font::Measure(db, 24.0f);
+                    float bw = twn + 20.0f;
+                    float bx = x + tw - bw - 8.0f;
+                    float by = y + th - 34.0f - 8.0f;
+                    Gfx::PushPanel(bx, by, bw, 34.0f, 8.0f, 0.0f, 0.0f, 0.0f, 0.6f);
+                    Font::Draw(db, bx + 10.0f, by + 25.0f, 24.0f, 1.0f, 1.0f, 1.0f);
+                }
+            }
         }
     int rows = (s_count + COLS - 1) / COLS;
     if (rows > ROWS) {
@@ -354,6 +388,10 @@ void Draw()
 {
     if (!s_open)
         return;
+    if (WVideo::IsOpen()) {
+        WVideo::Draw();
+        return;
+    }
     if (s_full)
         DrawFull();
     else
@@ -366,6 +404,8 @@ bool Input(u64 down, u64 held)
     (void)held;
     if (!s_open)
         return false;
+
+    if (WVideo::IsOpen()) return WVideo::Input(down, held);
 
     /* Remove any a presses if they opened the viewer */
     if (s_fresh) {
@@ -386,36 +426,57 @@ bool Input(u64 down, u64 held)
             Sfx::Play(Sfx::Back);
             return true;
         }
-        if (down & HidNpadButton_AnyLeft) {
+        if (down & (HidNpadButton_AnyLeft | HidNpadButton_L | HidNpadButton_ZL)) {
             if (s_sel > 0) {
-                s_sel--;
-                ClampSel();
-                Sfx::Play(Sfx::Hover);
+                int ni = s_sel - 1;
+
+                if (qext_album_is_movie(ni) > 0) {
+                    if (WVideo::Open(ni)) {
+                        s_sel = ni;
+                        s_full = false;
+                        ClampSel();
+                        Sfx::Play(Sfx::Hover);
+                    }
+                }
+                else {
+                    s_sel = ni;
+                    ClampSel();
+                    Sfx::Play(Sfx::Hover);
+                }
             }
             return true;
         }
-        if (down & HidNpadButton_AnyRight) {
-            if (s_sel < s_count - 1) {
-                s_sel++;
-                ClampSel();
-                Sfx::Play(Sfx::Hover);
+        if (down & (HidNpadButton_AnyRight | HidNpadButton_R | HidNpadButton_ZR)) {
+            if (s_sel + 1 < s_count) {
+                int ni = s_sel + 1;
+
+                if (qext_album_is_movie(ni) > 0) {
+                    if (WVideo::Open(ni)) {
+                        s_sel = ni;
+                        s_full = false;
+                        ClampSel();
+                        Sfx::Play(Sfx::Hover);
+                    }
+                }
+                else {
+                    s_sel = ni;
+                    ClampSel();
+                    Sfx::Play(Sfx::Hover);
+                }
             }
             return true;
         }
         if (down & HidNpadButton_Plus) {
             s_count = qext_album_refresh();
+            WVideo::DurReset();
             if (s_count < 0)
                 s_count = 0;
             ClampSel();
             FreeSlot(&s_fullImg);
             return true;
         }
-        if (down & HidNpadButton_A) {
-            s_full = false;
-            FreeSlot(&s_fullImg);
-            Sfx::Play(Sfx::Back);
+        if (down & HidNpadButton_A)
             return true;
-        }
         return true;
     }
 
@@ -427,14 +488,22 @@ bool Input(u64 down, u64 held)
 
     if (down & HidNpadButton_A) {
         if (s_count > 0) {
-            s_full = true;
-            Sfx::Play(Sfx::Click);
+            CapsAlbumFileId fid;
+            int mv = qext_album_is_movie(s_sel);
+            if (mv > 0) {
+                if (!WVideo::Open(s_sel))
+                    Sfx::Play(Sfx::Back);
+            } else {
+                s_full = true;
+                Sfx::Play(Sfx::Click);
+            }
         }
         return true;
     }
 
     if (down & HidNpadButton_Plus) {
         s_count = qext_album_refresh();
+        WVideo::DurReset();
         if (s_count < 0)
             s_count = 0;
         ClampSel();

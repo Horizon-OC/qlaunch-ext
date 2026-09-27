@@ -16,11 +16,11 @@ if [ -z "${DEVKITPRO:-}" ]; then
     fi
 fi
 
-# neko3d-module cannot rebuild from scratch in this tree (its sources reference
+# lib/neko3d-module cannot rebuild from scratch in this tree (its sources reference
 # generated headers that are not present); its binary never changes, so only
 # build it when the artifact is missing.
-if [ ! -f "$ROOT/neko3d-module/neko3d.dnro" ]; then
-    make -C "$ROOT/neko3d-module" -j"$(nproc)"
+if [ ! -f "$ROOT/lib/neko3d-module/neko3d.dnro" ]; then
+    make -C "$ROOT/lib/neko3d-module" -j"$(nproc)"
 fi
 make -C "$ROOT/menu" -j"$(nproc)"
 if [ -d "$ROOT/plugins" ]; then
@@ -36,7 +36,7 @@ make -C "$ROOT/loader" -j"$(nproc)"
 # Fails the build instead of shipping a menu that cannot open.
 NM="$DEVKITPRO/devkitA64/bin/aarch64-none-elf-nm"
 "$NM" -D -u "$ROOT/menu/menu.elf" | awk "{print \$NF}" | sort -u > "$ROOT/build.menuneed"
-{ "$NM" -D --defined-only "$ROOT/loader/loader.elf" | awk "{print \$NF}"; cat "$ROOT/neko3d-module/neko3d.def"; } | sort -u > "$ROOT/build.hosthave"
+{ "$NM" -D --defined-only "$ROOT/loader/loader.elf" | awk "{print \$NF}"; cat "$ROOT/lib/neko3d-module/neko3d.def"; } | sort -u > "$ROOT/build.hosthave"
 MISSING=$(comm -23 "$ROOT/build.menuneed" "$ROOT/build.hosthave" | grep -v "^dk" || true)
 rm -f "$ROOT/build.menuneed" "$ROOT/build.hosthave"
 if [ -n "$MISSING" ]; then
@@ -53,7 +53,7 @@ rm -rf "$PKG/switch"
 rm -rf "$PKG/sdroot"
 mkdir -p "$PKG/qlaunch-ext/plugins"
 cp "$ROOT/loader/loader.nsp" "$DEST/exefs.nsp"
-cp "$ROOT/neko3d-module/neko3d.dnro" "$PKG/lib/neko3d.dnro"
+cp "$ROOT/lib/neko3d-module/neko3d.dnro" "$PKG/lib/neko3d.dnro"
 mkdir -p "$PKG/qlaunch-ext/menus"
 cp "$ROOT/menu/menu.dnro" "$PKG/qlaunch-ext/menus/menu.dnro"
 for f in "$ROOT"/plugins/*/*.dnro; do

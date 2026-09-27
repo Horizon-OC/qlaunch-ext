@@ -6,11 +6,17 @@
 
 namespace Sfx {
 
-enum Id { Hover, Click, Back, AlbumJ, SettingsJ, HomeJ, HomeBoot, EshopJ, ChatJ, FolderJ, VgcJ, StandbyJ, Count };
+    enum Id { Hover, Click, Back, AlbumJ, SettingsJ, HomeJ, HomeBoot, EshopJ, ChatJ, FolderJ, VgcJ, StandbyJ, Count };
 
-bool Init();
-void Shutdown();
-void Tick();
-void Play(Id id, float pitch = 1.0f);
+    bool Init();
+    void Shutdown();
+    void Tick();
+    void Play(Id id, float pitch = 1.0f);
+    void VideoBegin();
+    void VideoEnd();
+    void VideoPush(const short *pcm, unsigned frames);
+    void VideoSeekTo(double secs);
+    bool VideoHungry();
+    double VideoTime();
 
 } /* namespace Sfx */

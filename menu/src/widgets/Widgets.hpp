@@ -49,11 +49,23 @@ namespace WAlbum {
     bool IsFull();
     bool IsOpen();
     void Open();
+    void OpenFull(int albumIndex);
     void Close();
     void Draw();
     bool Input(u64 down, u64 held);
     void OnRefresh();
+
 } /* namespace WAlbum */
+
+namespace WVideo {
+    bool IsOpen();
+    bool Open(int albumIndex);
+    void Close();
+    void Draw();
+    bool Input(u64 down, u64 held);
+    double Duration(int albumIndex);
+    void DurReset();
+} // namespace WVideo
 
 enum : unsigned {
     GLYPH_A = 0xE0A0,

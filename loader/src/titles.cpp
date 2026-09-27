@@ -7,6 +7,7 @@
 #include <cstring>
 #include <shared/logging.hpp>
 #include <stdio.h>
+#include <zlib.h>
 
 namespace titles {
 
@@ -38,6 +39,55 @@ static char s_rb[] = { 'r', 'b', 0 };
 /* NsApplicationControlData is NACP + 128KB icon */
 NsApplicationControlData s_ctrl;
 
+
+/* For newer games using compressed NACP */
+struct NacpExCompressed {
+    u16 csize;
+    u8 data[0x2FFE];
+    u8 unusedA[0x215];
+    u8 titlesDataFormat;
+    u8 unusedB[0xDEA];
+};
+
+static_assert(sizeof(NacpStruct) == sizeof(NacpExCompressed), "nacp size mismatch");
+
+static bool NacpConvertTitleData(NacpStruct *nacp)
+{
+    NacpExCompressed *compressed = (NacpExCompressed *)nacp;
+
+    if (compressed->titlesDataFormat == 0)
+        return true;
+
+    if (compressed->titlesDataFormat != 1) {
+        logging::LogLine("[titles] Cant decode NACP (format %u)", compressed->titlesDataFormat);
+        return false;
+    }
+    
+    NacpLanguageEntry tmp[32];
+    z_stream stream = {};
+    
+    stream.avail_out = sizeof(tmp);
+    stream.next_out = (Bytef *)tmp;
+    stream.avail_in = compressed->csize;
+    stream.next_in = compressed->data;
+
+    int ret = inflateInit2(&stream, -15);
+    if (ret != Z_OK) {
+        logging::LogLine("[titles] Can't inflate NACP (rc: %d)", ret);
+        return false;
+    }
+
+    ret = inflate(&stream, Z_FINISH);
+    inflateEnd(&stream);
+    if (ret != Z_STREAM_END) {
+        logging::LogLine("[titles] Can't inflate NACP (rc: %d)", ret);
+        return false;
+    }
+    compressed->titlesDataFormat = 0;
+    memcpy(nacp->lang, tmp, sizeof(nacp->lang));
+    return true;
+}
+
 bool ResolveName(u64 tid, char *out, unsigned cap)
 {
     if (cap == 0)
@@ -48,6 +98,9 @@ bool ResolveName(u64 tid, char *out, unsigned cap)
                                             &s_ctrl, sizeof(s_ctrl), &actual);
     if (R_FAILED(rc) || actual < sizeof(NacpStruct))
         return false;
+    
+    NacpConvertTitleData(&s_ctrl.nacp);
+    
     NacpLanguageEntry *lang = nullptr;
     if (R_SUCCEEDED(nacpGetLanguageEntry(&s_ctrl.nacp, &lang)) && lang && lang->name[0])
         snprintf(out, cap, "%s", lang->name);

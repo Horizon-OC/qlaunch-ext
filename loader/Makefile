@@ -58,8 +58,8 @@ CXXFLAGS	:= $(CFLAGS) -fno-rtti -fno-exceptions
 
 ASFLAGS	:=	-g $(ARCH)
 comma := ,
-NEKO_UNDEFS := $(shell cat $(TOPDIR)/../neko3d-module/neko3d.undef 2>/dev/null)
-NEKO_DEFS := $(shell cat $(TOPDIR)/../neko3d-module/neko3d.def 2>/dev/null)
+NEKO_UNDEFS := $(shell cat $(TOPDIR)/../lib/neko3d-module/neko3d.undef 2>/dev/null)
+NEKO_DEFS := $(shell cat $(TOPDIR)/../lib/neko3d-module/neko3d.def 2>/dev/null)
 MENU_UNDEFS := $(shell cat $(TOPDIR)/../menu/menu.undef 2>/dev/null)
 # FIXED loader ABI: every libc/libm leaf any menu build (past or future) may
 # import, independent of menu.undef. The loader never needs a relink for menu
@@ -81,7 +81,7 @@ WA_LIBS := $(LIBNX)/lib/libnx.a
 LDFLAGS += -Wl,--whole-archive $(WA_LIBS) -Wl,--no-whole-archive
 LDFLAGS += -g $(ARCH) -Wl,-Map,$(notdir $*.map) -Wl,--export-dynamic $(foreach s,$(HOST_NEEDS),-Wl$(comma)-u$(s))
 
-LIBS	:= -ldlink -lnx -lm
+LIBS	:= -ldlink -lnx -lm -lz
 
 #---------------------------------------------------------------------------------
 # list of directories containing libraries, this must be the top level containing

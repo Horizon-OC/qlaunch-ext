@@ -1,5 +1,5 @@
 TOP := $(CURDIR)
-NEKO := $(TOP)/../neko3d
+NEKO := $(TOP)/../lib/neko3d
 DLINK := $(TOP)/../extern/libnx-dlink
 
 DEVKITPRO ?= /opt/devkitpro
@@ -11,11 +11,12 @@ PY := python3
 UAM := $(DEVKITPRO)/tools/bin/uam
 
 ARCH := -march=armv8-a -mtune=cortex-a57 -mtp=soft -fPIC
-BASEFLAGS := -g -O2 -ffunction-sections -fdata-sections $(ARCH) -D__SWITCH__ -I$(NEKO)/include -I$(DEVKITPRO)/libnx/include -I$(TOP)/src
+BASEFLAGS := -g -O2 -ffunction-sections -fdata-sections $(ARCH) -D__SWITCH__ -I$(NEKO)/include -I$(DEVKITPRO)/libnx/include -I$(TOP)/src -I$(TOP)/../extern/ffmpeg-install/include
 CFLAGS := $(BASEFLAGS)
 CXXFLAGS := $(BASEFLAGS) -std=c++17 -fno-exceptions -fno-rtti -fno-threadsafe-statics -MMD -MP
 ASFLAGS := -g $(ARCH)
-LDFLAGS := -specs=$(DLINK)/tools/module.specs -g $(ARCH) -shared -nodefaultlibs -Wl,--export-dynamic -Wl,-Map,$(TOP)/menu.map -Wl,-z,nopack-relative-relocs
+LDFLAGS := -specs=$(DLINK)/tools/module.specs -g $(ARCH) -shared -nodefaultlibs -Wl,--export-dynamic -Wl,-Map,$(TOP)/menu.map -Wl,-z,nopack-relative-relocs -L$(TOP)/../extern/ffmpeg-install/lib -Wl,-Bsymbolic
+FFLIBS := -lavformat -lavcodec -lswscale -lswresample -lavutil -lgcc
 
 SRCS := $(wildcard $(TOP)/src/*.cpp $(TOP)/src/core/*.cpp $(TOP)/src/widgets/*.cpp)
 OBJS := $(patsubst $(TOP)/%.cpp,$(TOP)/build/%.o,$(SRCS))
@@ -53,8 +54,8 @@ $(TOP)/menu.undef: $(TOP)/menu.elf
 $(TOP)/menu.dnro: $(TOP)/menu.elf
 	$(PY) $(DLINK)/tools/elf2dnro.py $(TOP)/menu.elf $(TOP)/menu.dnro
 
-$(TOP)/menu.elf: $(OBJS)
-	$(CXX) $(LDFLAGS) -o $@ $(OBJS)
+$(TOP)/menu.elf: $(OBJS) $(TOP)/Makefile
+	$(CXX) $(LDFLAGS) -o $@ $(OBJS) $(FFLIBS)
 
 $(TOP)/build/%.o: $(TOP)/%.cpp
 	@mkdir -p $(dir $@)

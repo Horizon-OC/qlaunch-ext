@@ -1,5 +1,5 @@
 TOP := $(CURDIR)
-NEKO := $(TOP)/../neko3d
+NEKO := $(TOP)/../lib/neko3d
 DLINK := $(TOP)/../extern/libnx-dlink
 GEN := $(TOP)/build/gen
 

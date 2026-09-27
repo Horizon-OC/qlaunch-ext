@@ -45,6 +45,11 @@ static unsigned s_appFails = 0;
 static unsigned s_plays = 0;
 static unsigned s_rng = 0x12345678;
 static unsigned s_rels = 0;
+static bool s_video = false;
+static short s_vidBuf[48000];
+static unsigned s_vidHead = 0;
+static unsigned s_vidLen = 0;
+static unsigned s_vidPlayed = 0;
 
 static unsigned Rd32(const unsigned char *p)
 {
@@ -178,8 +183,12 @@ void Shutdown()
 
 void Play(Id id, float pitch)
 {
-    if (!s_ready || (int)id < 0 || (int)id >= (int)Count)
+    if (!s_ready || (int)id < 0 || (int)id >= (int)Count) {
         return;
+    }
+    if (s_video) {
+        return;
+    }
     const Clip &c = s_clips[(int)id];
     if (!c.pcm || !c.frames || !c.rate)
         return;
@@ -190,7 +199,7 @@ void Play(Id id, float pitch)
     v.ch = c.ch;
     float p = pitch;
     if (id == Hover) {
-        s_rng = s_rng * 1664525u + 1013904223u + s_ticks;
+        s_rng = s_rng * 1664525u + 1013904223u + (s_ticks++);
         float u = (float)(s_rng >> 8) * (1.0f / 16777216.0f);
         p = powf(1.3f, u * 2.0f - 1.0f);
     }
@@ -212,49 +221,63 @@ void Tick()
     if (!s_ready)
         return;
     short *dst = s_pool[s_qi];
-    for (unsigned f = 0; f < FRAMES_PER_TICK; f++) {
-        int l = 0;
-        int r = 0;
-        for (unsigned vi = 0; vi < VOICES; vi++) {
-            Voice &v = s_voices[vi];
-            if (!v.on)
-                continue;
-            unsigned idx = v.pos >> 16;
-            if (idx >= v.frames) {
-                v.on = false;
-                continue;
-            }
-            unsigned fr8 = (v.pos >> 8) & 255u;
-            unsigned nx = idx + 1u < v.frames ? idx + 1u : idx;
-            int s0l;
-            int s0r;
-            int s1l;
-            int s1r;
-            if (v.ch == 1) {
-                s0l = v.pcm[idx];
-                s0r = s0l;
-                s1l = v.pcm[nx];
-                s1r = s1l;
+
+    if (s_video) {
+        for (unsigned f = 0; f < FRAMES_PER_TICK * 2u; f++) {
+            if (s_vidLen > 0) {
+                dst[f] = s_vidBuf[s_vidHead];
+                s_vidHead = (s_vidHead + 1u) % 48000u;
+                s_vidLen--;
             } else {
-                s0l = v.pcm[idx * 2u];
-                s0r = v.pcm[idx * 2u + 1u];
-                s1l = v.pcm[nx * 2u];
-                s1r = v.pcm[nx * 2u + 1u];
+                dst[f] = 0;
             }
-            l += (int)((float)(s0l + (((s1l - s0l) * (int)fr8) >> 8)) * v.vol);
-            r += (int)((float)(s0r + (((s1r - s0r) * (int)fr8) >> 8)) * v.vol);
-            v.pos += v.step;
         }
-        if (l > 32767)
-            l = 32767;
-        else if (l < -32768)
-            l = -32768;
-        if (r > 32767)
-            r = 32767;
-        else if (r < -32768)
-            r = -32768;
-        dst[f * 2u] = (short)l;
-        dst[f * 2u + 1u] = (short)r;
+        s_vidPlayed += FRAMES_PER_TICK;
+    } else {
+        for (unsigned f = 0; f < FRAMES_PER_TICK; f++) {
+            int l = 0;
+            int r = 0;
+            for (unsigned vi = 0; vi < VOICES; vi++) {
+                Voice &v = s_voices[vi];
+                if (!v.on)
+                    continue;
+                unsigned idx = v.pos >> 16;
+                if (idx >= v.frames) {
+                    v.on = false;
+                    continue;
+                }
+                unsigned fr8 = (v.pos >> 8) & 255u;
+                unsigned nx = idx + 1u < v.frames ? idx + 1u : idx;
+                int s0l;
+                int s0r;
+                int s1l;
+                int s1r;
+                if (v.ch == 1) {
+                    s0l = v.pcm[idx];
+                    s0r = s0l;
+                    s1l = v.pcm[nx];
+                    s1r = s1l;
+                } else {
+                    s0l = v.pcm[idx * 2u];
+                    s0r = v.pcm[idx * 2u + 1u];
+                    s1l = v.pcm[nx * 2u];
+                    s1r = v.pcm[nx * 2u + 1u];
+                }
+                l += (int)((float)(s0l + (((s1l - s0l) * (int)fr8) >> 8)) * v.vol);
+                r += (int)((float)(s0r + (((s1r - s0r) * (int)fr8) >> 8)) * v.vol);
+                v.pos += v.step;
+            }
+            if (l > 32767)
+                l = 32767;
+            else if (l < -32768)
+                l = -32768;
+            if (r > 32767)
+                r = 32767;
+            else if (r < -32768)
+                r = -32768;
+            dst[f * 2u] = (short)l;
+            dst[f * 2u + 1u] = (short)r;
+        }
     }
     AudioOutBuffer *ab = &s_buf[s_qi];
     s_qi = (s_qi + 1u) % POOL_N;
@@ -278,8 +301,46 @@ void Tick()
         else
             s_appFails++;
     }
-    if (++s_ticks == 300)
-        logging::LogLine("[sfx] 300 ticks: ok=%u fail=%u plays=%u rels=%u", s_appends, s_appFails, s_plays, s_rels);
 }
 
+void VideoBegin()
+{
+    for (unsigned i = 0; i < VOICES; i++)
+        s_voices[i].on = false;
+    s_video = true;
+    s_vidHead = 0;
+    s_vidLen = 0;
+    s_vidPlayed = 0;
+}
+void VideoEnd()
+{
+    s_video = false;
+    s_vidHead = 0;
+    s_vidLen = 0;
+}
+void VideoPush(const short *pcm, unsigned frames)
+{
+    if (!pcm)
+        return;
+    for (unsigned i = 0; i < frames * 2u; i++) {
+        if (s_vidLen >= 48000u)
+            break;
+        s_vidBuf[(s_vidHead + s_vidLen) % 48000u] = pcm[i];
+        s_vidLen++;
+    }
+}
+void VideoSeekTo(double secs)
+{
+    s_vidHead = 0;
+    s_vidLen = 0;
+    s_vidPlayed = secs > 0.0 ? (unsigned)(secs * 48000.0) : 0u;
+}
+bool VideoHungry()
+{
+    return s_vidLen < 9600u;
+}
+double VideoTime()
+{
+    return (double)s_vidPlayed / 48000.0;
+}
 } /* namespace Sfx */

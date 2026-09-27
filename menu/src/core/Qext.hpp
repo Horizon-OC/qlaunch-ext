@@ -17,7 +17,7 @@ int qext_title_icon_size(int index);
 int qext_title_icon(int index, void *out, unsigned cap);
 int qext_title_ejected(int index);
 
-/* Album (images only). TODO: add support for videos */
+/* Album */
 int qext_album_refresh(void);
 int qext_album_count(void);
 int qext_album_thumb_size(int index);
@@ -26,6 +26,11 @@ int qext_album_image_size(int index);
 int qext_album_image(int index, void *out, unsigned cap);
 int qext_album_label(int index, char *out, unsigned cap);
 int qext_album_fileid(int index, CapsAlbumFileId *out);
+int qext_album_is_movie(int index);
+int qext_album_movie_open(int index);
+u64 qext_album_movie_size(int handle);
+int qext_album_movie_read(int handle, u64 offset, void *out, unsigned cap);
+int qext_album_movie_close(int handle);
 
 Result qext_launch_title(u64 tid);
 Result qext_resume_game(void);

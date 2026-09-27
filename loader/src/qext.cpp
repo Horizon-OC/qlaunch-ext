@@ -48,6 +48,14 @@ extern "C" int qext_album_image_size(int i) { return album::ImageSize(i); }
 extern "C" int qext_album_image(int i, void *o, unsigned c) { return album::Image(i, o, c); }
 extern "C" int qext_album_label(int i, char *o, unsigned c) { return album::Label(i, o, c); }
 extern "C" int qext_album_fileid(int i, CapsAlbumFileId *o) { return album::FileId(i, o); }
+extern "C" int qext_album_is_movie(int i) { return album::IsMovie(i); }
+extern "C" int qext_album_movie_open(int i)
+{
+    return album::MovieOpen(i);
+}
+extern "C" u64 qext_album_movie_size(int h) { return album::MovieSize(h); }
+extern "C" int qext_album_movie_read(int h, u64 off, void *o, unsigned c) { return album::MovieRead(h, off, o, c); }
+extern "C" int qext_album_movie_close(int h) { return album::MovieClose(h); }
 
 extern "C" Result qext_launch_title(u64 tid)
 {

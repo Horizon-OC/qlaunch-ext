@@ -28,13 +28,18 @@ TODO
     - SocialPlugin: Social feature from a selfhosted server
     - EmulationPlugin: Depends on FakeForwarderPlugin, emulator integration
     - FileManagerPlugin: Self explanitory
-    
+
+## Homebrew support
+This is only officially supported on FW >16.0.0
+All homebrew should be supported.
+
 ## Credits
 
 /* qlaunch-ext (C) 2026 Souldbminer */
 /* Licensed under the GPLv2         */
 /* Pain... and suffering.           */
 
-Special thanks to XolTroll and PoloNX for uLaunch and SwitchU. Their implementation is very helpful as reference and certan parts are adapted from them <3
-
-The menu is based on a mockup by toxiquid, so huge thanks to them. Their design is great and served as the base for the one used here
+Credits, in no particular order
+- XolTroll and PoloNX for uLaunch and SwitchU. Their implementation is very helpful as reference and certan parts are adapted from them <3
+- toxiquid for the menu mockup
+- HookedBeheamouth for their partial capsrv reimplementation (This is the only reason why videos work in the album)
