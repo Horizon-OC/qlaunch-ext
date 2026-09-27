@@ -24,8 +24,8 @@ static int s_sel = 0;
 static int s_top = 0;
 static int s_count = 0;
 
-enum { COLS = 4, ROWS = 2, VIS = COLS * ROWS };
-enum { THUMB_SLOTS = 8, FULL_SLOT = 8 };
+enum { COLS = 5, ROWS = 3, VIS = COLS * ROWS };
+enum { THUMB_SLOTS = 15, FULL_SLOT = 15 };
 
 struct Slot {
     bool used;
@@ -42,6 +42,7 @@ static uint8_t *s_big = 0;
 static int s_thumbErr[THUMB_SLOTS];
 static int s_fullErr = -1;
 static bool s_fresh = false;
+static int s_decodeBudget = 0;
 
 static void FreeSlot(Slot *s)
 {
@@ -113,8 +114,10 @@ static bool UploadSlot(Slot *s, const uint8_t *rgba, int w, int h)
 static bool EnsureThumb(int pos, int albumIndex)
 {
     Slot *s = &s_thumb[pos];
-    if (s->used && s->index == albumIndex)
-        return true;
+    if (s->used && s->index == albumIndex) return true;
+    if (s_thumbErr[pos] == albumIndex) return false;
+    if (s_decodeBudget <= 0) return false;
+    s_decodeBudget--;
     if (!s_jpg) {
         s_jpg = (uint8_t *)malloc(0x40000);
         if (!s_jpg)
@@ -151,6 +154,7 @@ static bool EnsureFull(int albumIndex)
 {
     if (s_fullImg.used && s_fullImg.index == albumIndex)
         return true;
+    if (s_fullErr == albumIndex) return false;
     int need = qext_album_image_size(albumIndex);
     if (need <= 0 || need > 0x800000) {
         if (s_fullErr != albumIndex) {
@@ -290,10 +294,11 @@ static void DrawGrid()
         Font::Centered("Capture with the Share button", 960.0f + shx, 560.0f, 32.0f,
                        1200.0f, dimR, dimG, dimB);
     } else {
-        float tw = 400.0f, th = 225.0f, gap = 32.0f;
+        float tw = 320.0f, th = 180.0f, gap = 32.0f;
         float totalW = COLS * tw + (COLS - 1) * gap;
         float x0 = (1920.0f - totalW) * 0.5f + shx;
         float y0 = 240.0f;
+        s_decodeBudget = 2;
         int base = s_top;
         for (int p = 0; p < VIS; p++) {
             int idx = base + p;
@@ -301,7 +306,7 @@ static void DrawGrid()
                 break;
             int cx = p % COLS, cy = p / COLS;
             float x = x0 + cx * (tw + gap);
-            float y = y0 + cy * (th + 56.0f + gap);
+            float y = y0 + cy * (th + gap);
             bool sel = (idx == s_sel);
             if (sel)
                 Gfx::PushSelectRing(x - 10.0f, y - 10.0f, tw + 20.0f, th + 20.0f, 18.0f, 8.0f);
@@ -310,20 +315,17 @@ static void DrawGrid()
             } else {
                 Gfx::PushPanel(x, y, tw, th, 8.0f, 0.25f, 0.26f, 0.30f, 1.0f);
             }
-            char lb[32];
-            if (qext_album_label(idx, lb, sizeof(lb)) > 0)
-                Font::Draw(lb, x, y + th + 52.0f, 24.0f, dimR, dimG, dimB);
         }
     int rows = (s_count + COLS - 1) / COLS;
     if (rows > ROWS) {
-        float tx0 = 1880.0f + shx, twd = 14.0f, ty0 = 240.0f, ty1 = 830.0f;
-        Gfx::PushPanel(tx0, ty0, twd, ty1 - ty0, 7.0f, 1.0f, 1.0f, 1.0f, 1.0f);
+        float tx0 = 26.0f + shx, twd = 14.0f, ty0 = 240.0f, ty1 = 830.0f;
+        Gfx::PushPanel(tx0, ty0, twd, ty1 - ty0, 7.0f, 0.731f, 0.731f, 0.731f, 1.0f);
         int maxTop = rows - ROWS;
         int topRow = s_top / COLS;
         float gh = (ty1 - ty0) * (float)ROWS / (float)rows;
         float gy = ty0;
         if (maxTop > 0) gy += (ty1 - ty0 - gh) * (float)topRow / (float)maxTop;
-        Gfx::PushPanel(tx0 + 2.0f, gy + 2.0f, twd - 4.0f, gh - 4.0f, 5.0f, 0.731f, 0.731f, 0.731f, 1.0f);
+        Gfx::PushPanel(tx0 + 2.0f, gy + 2.0f, twd - 4.0f, gh - 4.0f, 5.0f, 1.0f, 1.0f, 1.0f, 1.0f);
     }
     }
 }
