@@ -19,6 +19,7 @@ int Icon(int index, void *out, unsigned cap);
 
 /* Is the gamecard present */
 int Ejected(int index);
+void NoteLaunched(u64 tid);
 int TitlesChanged();
 
 } // namespace titles

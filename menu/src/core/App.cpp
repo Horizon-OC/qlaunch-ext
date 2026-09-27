@@ -309,7 +309,7 @@ void Loop()
     if (WAlbum::IsOpen() && menuT_ >= 1.0f) {
         Layout::Input(down, held);
     } else if (menuT_ < 1.0f) {
-        /* menus.gd switching: input locked mid-slide. */
+        /* lock input during transitions */
     } else if (down & HidNpadButton_L) {
         TopSwitch(-1);
     } else if (down & HidNpadButton_R) {
@@ -330,13 +330,19 @@ void Loop()
 
     frame_++;
     tick_++;
+
     if ((frame_ % 60) == 0)
         Clock::Tick();
+
     if (frame_ >= 150) {
         frame_ = 0;
         RefreshTitles();
     }
-    if (qext_titles_changed()) RefreshTitles();
+
+    if (qext_titles_changed()) {
+        RefreshTitles();
+    }
+    
     Present(launchBlack_);
     Sfx::Tick();
 }

@@ -63,7 +63,11 @@ extern "C" Result qext_launch_title(u64 tid)
     }
     AccountUid uid = PickUser();
     logging::LogLine("[qext] launching %016llX", (unsigned long long)tid);
-    return app::Start(tid, false, uid);
+    Result rc = app::Start(tid, false, uid);
+    if (R_SUCCEEDED(rc)) {
+        titles::NoteLaunched(tid);
+    }
+    return rc;
 }
 
 extern "C" Result qext_resume_game(void)
