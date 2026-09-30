@@ -1,3 +1,7 @@
 [submodule "extern/libnx-dlink"]
 	path = extern/libnx-dlink
 	url = https://github.com/souldbminerr/libnx-dlink.git
+[submodule "extern/ffmpeg"]
+	path = extern/ffmpeg
+	url = https://github.com/averne/FFmpeg.git
+	branch = nvtegra

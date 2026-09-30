@@ -22,7 +22,7 @@ static bool s_open = false;
 static bool s_full = false;
 static int s_sel = 0;
 static int s_top = 0;
-static int s_count = 0;
+static int sAlbumRefreshCount = 0;
 
 enum { COLS = 5, ROWS = 3, VIS = COLS * ROWS };
 enum { THUMB_SLOTS = 15, FULL_SLOT = 15 };
@@ -207,15 +207,15 @@ static void ClearThumbs()
 
 static void ClampSel()
 {
-    if (s_count <= 0) {
+    if (sAlbumRefreshCount <= 0) {
         s_sel = 0;
         s_top = 0;
         return;
     }
     if (s_sel < 0)
         s_sel = 0;
-    if (s_sel >= s_count)
-        s_sel = s_count - 1;
+    if (s_sel >= sAlbumRefreshCount)
+        s_sel = sAlbumRefreshCount - 1;
     s_top -= s_top % COLS;
     if (s_top < 0)
         s_top = 0;
@@ -239,13 +239,19 @@ bool IsFull()
 
 void Open()
 {
-    s_count = 0;
-    for (int r = 0; r < 3 && s_count <= 0; r++)
-        s_count = qext_album_refresh();
+    int growRc = qext_album_grow();
+
+    if (growRc != 0) {
+        logging::LogLine("[album] Failed to grow heap (rc: 0x%X)", (unsigned)growRc);
+    }
+
+    sAlbumRefreshCount = 0;
+    for (int r = 0; r < 3 && sAlbumRefreshCount <= 0; r++)
+        sAlbumRefreshCount = qext_album_refresh();
         WVideo::DurReset();
-    logging::LogLine("[album] opened: %d images", s_count);
-    if (s_count < 0)
-        s_count = 0;
+    logging::LogLine("[album] opened: %d images", sAlbumRefreshCount);
+    if (sAlbumRefreshCount < 0)
+        sAlbumRefreshCount = 0;
     s_sel = 0;
     s_top = 0;
     s_full = false;
@@ -258,7 +264,7 @@ void Open()
 
 void OpenFull(int albumIndex)
 {
-    if (!s_open || albumIndex < 0 || albumIndex >= s_count) {
+    if (!s_open || albumIndex < 0 || albumIndex >= sAlbumRefreshCount) {
         return;
     }
 
@@ -273,12 +279,32 @@ void OpenFull(int albumIndex)
     Sfx::Play(Sfx::Hover);
 }
 
+void DropFull()
+{
+    FreeSlot(&s_fullImg);
+}
+
+void DropThumbs()
+{
+    ClearThumbs();
+}
+
 void Close()
 {
+    if (WVideo::IsOpen()) {
+        WVideo::Close();
+    }
+
+    WVideo::DropPinned();
+
     s_open = false;
     s_full = false;
     ClearThumbs();
     FreeSlot(&s_fullImg);
+    free(s_jpg);
+    s_jpg = 0;
+    free(s_big);
+    s_big = 0;
 }
 
 void OnRefresh()
@@ -307,7 +333,7 @@ static void DrawGrid()
     (void)inkG;
     (void)inkB;
 
-    if (s_count <= 0) {
+    if (sAlbumRefreshCount <= 0) {
         Font::Centered("No screenshots yet", 960.0f + shx, 500.0f, 40.0f, 1200.0f,
                        dimR, dimG, dimB);
         Font::Centered("Capture with the Share button", 960.0f + shx, 560.0f, 32.0f,
@@ -321,7 +347,7 @@ static void DrawGrid()
         int base = s_top;
         for (int p = 0; p < VIS; p++) {
             int idx = base + p;
-            if (idx >= s_count)
+            if (idx >= sAlbumRefreshCount)
                 break;
             int cx = p % COLS, cy = p / COLS;
             float x = x0 + cx * (tw + gap);
@@ -350,7 +376,7 @@ static void DrawGrid()
                 }
             }
         }
-    int rows = (s_count + COLS - 1) / COLS;
+    int rows = (sAlbumRefreshCount + COLS - 1) / COLS;
     if (rows > ROWS) {
         float tx0 = 26.0f + shx, twd = 14.0f, ty0 = 240.0f, ty1 = 830.0f;
         Gfx::PushPanel(tx0, ty0, twd, ty1 - ty0, 7.0f, 0.731f, 0.731f, 0.731f, 1.0f);
@@ -371,7 +397,7 @@ static void DrawFull()
     float dimR, dimG, dimB;
     Theme::Color("dim", &dimR, &dimG, &dimB);
 
-    if (s_sel < 0 || s_sel >= s_count) {
+    if (s_sel < 0 || s_sel >= sAlbumRefreshCount) {
         Gfx::PushPanel(0.0f, 0.0f, 1920.0f, 1080.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f);
         Font::Centered("No image", 960.0f, 540.0f, 40.0f, 800.0f, inkR, inkG, inkB);
     } else if (EnsureFull(s_sel)) {
@@ -447,7 +473,7 @@ bool Input(u64 down, u64 held)
             return true;
         }
         if (down & (HidNpadButton_AnyRight | HidNpadButton_R | HidNpadButton_ZR)) {
-            if (s_sel + 1 < s_count) {
+            if (s_sel + 1 < sAlbumRefreshCount) {
                 int ni = s_sel + 1;
 
                 if (qext_album_is_movie(ni) > 0) {
@@ -467,10 +493,10 @@ bool Input(u64 down, u64 held)
             return true;
         }
         if (down & HidNpadButton_Plus) {
-            s_count = qext_album_refresh();
+            sAlbumRefreshCount = qext_album_refresh();
             WVideo::DurReset();
-            if (s_count < 0)
-                s_count = 0;
+            if (sAlbumRefreshCount < 0)
+                sAlbumRefreshCount = 0;
             ClampSel();
             FreeSlot(&s_fullImg);
             return true;
@@ -487,7 +513,7 @@ bool Input(u64 down, u64 held)
     }
 
     if (down & HidNpadButton_A) {
-        if (s_count > 0) {
+        if (sAlbumRefreshCount > 0) {
             CapsAlbumFileId fid;
             int mv = qext_album_is_movie(s_sel);
             if (mv > 0) {
@@ -502,10 +528,10 @@ bool Input(u64 down, u64 held)
     }
 
     if (down & HidNpadButton_Plus) {
-        s_count = qext_album_refresh();
+        sAlbumRefreshCount = qext_album_refresh();
         WVideo::DurReset();
-        if (s_count < 0)
-            s_count = 0;
+        if (sAlbumRefreshCount < 0)
+            sAlbumRefreshCount = 0;
         ClampSel();
         ClearThumbs();
         return true;
@@ -521,7 +547,7 @@ bool Input(u64 down, u64 held)
     }
 
     if (down & HidNpadButton_AnyRight) {
-        if (s_sel < s_count - 1) {
+        if (s_sel < sAlbumRefreshCount - 1) {
             s_sel++;
             ClampSel();
             Sfx::Play(Sfx::Hover);
@@ -539,7 +565,7 @@ bool Input(u64 down, u64 held)
     }
 
     if (down & HidNpadButton_AnyDown) {
-        if (s_sel + COLS < s_count) {
+        if (s_sel + COLS < sAlbumRefreshCount) {
             s_sel += COLS;
             ClampSel();
             Sfx::Play(Sfx::Hover);

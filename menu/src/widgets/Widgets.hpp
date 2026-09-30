@@ -50,6 +50,8 @@ namespace WAlbum {
     bool IsOpen();
     void Open();
     void OpenFull(int albumIndex);
+    void DropFull();
+    void DropThumbs();
     void Close();
     void Draw();
     bool Input(u64 down, u64 held);
@@ -61,6 +63,7 @@ namespace WVideo {
     bool IsOpen();
     bool Open(int albumIndex);
     void Close();
+    void DropPinned();
     void Draw();
     bool Input(u64 down, u64 held);
     double Duration(int albumIndex);

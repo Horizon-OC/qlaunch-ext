@@ -18,6 +18,7 @@ extern "C" {
     #include <libswresample/swresample.h>
     #include <libavutil/opt.h>
     #include <libavutil/channel_layout.h>
+    #include <libavutil/hwcontext.h>
 }
 
 namespace WVideo {
@@ -31,7 +32,6 @@ namespace WVideo {
     static bool s_fresh = false;
     static int s_rep = 0;
     static int s_idx = -1;
-    static int s_handle = -1;
     static u64 s_size = 0;
     static u64 s_avioPos = 0;
 
@@ -41,6 +41,10 @@ namespace WVideo {
     static int s_vstream = -1;
     static int s_astream = -1;
     static AVBSFContext *s_vbsf = 0;
+    static AVFrame *s_sframe = 0;
+    static bool s_vhw = false;
+    static bool s_xferLogged = false;
+    static AVBufferRef *s_hwdev = 0;
     static SwsContext *s_sws = 0;
     static SwrContext *s_swr = 0;
     static AVIOContext *s_avio = 0;
@@ -49,7 +53,7 @@ namespace WVideo {
     static AVFrame *s_aframe = 0;
     static AVPacket *s_pkt = 0;
 
-    static uint8_t *s_rgba = 0;
+    static uint32_t s_texPitch = 0;
     static int16_t *s_pcmBuf = 0;
     static bool s_haveFrame = false;
     static double s_framePts = 0.0;
@@ -70,14 +74,14 @@ namespace WVideo {
     {
         (void)opaque;
 
-        if (s_handle <= 0 || !buf || size <= 0) {
+        if (!buf || size <= 0) {
             return AVERROR_EOF;
         }
 
         int total = 0;
 
         while (total < size) {
-            int got = qext_album_movie_read(s_handle, s_avioPos, buf + total, (unsigned)(size - total));
+            int got = qext_album_movie_read(s_avioPos, buf + total, (unsigned)(size - total));
 
             if (got <= 0) {
                 break;
@@ -129,6 +133,10 @@ namespace WVideo {
 
     static bool AllocTexture()
     {
+        if (s_mem) {
+            return true;
+        }
+
         FreeTexture();
 
         DkDevice dev = Gfx::Device();
@@ -142,6 +150,7 @@ namespace WVideo {
 
         DkImageLayout lay;
         dkImageLayoutInitialize(&lay, &lm);
+        s_texPitch = dkImageLayoutGetSize(&lay) / (uint32_t)VH;
 
         uint32_t sz = dkImageLayoutGetSize(&lay);
         uint32_t al = dkImageLayoutGetAlignment(&lay);
@@ -189,21 +198,6 @@ namespace WVideo {
             s_sws = 0;
         }
 
-        if (s_vbsf) {
-            av_bsf_free(&s_vbsf);
-            s_vbsf = 0;
-        }
-
-        if (s_vctx) {
-            avcodec_free_context(&s_vctx);
-            s_vctx = 0;
-        }
-
-        if (s_actx) {
-            avcodec_free_context(&s_actx);
-            s_actx = 0;
-        }
-
         if (s_pkt) {
             av_packet_free(&s_pkt);
             s_pkt = 0;
@@ -219,38 +213,68 @@ namespace WVideo {
             s_aframe = 0;
         }
 
+        if (s_vbsf) {
+            av_bsf_free(&s_vbsf);
+            s_vbsf = 0;
+        }
+
+        if (s_vctx) {
+            avcodec_free_context(&s_vctx);
+            s_vctx = 0;
+        }
+
+        if (s_actx) {
+            avcodec_free_context(&s_actx);
+            s_actx = 0;
+        }
+
         if (s_fmt) {
             avformat_close_input(&s_fmt);
             s_fmt = 0;
         }
 
-        s_avio = 0;
-
-        if (s_avioBuf) {
-            av_free(s_avioBuf);
+        if (s_avio) {
+            av_free(s_avio->buffer);
+            avio_context_free(&s_avio);
             s_avioBuf = 0;
-        }
-
-        if (s_rgba) {
-            free(s_rgba);
-            s_rgba = 0;
-        }
-
-        if (s_pcmBuf) {
-            free(s_pcmBuf);
-            s_pcmBuf = 0;
         }
 
         s_vstream = -1;
         s_astream = -1;
+        s_vhw = false;
     }
 
     static void DropHandle()
     {
-        if (s_handle > 0) {
-            qext_album_movie_close(s_handle);
-            s_handle = -1;
+        qext_album_movie_close();
+    }
+
+    static bool EnsureHwDev()
+    {
+        if (s_hwdev) {
+            return true;
         }
+
+        if (av_hwdevice_ctx_create(&s_hwdev, AV_HWDEVICE_TYPE_NVTEGRA, NULL, NULL, 0) != 0) {
+            s_hwdev = 0;
+            logging::LogLine("[video] Failed to init hw device");
+            return false;
+        }
+
+        return true;
+    }
+
+    static enum AVPixelFormat HwGetFormat(AVCodecContext *ctx, const enum AVPixelFormat *fmts)
+    {
+        (void)ctx;
+
+        for (const enum AVPixelFormat *f = fmts; *f != AV_PIX_FMT_NONE; f++) {
+            if (*f == AV_PIX_FMT_NVTEGRA) {
+                return AV_PIX_FMT_NVTEGRA;
+            }
+        }
+
+        return fmts[0];
     }
 
     static AVCodecContext *OpenDecoder(int streamIdx)
@@ -282,12 +306,30 @@ namespace WVideo {
             return 0;
         }
 
+        ctx->thread_count = 1;
+
+        if (st->codecpar->codec_id == AV_CODEC_ID_H264) {
+            ctx->sw_pix_fmt = AV_PIX_FMT_NV12;
+
+            if (EnsureHwDev()) {
+                ctx->hw_device_ctx = av_buffer_ref(s_hwdev);
+
+                if (ctx->hw_device_ctx) {
+                    ctx->get_format = HwGetFormat;
+                }
+            }
+        }
+
         int orc = avcodec_open2(ctx, dec, NULL);
 
         if (orc < 0) {
             logging::LogLine("[video] Failed to open decoder (rc: %d)", orc);
             avcodec_free_context(&ctx);
             return 0;
+        }
+
+        if (st->codecpar->codec_id == AV_CODEC_ID_H264 && ctx->hw_device_ctx) {
+            s_vhw = true;
         }
 
         return ctx;
@@ -302,34 +344,42 @@ namespace WVideo {
             return false;
         }
 
-        int h = qext_album_movie_open(albumIndex);
-
-        if (h <= 0) {
-            logging::LogLine("[video] Failed to open handle (idx: %d)", albumIndex);
+        if (!qext_album_movie_open(albumIndex)) {
+            logging::LogLine("[video] Failed to open video (idx: %d)", albumIndex);
             return false;
         }
 
-        u64 size = qext_album_movie_size(h);
+        u64 size = qext_album_movie_size();
 
         if (size == 0) {
-            logging::LogLine("[video] Failed to get size (h: %d)", h);
-            qext_album_movie_close(h);
+            logging::LogLine("[video] Failed to get size (idx: %d)", albumIndex);
+            qext_album_movie_close();
             return false;
         }
 
-        s_handle = h;
         s_size = size;
         s_avioPos = 0;
         s_idx = albumIndex;
 
-        s_rgba = (uint8_t *)malloc((size_t)VW * VH * 4u);
-        s_pcmBuf = (int16_t *)malloc((size_t)PCM_CAP * 2u * sizeof(int16_t));
+        WAlbum::DropFull();
+        WAlbum::DropThumbs();
+
+        if (!s_pcmBuf) {
+            s_pcmBuf = (int16_t *)malloc((size_t)PCM_CAP * 2u * sizeof(int16_t));
+        }
+
         s_avioBuf = (uint8_t *)av_malloc(AVIO_CAP);
+
         s_frame = av_frame_alloc();
         s_aframe = av_frame_alloc();
+
+        if (!s_sframe) {
+            s_sframe = av_frame_alloc();
+        }
+
         s_pkt = av_packet_alloc();
 
-        if (!s_rgba || !s_pcmBuf || !s_avioBuf || !s_frame || !s_aframe || !s_pkt) {
+        if (!s_pcmBuf || !s_avioBuf || !s_frame || !s_aframe || !s_sframe || !s_pkt) {
             logging::LogLine("[video] Failed to alloc buffers");
             DropHandle();
             Cleanup();
@@ -355,21 +405,18 @@ namespace WVideo {
         }
 
         s_fmt->pb = s_avio;
+        s_fmt->probesize = 256 * 1024;
+        s_fmt->max_analyze_duration = 0;
 
         int orc = avformat_open_input(&s_fmt, NULL, NULL, NULL);
 
         if (orc < 0) {
             logging::LogLine("[video] Failed to open input (rc: %d)", orc);
             avformat_close_input(&s_fmt);
-            s_avio = 0;
-            s_avioBuf = 0;
             DropHandle();
             Cleanup();
             return false;
         }
-
-        s_avio = 0;
-        s_avioBuf = 0;
 
         int frc = avformat_find_stream_info(s_fmt, NULL);
 
@@ -453,7 +500,11 @@ namespace WVideo {
             return false;
         }
 
-        s_sws = sws_getContext(vp->width, vp->height, (AVPixelFormat)vp->format, VW, VH, AV_PIX_FMT_RGBA, SWS_BILINEAR, NULL, NULL, NULL);
+        if (s_sframe->width != vp->width || s_sframe->height != vp->height) {
+            av_frame_unref(s_sframe);
+        }
+
+        s_sws = sws_getContext(vp->width, vp->height, s_vhw ? AV_PIX_FMT_NV12 : (AVPixelFormat)vp->format, VW, VH, AV_PIX_FMT_RGBA, SWS_BILINEAR, NULL, NULL, NULL);
 
         if (!s_sws) {
             logging::LogLine("[video] Failed to alloc scaler");
@@ -487,6 +538,7 @@ namespace WVideo {
             }
         }
 
+        s_xferLogged = false;
         Sfx::VideoBegin();
         s_open = true;
         s_paused = false;
@@ -552,6 +604,8 @@ namespace WVideo {
             return s_haveFrame;
         }
 
+        av_frame_unref(s_frame);
+
         int rc = avcodec_receive_frame(s_vctx, s_frame);
 
         if (rc == AVERROR(EAGAIN)) {
@@ -567,6 +621,21 @@ namespace WVideo {
             return false;
         }
 
+        AVFrame *src = s_frame;
+
+        if (src->format == AV_PIX_FMT_NVTEGRA) {
+            if (av_hwframe_transfer_data(s_sframe, src, 0) < 0) {
+                if (!s_xferLogged) {
+                    logging::LogLine("[video] Failed to download hw frame");
+                    s_xferLogged = true;
+                }
+
+                return false;
+            }
+
+            src = s_sframe;
+        }
+
         int64_t ts = s_frame->best_effort_timestamp;
 
         if (ts == AV_NOPTS_VALUE) {
@@ -575,9 +644,9 @@ namespace WVideo {
 
         s_framePts = ts * av_q2d(s_fmt->streams[s_vstream]->time_base);
 
-        uint8_t *dst[4] = { s_rgba, 0, 0, 0 };
-        int stride[4] = { VW * 4, 0, 0, 0 };
-        sws_scale(s_sws, s_frame->data, s_frame->linesize, 0, s_vctx->height, dst, stride);
+        uint8_t *dst[4] = { (uint8_t *)dkMemBlockGetCpuAddr(s_mem), 0, 0, 0 };
+        int stride[4] = { (int)s_texPitch, 0, 0, 0 };
+        sws_scale(s_sws, src->data, src->linesize, 0, src->height, dst, stride);
         s_haveFrame = true;
 
         return true;
@@ -588,6 +657,8 @@ namespace WVideo {
         if (!s_actx || !s_swr) {
             return false;
         }
+
+        av_frame_unref(s_aframe);
 
         int rc = avcodec_receive_frame(s_actx, s_aframe);
 
@@ -674,43 +745,7 @@ namespace WVideo {
 
     static void Upload()
     {
-        if (s_tex <= 2 || !s_mem || !s_rgba) {
-            return;
-        }
-
-        static uint32_t s_pitch = 0;
-
-        if (s_pitch == 0) {
-            DkImageLayoutMaker lm;
-            dkImageLayoutMakerDefaults(&lm, Gfx::Device());
-            lm.flags = DkImageFlags_PitchLinear;
-            lm.format = DkImageFormat_RGBA8_Unorm;
-            lm.dimensions[0] = VW;
-            lm.dimensions[1] = VH;
-
-            DkImageLayout lay;
-            dkImageLayoutInitialize(&lay, &lm);
-            s_pitch = dkImageLayoutGetSize(&lay) / VH;
-        }
-
-        uint8_t *dst = (uint8_t *)dkMemBlockGetCpuAddr(s_mem);
-
-        if (!dst) {
-            return;
-        }
-
-        uint32_t rowBytes = (uint32_t)VW * 4u;
-
-        if (s_pitch == rowBytes) {
-            memcpy(dst, s_rgba, (size_t)rowBytes * VH);
-        }
-        else {
-            for (int y = 0; y < VH; y++) {
-                memcpy(dst + (size_t)y * s_pitch, s_rgba + (size_t)y * rowBytes, rowBytes);
-            }
-        }
     }
-
     static void Step(bool force)
     {
         if (!s_open) {
@@ -760,6 +795,10 @@ namespace WVideo {
         }
 
         if (s_readEos && s_eosV && (s_eosA || !s_actx) && !s_haveFrame) {
+            if (!s_ended && s_dur > 2.0 && Sfx::VideoTime() < s_dur - 2.0) {
+                logging::LogLine("[video] Failed to finish (t: %.1f dur: %.1f)", Sfx::VideoTime(), s_dur);
+            }
+
             s_ended = true;
             s_paused = true;
         }
@@ -851,11 +890,67 @@ namespace WVideo {
         }
 
         s_open = false;
+
+        if (s_vctx) {
+            avcodec_send_packet(s_vctx, NULL);
+
+            for (;;) {
+                int rc = avcodec_receive_frame(s_vctx, s_frame);
+
+                if (rc != 0) {
+                    break;
+                }
+
+                av_frame_unref(s_frame);
+            }
+
+            av_frame_unref(s_frame);
+        }
+
+        if (s_actx) {
+            avcodec_send_packet(s_actx, NULL);
+
+            for (;;) {
+                int rc = avcodec_receive_frame(s_actx, s_aframe);
+
+                if (rc != 0) {
+                    break;
+                }
+
+                av_frame_unref(s_aframe);
+            }
+
+            av_frame_unref(s_aframe);
+        }
+
         Cleanup();
-        FreeTexture();
         DropHandle();
         Sfx::VideoEnd();
         s_idx = -1;
+    }
+
+    void DropPinned()
+    {
+        if (s_open) {
+            Close();
+        }
+
+        FreeTexture();
+
+        if (s_pcmBuf) {
+            free(s_pcmBuf);
+            s_pcmBuf = 0;
+        }
+
+        if (s_avioBuf) {
+            av_free(s_avioBuf);
+            s_avioBuf = 0;
+        }
+
+        if (s_sframe) {
+            av_frame_free(&s_sframe);
+            s_sframe = 0;
+        }
     }
 
     void Draw()
@@ -959,23 +1054,19 @@ namespace WVideo {
 
     static double ProbeDuration(int albumIndex)
     {
-        int h = qext_album_movie_open(albumIndex);
-
-        if (h <= 0) {
+        if (!qext_album_movie_open(albumIndex)) {
             return -1.0;
         }
 
-        u64 size = qext_album_movie_size(h);
+        u64 size = qext_album_movie_size();
 
         if (size == 0) {
-            qext_album_movie_close(h);
+            qext_album_movie_close();
             return -1.0;
         }
 
-        int sh = s_handle;
         u64 ss = s_size;
         u64 sp = s_avioPos;
-        s_handle = h;
         s_size = size;
         s_avioPos = 0;
 
@@ -993,7 +1084,7 @@ namespace WVideo {
             if (fmt) {
                 fmt->pb = avio;
                 fmt->probesize = 256 * 1024;
-                fmt->max_analyze_duration = AV_TIME_BASE;
+                fmt->max_analyze_duration = 0;
 
                 if (avformat_open_input(&fmt, NULL, NULL, NULL) == 0) {
                     if (avformat_find_stream_info(fmt, NULL) == 0 && fmt->duration != AV_NOPTS_VALUE) {
@@ -1001,26 +1092,20 @@ namespace WVideo {
                     }
 
                     avformat_close_input(&fmt);
-                    avio = 0;
-                    buf = 0;
                 }
                 else {
                     avformat_close_input(&fmt);
-                    avio = 0;
-                    buf = 0;
                 }
+
+                av_free(avio->buffer);
             }
-        }
 
-        if (avio) {
             avio_context_free(&avio);
-        }
-        else if (buf) {
-            av_free(buf);
+            avio = 0;
+            buf = 0;
         }
 
-        qext_album_movie_close(h);
-        s_handle = sh;
+        qext_album_movie_close();
         s_size = ss;
         s_avioPos = sp;
 

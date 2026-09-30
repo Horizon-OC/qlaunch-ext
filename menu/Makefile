@@ -15,7 +15,7 @@ BASEFLAGS := -g -O2 -ffunction-sections -fdata-sections $(ARCH) -D__SWITCH__ -I$
 CFLAGS := $(BASEFLAGS)
 CXXFLAGS := $(BASEFLAGS) -std=c++17 -fno-exceptions -fno-rtti -fno-threadsafe-statics -MMD -MP
 ASFLAGS := -g $(ARCH)
-LDFLAGS := -specs=$(DLINK)/tools/module.specs -g $(ARCH) -shared -nodefaultlibs -Wl,--export-dynamic -Wl,-Map,$(TOP)/menu.map -Wl,-z,nopack-relative-relocs -L$(TOP)/../extern/ffmpeg-install/lib -Wl,-Bsymbolic
+LDFLAGS := -specs=$(DLINK)/tools/module.specs -g $(ARCH) -shared -nodefaultlibs -Wl,--export-dynamic -Wl,-Map,$(TOP)/menu.map -Wl,-z,nopack-relative-relocs -L$(TOP)/../extern/ffmpeg-install/lib -Wl,-Bsymbolic -Wl,--gc-sections
 FFLIBS := -lavformat -lavcodec -lswscale -lswresample -lavutil -lgcc
 
 SRCS := $(wildcard $(TOP)/src/*.cpp $(TOP)/src/core/*.cpp $(TOP)/src/widgets/*.cpp)

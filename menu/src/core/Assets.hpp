@@ -4,6 +4,8 @@
 
 #pragma once
 
+/* TODO: dynamic asset loading */
+
 extern const char layout_json[];
 extern const unsigned layout_json_size;
 extern const char theme_light_json[];

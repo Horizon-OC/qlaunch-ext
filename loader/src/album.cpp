@@ -12,614 +12,675 @@
 
 namespace album {
 
-namespace {
+    namespace {
 
-constexpr int kMaxKeep = 256;
-constexpr int kMaxFetch = 512;
+        constexpr int kMaxKeep = 256;
+        constexpr int kMaxFetch = 512;
 
-CapsAlbumEntry s_list[kMaxKeep];
-int s_count = 0;
-bool s_ok = false;
+        CapsAlbumEntry s_list[kMaxKeep];
+        int sAlbumRefreshCount = 0;
+        bool sInitialized = false;
 
-int CmpDate(const CapsAlbumFileDateTime &a, const CapsAlbumFileDateTime &b)
-{
-    if (a.year != b.year) return (a.year > b.year) ? 1 : -1;
-    if (a.month != b.month) return (a.month > b.month) ? 1 : -1;
-    if (a.day != b.day) return (a.day > b.day) ? 1 : -1;
-    if (a.hour != b.hour) return (a.hour > b.hour) ? 1 : -1;
-    if (a.minute != b.minute) return (a.minute > b.minute) ? 1 : -1;
-    if (a.second != b.second) return (a.second > b.second) ? 1 : -1;
-    if (a.id != b.id) return (a.id > b.id) ? 1 : -1;
-    return 0;
-}
-
-bool IsImage(const CapsAlbumEntry &e)
-{
-    u8 c = e.file_id.content;
-    return c == CapsAlbumFileContents_ScreenShot ||
-           c == CapsAlbumFileContents_ExtraScreenShot;
-}
-
-static bool IsMovieEntry(const CapsAlbumFileId &fid)
-{
-    u8 c = fid.content;
-
-    if (c == CapsAlbumFileContents_Movie || c == CapsAlbumFileContents_ExtraMovie) {
-        return true;
-    }
-
-    return false;
-}
-
-const CapsAlbumStorage kStores[2] = { CapsAlbumStorage_Sd, CapsAlbumStorage_Nand };
-
-int RefreshOnce(bool verbose)
-{
-    static CapsAlbumEntry tmp[kMaxFetch];
-    CapsAlbumEntry next[kMaxKeep];
-    int nnext = 0;
-    for (int s = 0; s < 2; s++) {
-        bool mounted = false;
-        u64 total = 0;
-
-        capsaIsAlbumMounted(kStores[s], &mounted);
-        capsaGetAlbumFileCount(kStores[s], &total);
-
-        if (total == 0)
-            continue;
+        /// @brief Compare album file dates
+        /// @param a First one to compare
+        /// @param b Second one to compare
+        /// @return less than, equal or greater
+        int CmpDate(const CapsAlbumFileDateTime &a, const CapsAlbumFileDateTime &b)
+        {
+            if (a.year != b.year) return (a.year > b.year) ? 1 : -1;
+            if (a.month != b.month) return (a.month > b.month) ? 1 : -1;
+            if (a.day != b.day) return (a.day > b.day) ? 1 : -1;
+            if (a.hour != b.hour) return (a.hour > b.hour) ? 1 : -1;
+            if (a.minute != b.minute) return (a.minute > b.minute) ? 1 : -1;
+            if (a.second != b.second) return (a.second > b.second) ? 1 : -1;
+            if (a.id != b.id) return (a.id > b.id) ? 1 : -1;
+            return 0;
+        }
         
-        u64 want = total > (u64)kMaxFetch ? (u64)kMaxFetch : total;
-        u64 got = 0;
-
-        Result lrc = capsaGetAlbumFileList(kStores[s], &got, tmp, want);
-        if (R_FAILED(lrc) || got == 0) {
-            continue;
+        /// @brief Is an entry a image
+        /// @param e A entry
+        /// @return true or false
+        bool IsImage(const CapsAlbumEntry &e) {
+            u8 c = e.file_id.content;
+            return c == CapsAlbumFileContents_ScreenShot || c == CapsAlbumFileContents_ExtraScreenShot;
         }
 
-        if (got > want)
-            got = want;
+        /// @brief Is the entry a movie
+        /// @param fid A album file ID
+        /// @return true or false
+        static bool IsMovieEntry(const CapsAlbumFileId &fid) {
+            u8 c = fid.content;
+
+            if (c == CapsAlbumFileContents_Movie || c == CapsAlbumFileContents_ExtraMovie) {
+                return true;
+            }
+
+            return false;
+        }
         
-        for (u64 i = 0; i < got && nnext < kMaxKeep; i++) {
-            if (!IsImage(tmp[i]) && !IsMovieEntry(tmp[i].file_id)) {
+        /// @brief For array indexing
+        const CapsAlbumStorage kStores[2] = { CapsAlbumStorage_Sd, CapsAlbumStorage_Nand };
+
+        int RefreshOnce(bool verbose)
+        {
+            static CapsAlbumEntry tmp[kMaxFetch];
+            CapsAlbumEntry next[kMaxKeep];
+            int nnext = 0;
+            for (int s = 0; s < 2; s++) {
+                bool mounted = false;
+                u64 total = 0;
+
+                capsaIsAlbumMounted(kStores[s], &mounted);
+                capsaGetAlbumFileCount(kStores[s], &total);
+
+                if (total == 0)
+                    continue;
+                
+                u64 want = total > (u64)kMaxFetch ? (u64)kMaxFetch : total;
+                u64 got = 0;
+
+                Result lrc = capsaGetAlbumFileList(kStores[s], &got, tmp, want);
+                if (R_FAILED(lrc) || got == 0) {
+                    continue;
+                }
+
+                if (got > want)
+                    got = want;
+                
+                for (u64 i = 0; i < got && nnext < kMaxKeep; i++) {
+                    if (!IsImage(tmp[i]) && !IsMovieEntry(tmp[i].file_id)) {
+                        continue;
+                    }
+                    
+                    bool dup = false;
+                    for (int k = 0; k < nnext; k++) {
+                        if (memcmp(&next[k].file_id, &tmp[i].file_id, sizeof(CapsAlbumFileId)) == 0) {
+                            dup = true;
+                            break;
+                        }
+                    }
+
+                    if (!dup)
+                        next[nnext++] = tmp[i];
+                }
+            }
+
+            /* Newest first. */
+            for (int i = 1; i < nnext; i++) {
+                CapsAlbumEntry key = next[i];
+                int j = i - 1;
+                while (j >= 0 && CmpDate(next[j].file_id.datetime, key.file_id.datetime) < 0) {
+                    next[j + 1] = next[j];
+                    j--;
+                }
+                next[j + 1] = key;
+            }
+
+            for (int i = 0; i < nnext; i++)
+                s_list[i] = next[i];
+            sAlbumRefreshCount = nnext;
+            return sAlbumRefreshCount;
+        }
+
+    } // namespace
+    
+    /// @brief Initialize the capsrv
+    void Init() {
+        if (sInitialized)
+            return;
+
+        Result rc = capsaInitialize();
+
+        sInitialized = R_SUCCEEDED(rc);
+    }
+
+    /// @brief Exit capsrv
+    void Exit()
+    {
+        if (sInitialized) {
+            capsaExit();
+            sInitialized = false;
+        }
+        sAlbumRefreshCount = 0;
+    }
+
+    /// @brief Refresh the album
+    /// @return The amount of images refreshed.
+    int Refresh()
+    {
+        if (!sInitialized) {
+            sAlbumRefreshCount = 0;
+            return 0;
+        }
+
+        RefreshOnce(false);
+        if (sAlbumRefreshCount == 0) {
+            /* Retry a bit until giving up*/
+            for (int s = 0; s < 2; s++) {
+                capsaRefreshAlbumCache(kStores[s]);
+            }
+            RefreshOnce(true);
+        }
+        return sAlbumRefreshCount;
+    }
+
+    /// @brief Give the current count of images in the album
+    /// @return The amount of images in the album
+    int Count() {
+        return sAlbumRefreshCount;
+    }
+
+    /// @brief Return the file ID for a specified index
+    /// @param index The album index
+    /// @param out CapsAlbumFileId to populate
+    /// @return The file ID
+    int FileId(int index, CapsAlbumFileId *out) {
+        if (index < 0 || index >= sAlbumRefreshCount || !out)
+            return -1;
+        *out = s_list[index].file_id;
+        return 0;
+    }
+
+    /// @brief Return the size of the thumbnail
+    /// @param index Album index
+    /// @return The size
+    int ThumbSize(int index) {
+        if (!sInitialized || index < 0 || index >= sAlbumRefreshCount)
+            return -1;
+        u64 sz = 0;
+        if (R_FAILED(capsaGetAlbumFileSize(&s_list[index].file_id, &sz)) || sz == 0) {
+            return -1;
+        }
+        if (sz > 0x40000)
+            return 0x40000;
+        return (int)sz;
+    }
+
+    int Thumb(int index, void *out, unsigned cap) {
+        if (!sInitialized || index < 0 || index >= sAlbumRefreshCount || !out || !cap)
+            return -1;
+        u64 done = 0;
+        Result rc = capsaLoadAlbumFileThumbnail(&s_list[index].file_id, &done, out, cap);
+        if (R_FAILED(rc) || done == 0 || done > cap) {
+            return -1;
+        }
+        return (int)done;
+    }
+
+    int ImageSize(int index) {
+        if (!sInitialized || index < 0 || index >= sAlbumRefreshCount)
+            return -1;
+        u64 sz = 0;
+        Result rc = capsaGetAlbumFileSize(&s_list[index].file_id, &sz);
+        if (R_FAILED(rc) || sz == 0) {
+            return -1;
+        }
+        if (sz > 0x800000)
+            return -1;
+        return (int)sz;
+    }
+
+    int Image(int index, void *out, unsigned cap) {
+        if (!sInitialized || index < 0 || index >= sAlbumRefreshCount || !out || !cap)
+            return -1;
+        u64 sz = 0;
+        Result src = capsaGetAlbumFileSize(&s_list[index].file_id, &sz);
+        if (R_FAILED(src) || sz == 0 || sz > cap) {
+            return -1;
+        }
+        u64 done = 0;
+        Result rc = capsaLoadAlbumFile(&s_list[index].file_id, &done, out, sz);
+        if (R_FAILED(rc) || done == 0 || done > cap) {
+            return -1;
+        }
+        return (int)done;
+    }
+
+    int Label(int index, char *out, unsigned cap)
+    {
+        if (index < 0 || index >= sAlbumRefreshCount || !out || !cap)
+            return -1;
+        const CapsAlbumFileDateTime &d = s_list[index].file_id.datetime;
+        snprintf(out, cap, "%04u/%02u/%02u %02u:%02u", d.year, d.month, d.day, d.hour, d.minute);
+        out[cap - 1] = 0;
+        return (int)strlen(out);
+    }
+
+
+    namespace {
+        struct MovieEntry {
+            bool used;
+            bool open;
+            CapsAlbumFileId fid;
+            bool isNand;
+            FILE *sd;
+            FsFile nand;
+            u64 size;
+        };
+
+        static MovieEntry *s_movies = NULL;
+        static int s_movieCap = 0;
+        static int sMovieCount = 0;
+        static int sCurrent = -1;
+
+        static FsFileSystem sNandFilesystem;
+        static bool sHasOpenedNandFs = false;
+
+        static bool FidEqual(const CapsAlbumFileId &a, const CapsAlbumFileId &b) {
+            if (a.application_id != b.application_id) {
+                return false;
+            }
+
+            if (a.storage != b.storage) {
+                return false;
+            }
+
+            if (a.content != b.content) {
+                return false;
+            }
+
+            const CapsAlbumFileDateTime &x = a.datetime;
+            const CapsAlbumFileDateTime &y = b.datetime;
+
+            if (x.year != y.year || x.month != y.month || x.day != y.day) {
+                return false;
+            }
+
+            if (x.hour != y.hour || x.minute != y.minute || x.second != y.second) {
+                return false;
+            }
+
+            if (x.id != y.id) {
+                return false;
+            }
+
+            return true;
+        }
+
+        /// @brief Joins two paths into one bigger path
+        /// @param out A buffer to output the new path to
+        /// @param outcap The maximum size to output
+        /// @param a Part 1 of the new path
+        /// @param b part 2 of the path
+        /// @return true on sucess and false on failure
+        static bool JoinPath(char *out, unsigned outcap, const char *a, const char *b) {
+            /* Get string lengths */
+            size_t strALen = strlen(a);
+            size_t strBLen = strlen(b);
+            size_t neededMemory = strALen + 1 + strBLen + 1;
+
+            /* Prevent memory issue*/
+            if (neededMemory < strALen || neededMemory > outcap) {
+                return false;
+            }
+
+            /* Copy the first string to the output */
+            memcpy(out, a, strALen);
+
+            /* Actually join the paths*/
+            out[strALen] = '/';
+            memcpy(out + strALen + 1, b, strBLen);
+
+            /* Apply null terminatior */
+            out[strALen + 1 + strBLen] = 0;
+
+            return true;
+        }
+
+        /// @brief Find a album photo from the SDMMC FS
+        /// @param fid The album file ID to find
+        /// @param want The wanted output size
+        /// @param out The output path
+        /// @param outcap Cap the output path
+        /// @return True if succeeded, false if failed
+        static bool FsFind(const CapsAlbumFileId &fid, u64 want, char *out, unsigned outcap) {
+            const CapsAlbumFileDateTime &d = fid.datetime;
+            char dir[128];
+            snprintf(dir, sizeof(dir), "sdmc:/Nintendo/Album/%04u/%02u/%02u", d.year, d.month, d.day);
+            char pre[32];
+            snprintf(pre, sizeof(pre), "%04u%02u%02u%02u%02u%02u%02u-", d.year, d.month, d.day, d.hour, d.minute, d.second, d.id);
+            size_t pren = strlen(pre);
+            DIR *dd = opendir(dir);
+
+            if (!dd) {
+                return false;
+            }
+
+            bool hit = false;
+            struct dirent *e;
+
+            while ((e = readdir(dd)) != NULL) {
+                if (strncmp(e->d_name, pre, pren) != 0) {
+                    continue;
+                }
+
+                char path[320];
+
+                if (!JoinPath(path, sizeof(path), dir, e->d_name)) {
+                    continue;
+                }
+
+                struct stat stt;
+                memset(&stt, 0, sizeof(stt));
+
+                if (stat(path, &stt) != 0) {
+                    continue;
+                }
+
+                if (!S_ISREG(stt.st_mode) || (u64)stt.st_size != want) {
+                    continue;
+                }
+
+                snprintf(out, outcap, "%s", path);
+                out[outcap - 1] = 0;
+                hit = true;
+                break;
+            }
+
+            closedir(dd);
+
+            return hit;
+        }
+
+        /// @brief Ensure the NAND filesystem is actually there
+        /// @param None
+        /// @return True or false
+        static bool NandEnsure(void) {
+            if (sHasOpenedNandFs) {
+                return true;
+            }
+
+            memset(&sNandFilesystem, 0, sizeof(sNandFilesystem));
+            Result rc = fsOpenImageDirectoryFileSystem(&sNandFilesystem, FsImageDirectoryId_Nand);
+
+            if (R_FAILED(rc)) {
+                    logging::LogLine("[album] Can't open NAND filesystem (rc: 0x%X)", (unsigned)rc);
+                    return false;
+                }
+
+            sHasOpenedNandFs = true;
+
+            return true;
+        }
+
+        /// @brief Find a wanted file from the NAND
+        /// @param dateTime A file date time struct
+        /// @param wantedSize The desired output size
+        /// @param outpath Buffer to store the output path
+        /// @param outcap A cap for buffer writes
+        /// @return True or false
+        static bool NandFind(const CapsAlbumFileDateTime &dateTime, u64 wantedSize, char *outpath, unsigned outcap) {
+            /* First part of the filename */
+            char NameFirstPart[32];
+            snprintf(NameFirstPart, sizeof(NameFirstPart), "%04u%02u%02u%02u%02u%02u%02u-", 
+            dateTime.year, dateTime.month, dateTime.day, dateTime.hour, dateTime.minute, dateTime.second, dateTime.id);
+            size_t NameFirstPartLen = strlen(NameFirstPart);
+
+            char RootPath[128];
+
+            for (int r = 0; r < 2; r++) {
+            if (r == 0) {
+                snprintf(RootPath, sizeof(RootPath), "/Album/%04u/%02u/%02u", dateTime.year, dateTime.month, dateTime.day);
+            }
+            else {
+                snprintf(RootPath, sizeof(RootPath), "/%04u/%02u/%02u", dateTime.year, dateTime.month, dateTime.day);
+            }
+
+            FsDir dir;
+            memset(&dir, 0, sizeof(dir));
+
+            /* Try to open the directory */
+            if (R_FAILED(fsFsOpenDirectory(&sNandFilesystem, RootPath, (u32)(FsDirOpenMode_ReadDirs | FsDirOpenMode_ReadFiles), &dir))) {
                 continue;
             }
-            
-            bool dup = false;
-            for (int k = 0; k < nnext; k++) {
-                if (memcmp(&next[k].file_id, &tmp[i].file_id, sizeof(CapsAlbumFileId)) == 0) {
-                    dup = true;
+
+            /* A buffer for entries */
+            FsDirectoryEntry enteries[64];
+
+            bool found = false;
+            while (!found) {
+                s64 totalEntries = 0;
+
+                /* Can't read the directory, so abort */
+                if (R_FAILED(fsDirRead(&dir, &totalEntries, 64, enteries)) || totalEntries <= 0) {
+                    break;
+                }
+
+                for (s64 i = 0; i < totalEntries; i++) {
+                    /* Ignore things that aren't files */
+                    if (enteries[i].type != FsDirEntryType_File) {
+                        continue;
+                    }
+
+                    /* Skip anything of wrong date/time */
+                    if (strncmp(enteries[i].name, NameFirstPart, NameFirstPartLen) != 0) {
+                        continue;
+                    }
+
+                    /* Skip anything not of the right size */
+                    if ((u64)enteries[i].file_size != wantedSize) {
+                        continue;
+                    }
+
+                    /* Create the new path */
+                    if (!JoinPath(outpath, outcap, RootPath, enteries[i].name)) {
+                        continue;
+                    }
+
+                    found = true;
                     break;
                 }
             }
 
-            if (!dup)
-                next[nnext++] = tmp[i];
+            /* Close the directory*/
+            fsDirClose(&dir);
+
+            if (found) {
+                return true;
+            }
+            }
+
+            return false;
         }
     }
-
-    /* Newest first. */
-    for (int i = 1; i < nnext; i++) {
-        CapsAlbumEntry key = next[i];
-        int j = i - 1;
-        while (j >= 0 && CmpDate(next[j].file_id.datetime, key.file_id.datetime) < 0) {
-            next[j + 1] = next[j];
-            j--;
-        }
-        next[j + 1] = key;
-    }
-
-    for (int i = 0; i < nnext; i++)
-        s_list[i] = next[i];
-    s_count = nnext;
-    return s_count;
-}
-
-} // namespace
-
-void Init()
-{
-    if (s_ok)
-        return;
-    Result rc = capsaInitialize();
-    if (R_SUCCEEDED(rc)) {
-        s_ok = true;
-    } else {
-        s_ok = false;
-    }
-}
-
-void Exit()
-{
-    if (s_ok) {
-        capsaExit();
-        s_ok = false;
-    }
-    s_count = 0;
-}
-
-int Refresh()
-{
-    if (!s_ok) {
-        s_count = 0;
-        return 0;
-    }
-    RefreshOnce(false);
-    if (s_count == 0) {
-        /* Retry a bit until giving up*/
-        for (int s = 0; s < 2; s++) {
-            capsaRefreshAlbumCache(kStores[s]);
-        }
-        RefreshOnce(true);
-    }
-    return s_count;
-}
-
-int Count()
-{
-    return s_count;
-}
-
-int FileId(int index, CapsAlbumFileId *out)
-{
-    if (index < 0 || index >= s_count || !out)
-        return -1;
-    *out = s_list[index].file_id;
-    return 0;
-}
-
-int ThumbSize(int index)
-{
-    if (!s_ok || index < 0 || index >= s_count)
-        return -1;
-    u64 sz = 0;
-    if (R_FAILED(capsaGetAlbumFileSize(&s_list[index].file_id, &sz)) || sz == 0) {
-        return -1;
-    }
-    if (sz > 0x40000)
-        return 0x40000;
-    return (int)sz;
-}
-
-int Thumb(int index, void *out, unsigned cap)
-{
-    if (!s_ok || index < 0 || index >= s_count || !out || !cap)
-        return -1;
-    u64 done = 0;
-    Result rc = capsaLoadAlbumFileThumbnail(&s_list[index].file_id, &done, out, cap);
-    if (R_FAILED(rc) || done == 0 || done > cap) {
-        return -1;
-    }
-    return (int)done;
-}
-
-int ImageSize(int index)
-{
-    if (!s_ok || index < 0 || index >= s_count)
-        return -1;
-    u64 sz = 0;
-    Result rc = capsaGetAlbumFileSize(&s_list[index].file_id, &sz);
-    if (R_FAILED(rc) || sz == 0) {
-        return -1;
-    }
-    if (sz > 0x800000)
-        return -1;
-    return (int)sz;
-}
-
-int Image(int index, void *out, unsigned cap)
-{
-    if (!s_ok || index < 0 || index >= s_count || !out || !cap)
-        return -1;
-    u64 sz = 0;
-    Result src = capsaGetAlbumFileSize(&s_list[index].file_id, &sz);
-    if (R_FAILED(src) || sz == 0 || sz > cap) {
-        return -1;
-    }
-    u64 done = 0;
-    Result rc = capsaLoadAlbumFile(&s_list[index].file_id, &done, out, sz);
-    if (R_FAILED(rc) || done == 0 || done > cap) {
-        return -1;
-    }
-    return (int)done;
-}
-
-int Label(int index, char *out, unsigned cap)
-{
-    if (index < 0 || index >= s_count || !out || !cap)
-        return -1;
-    const CapsAlbumFileDateTime &d = s_list[index].file_id.datetime;
-    snprintf(out, cap, "%04u/%02u/%02u %02u:%02u", d.year, d.month, d.day, d.hour, d.minute);
-    out[cap - 1] = 0;
-    return (int)strlen(out);
-}
-
-
-namespace {
-struct MovieEntry {
-    bool used;
-    bool open;
-    CapsAlbumFileId fid;
-    bool isNand;
-    FILE *sd;
-    FsFile nand;
-    u64 size;
-};
-static MovieEntry *s_movies = NULL;
-static int s_movieCap = 0;
-static int s_movieCount = 0;
-static FsFileSystem s_nandFs;
-static bool s_nandFsOpen = false;
-static bool FidEqual(const CapsAlbumFileId &a, const CapsAlbumFileId &b)
-{
-    if (a.application_id != b.application_id) {
-        return false;
-    }
-
-    if (a.storage != b.storage) {
-        return false;
-    }
-
-    if (a.content != b.content) {
-        return false;
-    }
-
-    const CapsAlbumFileDateTime &x = a.datetime;
-    const CapsAlbumFileDateTime &y = b.datetime;
-
-    if (x.year != y.year || x.month != y.month || x.day != y.day) {
-        return false;
-    }
-
-    if (x.hour != y.hour || x.minute != y.minute || x.second != y.second) {
-        return false;
-    }
-
-    if (x.id != y.id) {
-        return false;
-    }
-
-    return true;
-}
-static bool JoinPath(char *out, unsigned outcap, const char *a, const char *b)
-{
-    size_t al = strlen(a);
-    size_t bl = strlen(b);
-    size_t need = al + 1 + bl + 1;
-
-    if (need < al || need > outcap) {
-        return false;
-    }
-
-    memcpy(out, a, al);
-    out[al] = 47;
-    memcpy(out + al + 1, b, bl);
-    out[al + 1 + bl] = 0;
-    return true;
-}
-static bool FsFind(const CapsAlbumFileId &fid, u64 want, char *out, unsigned outcap)
-{
-    const CapsAlbumFileDateTime &d = fid.datetime;
-    char dir[128];
-    snprintf(dir, sizeof(dir), "sdmc:/Nintendo/Album/%04u/%02u/%02u", d.year, d.month, d.day);
-    char pre[32];
-    snprintf(pre, sizeof(pre), "%04u%02u%02u%02u%02u%02u%02u-", d.year, d.month, d.day, d.hour, d.minute, d.second, d.id);
-    size_t pren = strlen(pre);
-    DIR *dd = opendir(dir);
-
-    if (!dd) {
-        return false;
-    }
-
-    bool hit = false;
-    struct dirent *e;
-
-    while ((e = readdir(dd)) != NULL) {
-        if (strncmp(e->d_name, pre, pren) != 0) {
-            continue;
-        }
-
-        char path[320];
-
-        if (!JoinPath(path, sizeof(path), dir, e->d_name)) {
-            continue;
-        }
-
-        struct stat stt;
-        memset(&stt, 0, sizeof(stt));
-
-        if (stat(path, &stt) != 0) {
-            continue;
-        }
-
-        if (!S_ISREG(stt.st_mode) || (u64)stt.st_size != want) {
-            continue;
-        }
-
-        snprintf(out, outcap, "%s", path);
-        out[outcap - 1] = 0;
-        hit = true;
-        break;
-    }
-
-    closedir(dd);
-
-    return hit;
-}
-static bool NandEnsure(void)
-{
-    if (s_nandFsOpen) {
-        return true;
-    }
-
-    memset(&s_nandFs, 0, sizeof(s_nandFs));
-    Result rc = fsOpenImageDirectoryFileSystem(&s_nandFs, FsImageDirectoryId_Nand);
-
-    if (R_FAILED(rc)) {
-            logging::LogLine("[album] Failed to open nand fs (rc: 0x%X)", (unsigned)rc);
+    /// @brief Find if a album index is a movie
+    /// @param index The album index
+    /// @return True or false
+    bool IsMovie(int index) {
+        if (index < 0 || index >= sAlbumRefreshCount) {
             return false;
         }
 
-    s_nandFsOpen = true;
+        u8 c = s_list[index].file_id.content;
 
-    return true;
-}
-static bool NandFind(const CapsAlbumFileDateTime &d, u64 want, char *outpath, unsigned outcap)
-{
-    char pre[32];
-    snprintf(pre, sizeof(pre), "%04u%02u%02u%02u%02u%02u%02u-", d.year, d.month, d.day, d.hour, d.minute, d.second, d.id);
-    size_t pren = strlen(pre);
-
-    for (int r = 0; r < 2; r++) {
-        char root[128];
-
-        if (r == 0) {
-            snprintf(root, sizeof(root), "/Album/%04u/%02u/%02u", d.year, d.month, d.day);
-        }
-        else {
-            snprintf(root, sizeof(root), "/%04u/%02u/%02u", d.year, d.month, d.day);
-        }
-
-        FsDir dir;
-        memset(&dir, 0, sizeof(dir));
-
-        if (R_FAILED(fsFsOpenDirectory(&s_nandFs, root, (u32)(FsDirOpenMode_ReadDirs | FsDirOpenMode_ReadFiles), &dir))) {
-            continue;
-        }
-
-        FsDirectoryEntry ents[64];
-        bool done = false;
-
-        while (!done) {
-            s64 got = 0;
-
-            if (R_FAILED(fsDirRead(&dir, &got, 64, ents)) || got <= 0) {
-                break;
-            }
-
-            for (s64 i = 0; i < got; i++) {
-                if (ents[i].type != FsDirEntryType_File) {
-                    continue;
-                }
-
-                if (strncmp(ents[i].name, pre, pren) != 0) {
-                    continue;
-                }
-
-                if ((u64)ents[i].file_size != want) {
-                    continue;
-                }
-
-                if (!JoinPath(outpath, outcap, root, ents[i].name)) {
-                    continue;
-                }
-
-                done = true;
-                break;
-            }
-        }
-
-        fsDirClose(&dir);
-
-        if (done) {
+        if (c == CapsAlbumFileContents_Movie || c == CapsAlbumFileContents_ExtraMovie) {
             return true;
         }
+
+        return false;
     }
-
-    return false;
-}
-}
-int IsMovie(int index)
-{
-    if (index < 0 || index >= s_count) {
-        return 0;
-    }
-
-    u8 c = s_list[index].file_id.content;
-
-    if (c == CapsAlbumFileContents_Movie || c == CapsAlbumFileContents_ExtraMovie) {
-        return 1;
-    }
-
-    return 0;
-}
-int MovieOpen(int index)
-{
-    if (!s_ok || index < 0 || index >= s_count) {
-        logging::LogLine("[album] Failed to open movie (idx: %d count: %d)", index, s_count);
-        return -1;
-    }
-
-    const CapsAlbumFileId &fid = s_list[index].file_id;
-
-    int reuse = -1;
-
-    for (int i = 0; i < s_movieCount; i++) {
-        if (!s_movies[i].used || !FidEqual(s_movies[i].fid, fid)) {
-            continue;
+    
+    /// @brief Open a movie index
+    /// @param index A album index
+    /// @return 
+    bool MovieOpen(int index) {
+        if (!sInitialized || index < 0 || index >= sAlbumRefreshCount) {
+            logging::LogLine("[album] Failed to open movie (idx: %d count: %d)", index, sAlbumRefreshCount);
+            return false;
         }
 
-        if (s_movies[i].open) {
-            return i + 1;
-        }
+        const CapsAlbumFileId &AlbumFileId = s_list[index].file_id;
 
-        reuse = i;
-    }
+        int reuse = -1;
 
-    u64 fsz = 0;
-    Result szrc = capsaGetAlbumFileSize(&fid, &fsz);
-
-    if (R_FAILED(szrc) || fsz == 0) {
-        logging::LogLine("[album] Failed to size movie (idx: %d rc: 0x%X)", index, (unsigned)szrc);
-        return -1;
-    }
-
-    int slot = reuse;
-
-    if (slot < 0) {
-        if (s_movieCount >= s_movieCap) {
-            int ncap = s_movieCap == 0 ? 4 : s_movieCap * 2;
-            MovieEntry *nn = (MovieEntry *)realloc(s_movies, (size_t)ncap * sizeof(MovieEntry));
-
-            if (!nn) {
-                logging::LogLine("[album] Failed to grow movie cache");
-                return -1;
+        for (int i = 0; i < sMovieCount; i++) {
+            if (!s_movies[i].used || !FidEqual(s_movies[i].fid, AlbumFileId)) {
+                continue;
             }
 
-            memset(nn + s_movieCap, 0, (size_t)(ncap - s_movieCap) * sizeof(MovieEntry));
-            s_movies = nn;
-            s_movieCap = ncap;
+            if (s_movies[i].open) {
+                sCurrent = i;
+                return true;
+            }
+
+            reuse = i;
         }
 
-        slot = s_movieCount;
-        s_movieCount++;
-    }
-
-    MovieEntry &e = s_movies[slot];
-    memset(&e, 0, sizeof(e));
-    e.fid = fid;
-    e.size = fsz;
-
-    if (fid.storage == CapsAlbumStorage_Nand) {
-        if (!NandEnsure()) {
-            return -1;
+        u64 AlbumFileSize = 0;
+        /* Get the movie's size */
+        Result szrc = capsaGetAlbumFileSize(&AlbumFileId, &AlbumFileSize);
+        if (R_FAILED(szrc) || AlbumFileSize == 0) {
+            logging::LogLine("[album] Failed to size movie (idx: %d rc: 0x%X)", index, (unsigned)szrc);
+            return false;
         }
 
-        char npath[320];
-        npath[0] = 0;
+        int slot = reuse;
 
-        if (!NandFind(fid.datetime, fsz, npath, sizeof(npath))) {
-            logging::LogLine("[album] Failed to find movie (idx: %d store: %u)", index, (unsigned)fid.storage);
-            return -1;
+        /* Grow the movie cache/cap if nessesary*/
+        if (slot < 0) {
+            if (sMovieCount >= s_movieCap) {
+                int ncap = s_movieCap == 0 ? 4 : s_movieCap * 2;
+                MovieEntry *nn = (MovieEntry *)realloc(s_movies, (size_t)ncap * sizeof(MovieEntry));
+
+                if (!nn) {
+                    logging::LogLine("[album] Failed to grow movie cache");
+                    return false;
+                }
+
+                memset(nn + s_movieCap, 0, (size_t)(ncap - s_movieCap) * sizeof(MovieEntry));
+                s_movies = nn;
+                s_movieCap = ncap;
+            }
+
+            slot = sMovieCount;
+            sMovieCount++;
         }
 
-        Result frc = fsFsOpenFile(&s_nandFs, npath, FsOpenMode_Read, &e.nand);
+        /* Create a MovieEntry for population */
+        MovieEntry &e = s_movies[slot];
+        std::memset(&e, 0, sizeof(e));
+        e.fid = AlbumFileId;
+        e.size = AlbumFileSize;
 
-        if (R_FAILED(frc)) {
-            for (int i = 0; i < s_movieCount; i++) {
-                if (s_movies[i].used && s_movies[i].open && s_movies[i].isNand) {
-                    fsFileClose(&s_movies[i].nand);
-                    s_movies[i].open = false;
+        /* Open manually from the NAND */
+        if (AlbumFileId.storage == CapsAlbumStorage_Nand) {
+            if (!NandEnsure()) {
+                return false;
+            }
+
+            char FoundNandPath[320];
+            FoundNandPath[0] = '\0';
+
+            if (!NandFind(AlbumFileId.datetime, AlbumFileSize, FoundNandPath, sizeof(FoundNandPath))) {
+                logging::LogLine("[album] Failed to find movie (ID: %d Storage: %u)", index, (unsigned)AlbumFileId.storage);
+                return false;
+            }
+
+            Result frc = fsFsOpenFile(&sNandFilesystem, FoundNandPath, FsOpenMode_Read, &e.nand);
+
+            if (R_FAILED(frc)) {
+                for (int i = 0; i < sMovieCount; i++) {
+                    if (s_movies[i].used && s_movies[i].open && s_movies[i].isNand) {
+                        fsFileClose(&s_movies[i].nand);
+                        s_movies[i].open = false;
+                    }
+                }
+
+                for (int rt = 0; rt < 3 && R_FAILED(frc); rt++) {
+                    svcSleepThread(200000000ull); // Retry if it fails, as session may still be closed
+                    frc = fsFsOpenFile(&sNandFilesystem, FoundNandPath, FsOpenMode_Read, &e.nand);
+                }
+
+                // Now we actually can't open it
+                if (R_FAILED(frc)) {
+                    logging::LogLine("[album] Failed to open NAND movie (ID: %d RC: 0x%X)", index, (unsigned)frc);
+                    return false;
                 }
             }
 
-            for (int rt = 0; rt < 3 && R_FAILED(frc); rt++) {
-                svcSleepThread(200000000ull);
-                frc = fsFsOpenFile(&s_nandFs, npath, FsOpenMode_Read, &e.nand);
+            e.isNand = true;
+        } else { /* Otherwise open from the SD */
+            char FoundSdPath[320]; // TODO: determine if this size is good for all scenarios (should be?)
+            FoundSdPath[0] = '\0';
+
+            if (!FsFind(AlbumFileId, AlbumFileSize, FoundSdPath, sizeof(FoundSdPath))) {
+                logging::LogLine("[album] Failed to find movie (ID: %d Storage: %u)", index, (unsigned)AlbumFileId.storage);
+                return false;
             }
 
-            if (R_FAILED(frc)) {
-                logging::LogLine("[album] Failed to open nand movie (idx: %d rc: 0x%X)", index, (unsigned)frc);
+            FILE *sdFptr = fopen(FoundSdPath, "rb");
+
+            if (!sdFptr) {
+                logging::LogLine("[album] Failed to open movie (ID: %d)", index);
+                return false;
+            }
+
+            e.sd = sdFptr;
+            e.isNand = false;
+        }
+
+        e.used = true;
+        e.open = true;
+        sCurrent = slot;
+
+        return true;
+    }
+
+    /// @brief Get the size of a movie
+    /// @param entry Which movie entry
+    /// @return The size of the movie. 0 is failure
+    u64 MovieSize()
+    {
+        if (sCurrent < 0 || sCurrent >= sMovieCount) {
+            return 0;
+        }
+
+        MovieEntry &e = s_movies[sCurrent];
+
+        if (!e.used || !e.open) {
+            return 0;
+        }
+
+        return e.size;
+    }
+
+
+    int MovieRead(u64 off, void *out, unsigned cap) {
+        if (sCurrent < 0 || sCurrent >= sMovieCount || !out || !cap) {
+            return -1;
+        }
+
+        MovieEntry &entry = s_movies[sCurrent];
+
+        if (!entry.used || !entry.open || off >= entry.size) {
+            return -1;
+        }
+
+        if (entry.isNand) {
+            u64 BytesRead = 0;
+
+            if (R_FAILED(fsFileRead(&entry.nand, (s64)off, out, cap, 0, &BytesRead)) || BytesRead == 0) {
                 return -1;
             }
+
+            return (int)BytesRead;
         }
 
-        e.isNand = true;
-    }
-    else {
-        char path[320];
-        path[0] = 0;
-
-        if (!FsFind(fid, fsz, path, sizeof(path))) {
-            logging::LogLine("[album] Failed to find movie (idx: %d store: %u)", index, (unsigned)fid.storage);
+        if (fseeko(entry.sd, (off_t)off, SEEK_SET) != 0) {
             return -1;
         }
 
-        FILE *ff = fopen(path, "rb");
-
-        if (!ff) {
-            logging::LogLine("[album] Failed to fopen movie (idx: %d)", index);
+        size_t n = fread(out, 1, cap, entry.sd);
+        if (n == 0) {
             return -1;
         }
 
-        e.sd = ff;
-        e.isNand = false;
+        return (int)n;
     }
 
-    e.used = true;
-    e.open = true;
-
-    return slot + 1;
-}
-u64 MovieSize(int h)
-{
-    if (h <= 0 || h > s_movieCount) {
-        return 0;
+    void MovieClose()
+    {
+        sCurrent = -1;
     }
 
-    MovieEntry &e = s_movies[h - 1];
-
-    if (!e.used || !e.open) {
-        return 0;
-    }
-
-    return e.size;
-}
-int MovieRead(int h, u64 off, void *out, unsigned cap)
-{
-    if (h <= 0 || h > s_movieCount || !out || !cap) {
-        return -1;
-    }
-
-    MovieEntry &e = s_movies[h - 1];
-
-    if (!e.used || !e.open || off >= e.size) {
-        return -1;
-    }
-
-    if (e.isNand) {
-        u64 br = 0;
-
-        if (R_FAILED(fsFileRead(&e.nand, (s64)off, out, cap, 0, &br)) || br == 0) {
-            return -1;
-        }
-
-        return (int)br;
-    }
-
-    if (fseeko(e.sd, (off_t)off, SEEK_SET) != 0) {
-        return -1;
-    }
-
-    size_t n = fread(out, 1, cap, e.sd);
-
-    if (n == 0) {
-        return -1;
-    }
-
-    return (int)n;
-}
-int MovieClose(int h)
-{
-    if (h <= 0 || h > s_movieCount) {
-        return -1;
-    }
-
-    MovieEntry &e = s_movies[h - 1];
-
-    if (!e.used || !e.open) {
-        return -1;
-    }
-
-    return 0;
-}
 } // namespace album

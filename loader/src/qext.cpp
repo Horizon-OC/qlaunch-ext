@@ -12,22 +12,22 @@
 
 namespace {
 
-AccountUid PickUser()
-{
-    AccountUid uid{};
-    if (R_SUCCEEDED(accountGetLastOpenedUser(&uid)) && accountUidIsValid(&uid))
-        return uid;
-    AccountUid list[8] = {};
-    s32 total = 0;
-    if (R_SUCCEEDED(accountListAllUsers(list, 8, &total))) {
-        for (s32 i = 0; i < total && i < 8; i++) {
-            if (accountUidIsValid(&list[i]))
-                return list[i];
+    AccountUid PickUser()
+    {
+        AccountUid uid{};
+        if (R_SUCCEEDED(accountGetLastOpenedUser(&uid)) && accountUidIsValid(&uid))
+            return uid;
+        AccountUid list[8] = {};
+        s32 total = 0;
+        if (R_SUCCEEDED(accountListAllUsers(list, 8, &total))) {
+            for (s32 i = 0; i < total && i < 8; i++) {
+                if (accountUidIsValid(&list[i]))
+                    return list[i];
+            }
         }
+        AccountUid empty{};
+        return empty;
     }
-    AccountUid empty{};
-    return empty;
-}
 
 } // namespace
 
@@ -49,13 +49,15 @@ extern "C" int qext_album_image(int i, void *o, unsigned c) { return album::Imag
 extern "C" int qext_album_label(int i, char *o, unsigned c) { return album::Label(i, o, c); }
 extern "C" int qext_album_fileid(int i, CapsAlbumFileId *o) { return album::FileId(i, o); }
 extern "C" int qext_album_is_movie(int i) { return album::IsMovie(i); }
-extern "C" int qext_album_movie_open(int i)
+extern "C" bool qext_album_movie_open(int i)
 {
     return album::MovieOpen(i);
 }
-extern "C" u64 qext_album_movie_size(int h) { return album::MovieSize(h); }
-extern "C" int qext_album_movie_read(int h, u64 off, void *o, unsigned c) { return album::MovieRead(h, off, o, c); }
-extern "C" int qext_album_movie_close(int h) { return album::MovieClose(h); }
+extern "C" u64 qext_album_movie_size() { return album::MovieSize(); }
+extern "C" int qext_album_movie_read(u64 off, void *o, unsigned c) { return album::MovieRead(off, o, c); }
+extern "C" void qext_album_movie_close() { album::MovieClose(); }
+extern Result heap_album_grow(void);
+extern "C" int qext_album_grow(void) { return heap_album_grow(); }
 
 extern "C" Result qext_launch_title(u64 tid)
 {

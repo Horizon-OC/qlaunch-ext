@@ -27,10 +27,11 @@ int qext_album_image(int index, void *out, unsigned cap);
 int qext_album_label(int index, char *out, unsigned cap);
 int qext_album_fileid(int index, CapsAlbumFileId *out);
 int qext_album_is_movie(int index);
-int qext_album_movie_open(int index);
-u64 qext_album_movie_size(int handle);
-int qext_album_movie_read(int handle, u64 offset, void *out, unsigned cap);
-int qext_album_movie_close(int handle);
+bool qext_album_movie_open(int index);
+u64 qext_album_movie_size();
+int qext_album_movie_read(u64 offset, void *out, unsigned cap);
+void qext_album_movie_close();
+int qext_album_grow(void);
 
 Result qext_launch_title(u64 tid);
 Result qext_resume_game(void);

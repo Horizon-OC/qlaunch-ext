@@ -70,6 +70,29 @@ static Result heap_set(size_t target)
     return 0;
 }
 
+static constexpr size_t kHeapAlbum = 192u * 1024u * 1024u;
+
+Result heap_album_grow(void)
+{
+    static const size_t kTries[] = { kHeapAlbum, 160u * 1024u * 1024u, 128u * 1024u * 1024u };
+
+    Result rc = 0;
+
+    for (size_t i = 0; i < sizeof(kTries) / sizeof(kTries[0]); i++) {
+        if (kTries[i] <= g_heapSize) {
+            return 0;
+        }
+
+        rc = heap_set(kTries[i]);
+
+        if (R_SUCCEEDED(rc)) {
+            return 0;
+        }
+    }
+
+    return rc;
+}
+
 #define FB_W 1280
 #define FB_H 720
 
@@ -616,14 +639,11 @@ int main(int argc, char **argv)
     (void)argc;
     (void)argv;
     logging::LogLine("[qlaunch-ext] initialized (build %s %s)", __DATE__, __TIME__);
-    {
-        u32 hv = hosversionGet();
-        logging::LogLine("[qlaunch-ext] fw %u.%u.%u", HOSVER_MAJOR(hv), HOSVER_MINOR(hv), HOSVER_MICRO(hv));
-    }
-    {
-        Result iprc = appletLoadAndApplyIdlePolicySettings();
-        logging::LogLine("[qlaunch-ext] idle policy rc=0x%X", iprc);
-    }
+    u32 hosVersion = hosversionGet();
+    logging::LogLine("[qlaunch-ext] fw %u.%u.%u", HOSVER_MAJOR(hosVersion), HOSVER_MINOR(hosVersion), HOSVER_MICRO(hosVersion));
+    Result iprc = appletLoadAndApplyIdlePolicySettings();
+    logging::LogLine("[qlaunch-ext] Applied idle policy settings (rc=0x%X)", iprc);
+
     /* Drain anything queued during boot. */
     pump_general_channel();
     pump_applet_messages();
