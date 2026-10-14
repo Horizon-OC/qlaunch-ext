@@ -20,7 +20,6 @@ TODO
     - ForwarderPlugin: Put your homebrew on the home menu with *zero* ban risk
 
 - TODO:
-    - FakeForwarderPlugin: Fake forwarders
     - Ultrahand: ultrahand as a plugin, so it can use applet ram
     - FTPPlugin: FTP server
     - JellyfinPlugin: Replace album with Jellyfin client
