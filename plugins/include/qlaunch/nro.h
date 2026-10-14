@@ -13,10 +13,8 @@ extern "C" {
 /* "QLDI". */
 #define QEXT_NRO_MAGIC 0x49444C51u
 
-enum {
-    kNroPathSize = 512,
-    kNroArgvSize = 2048,
-};
+constexpr int kNroPathSize = 512;
+constexpr int kNroArgvSize = 2048;
 
 /* Payload boot block. argv empty = defaults to nro_path. */
 typedef struct {

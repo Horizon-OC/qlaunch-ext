@@ -38,8 +38,11 @@ static int s_top = 0;
 static int sAlbumRefreshCount = 0;
 static InputRepeat s_repeat = { 0 };
 
-enum { COLS = 5, ROWS = 3, VIS = COLS * ROWS };
-enum { THUMB_SLOTS = 15, FULL_SLOT = 15 };
+constexpr int COLS = 5;
+constexpr int ROWS = 3;
+constexpr int VIS = COLS * ROWS;
+constexpr int THUMB_SLOTS = 15;
+constexpr int FULL_SLOT = 15;
 
 struct Slot {
     bool used;

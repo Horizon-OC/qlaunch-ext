@@ -14,8 +14,10 @@
 
 namespace Theme {
 
-enum { MAX_COLORS = 64, MAX_METRICS = 32 };
-enum { MAX_THEMES = 16, THEME_COLS = 13 };
+constexpr int MAX_COLORS = 64;
+constexpr int MAX_METRICS = 32;
+constexpr int MAX_THEMES = 16;
+constexpr int THEME_COLS = 13;
 
 struct Entry {
     char name[24];

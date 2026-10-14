@@ -8,29 +8,27 @@
 
 /* Fixed LRU budget for title icons. Rows outside the budget keep
    fallback tiles until scrolling brings them near the focus. */
-enum { ICONS_MAX = 16 };
+constexpr int ICONS_MAX = 16;
 
-enum {
-    HUD_WIFI = 0,
-    HUD_BATTERY,
-    HUD_USER,
-    HUD_BTN_A,
-    HUD_BTN_PLUS,
-    HUD_FOLDER,
-    HUD_VGCCARD,
-    HUD_TOPSEL_HOME,
-    HUD_TOPSEL_CONNECT,
-    HUD_TOPSEL_ESHOP,
-    HUD_TOPSEL_ALBUM,
-    HUD_TOPSEL_SETTINGS,
-    HUD_TOPDES_HOME,
-    HUD_TOPDES_CONNECT,
-    HUD_TOPDES_ESHOP,
-    HUD_TOPDES_ALBUM,
-    HUD_TOPDES_SETTINGS,
-    HUD_MARKER_STRIP,
-    HUD_COUNT
-};
+constexpr int HUD_WIFI = 0;
+constexpr int HUD_BATTERY = 1;
+constexpr int HUD_USER = 2;
+constexpr int HUD_BTN_A = 3;
+constexpr int HUD_BTN_PLUS = 4;
+constexpr int HUD_FOLDER = 5;
+constexpr int HUD_VGCCARD = 6;
+constexpr int HUD_TOPSEL_HOME = 7;
+constexpr int HUD_TOPSEL_CONNECT = 8;
+constexpr int HUD_TOPSEL_ESHOP = 9;
+constexpr int HUD_TOPSEL_ALBUM = 10;
+constexpr int HUD_TOPSEL_SETTINGS = 11;
+constexpr int HUD_TOPDES_HOME = 12;
+constexpr int HUD_TOPDES_CONNECT = 13;
+constexpr int HUD_TOPDES_ESHOP = 14;
+constexpr int HUD_TOPDES_ALBUM = 15;
+constexpr int HUD_TOPDES_SETTINGS = 16;
+constexpr int HUD_MARKER_STRIP = 17;
+constexpr int HUD_COUNT = 18;
 
 struct IconReq {
     u64 tid;

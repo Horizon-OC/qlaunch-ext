@@ -13,7 +13,7 @@ struct JxTok {
     int size;  /* children count  */
 };
 
-enum { JX_MAX_TOKS = 512 };
+constexpr int JX_MAX_TOKS = 512;
 
 /// @brief Parsed JSON document: source text plus token table.
 struct JxDoc {

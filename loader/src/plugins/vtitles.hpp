@@ -55,13 +55,11 @@
 
 namespace vtitles {
 
-    enum {
-        kMaxProviders = 32,
-        kMaxPerProvider = 128,
-        kMaxTotal = 256,
-        kNameCap = 192,
-        kIconCap = 0x40000,
-    };
+    constexpr int kMaxProviders = 32;
+    constexpr int kMaxPerProvider = 128;
+    constexpr int kMaxTotal = 256;
+    constexpr int kNameCap = 192;
+    constexpr int kIconCap = 0x40000;
 
     /// @brief Probe a freshly loaded plugin handle for title exports.
     /// @param handle dlopen handle from the plugin loader.

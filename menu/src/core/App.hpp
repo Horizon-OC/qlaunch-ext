@@ -5,9 +5,13 @@
 #include <switch.h>
 #include "Theme.hpp"
 
-enum { APP_MAX_TITLES = 256, APP_NAME_MAX = 192, APP_APPLETS = 2 };
+constexpr int APP_MAX_TITLES = 256;
+constexpr int APP_NAME_MAX = 192;
+constexpr int APP_APPLETS = 2;
 
-enum { HOMESUB_GAMES = 0, HOMESUB_FOLDERS, HOMESUB_VGC };
+constexpr int HOMESUB_GAMES = 0;
+constexpr int HOMESUB_FOLDERS = 1;
+constexpr int HOMESUB_VGC = 2;
 
 /// @brief One row in the home game strip.
 struct AppRow {

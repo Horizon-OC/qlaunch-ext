@@ -5,8 +5,11 @@
 #pragma once
 #include <switch.h>
 
-enum { LAYOUT_MAX_NODES = 48, LAYOUT_MAX_DOCK = 12, LAYOUT_MAX_HINTS = 8 };
-enum { LAYOUT_MAX_TABS = 8, LAYOUT_ID_MAX = 24 };
+constexpr int LAYOUT_MAX_NODES = 48;
+constexpr int LAYOUT_MAX_DOCK = 12;
+constexpr int LAYOUT_MAX_HINTS = 8;
+constexpr int LAYOUT_MAX_TABS = 8;
+constexpr int LAYOUT_ID_MAX = 24;
 
 /// @brief One dock shortcut inside a node.
 struct DockItem {

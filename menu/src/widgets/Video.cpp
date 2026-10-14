@@ -23,8 +23,10 @@ extern "C" {
 
 namespace WVideo {
 
-    enum { VW = 1280, VH = 720, AVIO_CAP = 65536 };
-    enum { PCM_CAP = 8192 };
+    constexpr int VW = 1280;
+    constexpr int VH = 720;
+    constexpr int AVIO_CAP = 65536;
+    constexpr int PCM_CAP = 8192;
 
     static bool s_open = false;
     static bool s_paused = false;

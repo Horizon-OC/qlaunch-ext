@@ -5,10 +5,13 @@
 #pragma once
 #include <switch.h>
 
-enum { FONT_ATLAS_W = 1024, FONT_ATLAS_H = 1024 };
+constexpr int FONT_ATLAS_W = 1024;
+constexpr int FONT_ATLAS_H = 1024;
 
 /* Texture slots / text buffers. */
-enum { FONT_SLOT_LATIN = 0, FONT_SLOT_KANA = 1, FONT_SLOT_ICON = 2 };
+constexpr int FONT_SLOT_LATIN = 0;
+constexpr int FONT_SLOT_KANA = 1;
+constexpr int FONT_SLOT_ICON = 2;
 
 namespace Font {
     /// @brief Initialize font atlases and text buffers.

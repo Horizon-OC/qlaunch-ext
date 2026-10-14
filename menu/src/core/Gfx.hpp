@@ -21,18 +21,16 @@ struct HighlightVtx {
     float rot;
 };
 
-enum {
-    GFX_FB_NUM = 2,
-    GFX_VTX_MAX = 2048,
-    GFX_TEXT_MAX = 8192,
-    GFX_PANEL_MAX = 2048,
-    GFX_ICONQ_MAX = 2048,
-    GFX_HL_MAX = 64,
+constexpr int GFX_FB_NUM = 2;
+constexpr int GFX_VTX_MAX = 2048;
+constexpr int GFX_TEXT_MAX = 8192;
+constexpr int GFX_PANEL_MAX = 2048;
+constexpr int GFX_ICONQ_MAX = 2048;
+constexpr int GFX_HL_MAX = 64;
 
-    GFX_MAX_TEX = 256,
-    GFX_CODE_SIZE = 64 * 1024,
-    GFX_CMD_SIZE = 64 * 1024,
-};
+constexpr int GFX_MAX_TEX = 256;
+constexpr int GFX_CODE_SIZE = 64 * 1024;
+constexpr int GFX_CMD_SIZE = 64 * 1024;
 
 namespace Gfx {
     /// @brief Initialize the renderer and framebuffers.

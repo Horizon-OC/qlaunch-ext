@@ -20,9 +20,9 @@ constexpr char kDir[] = "sdmc:/qlaunch-ext/plugins";
 constexpr char kBase[] = "sdmc:/qlaunch-ext";
 constexpr char kJson[] = "sdmc:/qlaunch-ext/plugins.json";
 
-enum { kMaxPlugins = 32 };
-enum { kNameCap = 63 };
-enum { kMaxJsonEntries = 32 };
+constexpr int kMaxPlugins = 32;
+constexpr int kNameCap = 63;
+constexpr int kMaxJsonEntries = 32;
 
 struct Plugin {
     char name[kNameCap + 1];

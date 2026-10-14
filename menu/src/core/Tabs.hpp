@@ -5,12 +5,10 @@
 #pragma once
 #include <switch.h>
 
-enum {
-    TAB_MAX = 8,
-    TAB_ID_MAX = 24,
-    TAB_TITLE_MAX = 48,
-    TAB_JINGLE_MAX = 32,
-};
+constexpr int TAB_MAX = 8;
+constexpr int TAB_ID_MAX = 24;
+constexpr int TAB_TITLE_MAX = 48;
+constexpr int TAB_JINGLE_MAX = 32;
 
 /// @brief Draw callback for a menu tab.
 typedef void (*TabDrawFn)(void);

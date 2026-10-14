@@ -4,7 +4,12 @@
 
 #pragma once
 
-enum { MENU_HOME = 0, MENU_CONNECT, MENU_ESHOP, MENU_ALBUM, MENU_SETTINGS, MENU_COUNT };
+constexpr int MENU_HOME = 0;
+constexpr int MENU_CONNECT = 1;
+constexpr int MENU_ESHOP = 2;
+constexpr int MENU_ALBUM = 3;
+constexpr int MENU_SETTINGS = 4;
+constexpr int MENU_COUNT = 5;
 
 namespace Theme {
     /// @brief Load a legacy single-theme JSON blob.

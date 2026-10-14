@@ -10,7 +10,7 @@
 
 #include "../third_party/stb_image.h"
 
-enum { AV_MAX = 2 };
+constexpr int AV_MAX = 2;
 
 namespace Avatars {
 

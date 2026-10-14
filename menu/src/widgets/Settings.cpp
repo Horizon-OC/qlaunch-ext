@@ -23,8 +23,11 @@ static const char *kOptions[18] = {
     "Users", "Mii", "amiibo", "Noti", "Sleep", "System",
 };
 
-enum { ROW_LABEL = 0, ROW_TOGGLE, ROW_ACTION };
-enum { ACT_CONTROLLERS = 1, ACT_MII = 2 };
+constexpr int ROW_LABEL = 0;
+constexpr int ROW_TOGGLE = 1;
+constexpr int ROW_ACTION = 2;
+constexpr int ACT_CONTROLLERS = 1;
+constexpr int ACT_MII = 2;
 
 struct SRow {
     const char *label;
