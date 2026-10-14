@@ -113,6 +113,7 @@ static bool g_winLive = false;
 /* Pointers to dynamic libraries */
 static void *g_neko;
 static void *g_menu;
+static void *g_miniini;
 
 /* Pointers to menu callbacks */
 static int (*s_onBoot)(NWindow *);
@@ -295,6 +296,10 @@ static void menu_unload(void)
         dlclose(g_neko);
         g_neko = nullptr;
     }
+    if (g_miniini) {
+        dlclose(g_miniini);
+        g_miniini = nullptr;
+    }
 }
 
 /* One boot stage per part of the initcode, so we can keep applet services silent */
@@ -353,6 +358,12 @@ static Result boot_step(void)
             g_bootStage = BootStage_Plugins;
             break;
         case BootStage_Plugins:
+            dlink_set_library_dir(NULL);
+            if (!g_miniini) {
+                g_miniini = dlopen("miniini", RTLD_GLOBAL);
+                logging::LogLine("[qlaunch-ext] opening miniini at %p (dlerr=%s)", g_miniini,
+                                 g_miniini ? "NONE" : dlerror());
+            }
             /* Load plugins very early */
             plugins::Boot(&g_win);
             g_bootStage = BootStage_Neko;

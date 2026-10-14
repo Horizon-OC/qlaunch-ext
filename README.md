@@ -17,6 +17,7 @@ TODO
 
 - Inbuilt:
     - MTPPlugin: MTP server that runs all the time
+    - ForwarderPlugin: Put your homebrew on the home menu with *zero* ban risk
 
 - TODO:
     - FakeForwarderPlugin: Fake forwarders

@@ -22,7 +22,6 @@ static char g_defaultNroArgv[2048] = DEFAULT_NRO;
 u64  g_nroAddr = 0;
 static u64  g_nroSize = 0;
 static NroHeader g_nroHeader;
-static bool g_isApplication = 0;
 
 static bool g_isAutomaticGameplayRecording = 0;
 static enum {
@@ -43,10 +42,56 @@ static u128 g_userIdStorage;
 
 static u8 g_savedTls[0x100];
 
+extern u32 __nx_applet_type;
+u32 __nx_applet_exit_mode = 2;
+
 // Minimize fs resource usage
 u32 __nx_fs_num_sessions = 1;
 u32 __nx_fsdev_direntry_cache_size = 1;
 bool __nx_fsdev_support_cwd = false;
+
+static bool IsAppletProgram(u64 program_id)
+{
+    return program_id >= 0x0100000000001000ULL && program_id <= 0x0100000000001FFFULL;
+}
+
+static bool IsApplicationProgram(u64 program_id)
+{
+    return program_id >= 0x0100000000010000ULL;
+}
+
+static AppletType GetAppletType(u64 program_id)
+{
+    if (IsAppletProgram(program_id)) {
+        // OverlayApplet and SystemApplet are impossible in this case
+        return AppletType_LibraryApplet;
+    } else if (IsApplicationProgram(program_id)) {
+        // hbloader uses this instead of regular Application
+        return AppletType_SystemApplication;
+    } else {
+        return AppletType_None;
+    }
+}
+
+static void DetermineSelfAppletType(u64 self_program_id)
+{
+    __nx_applet_type = GetAppletType(self_program_id);
+}
+
+static AppletType GetSelfAppletType(void)
+{
+    return (AppletType)__nx_applet_type;
+}
+
+static bool SelfIsApplet(void)
+{
+    return GetSelfAppletType() == AppletType_LibraryApplet;
+}
+
+static bool SelfIsApplication(void)
+{
+    return GetSelfAppletType() == AppletType_SystemApplication;
+}
 
 // Used by trampoline.s
 Result g_lastRet = 0;
@@ -118,39 +163,55 @@ void __wrap_exit(void)
     diagAbortWithResult(MAKERESULT(Module_HomebrewLoader, 39));
 }
 
-/// @brief Adopt the NRO the menu requested, if any. The menu pushes
-/// an NroTargetInput as UserChannel storage before starting the
-/// donor; without it (or when corrupt) the hbmenu default stands.
 static void readTargetOrDefault(void)
 {
     if (R_FAILED(appletInitialize()))
         return;
 
-    AppletStorage st;
-    Result rc = appletPopLaunchParameter(&st, AppletLaunchParameterKind_UserChannel);
-    if (R_SUCCEEDED(rc)) {
-        s64 size = 0;
-        if (R_SUCCEEDED(appletStorageGetSize(&st, &size)) &&
-            size >= (s64)sizeof(NroTargetInput)) {
-            NroTargetInput in;
-            memset(&in, 0, sizeof(in));
-            if (R_SUCCEEDED(appletStorageRead(&st, 0, &in, sizeof(in))) &&
-                in.magic == QEXT_NRO_MAGIC && in.nro_path[0] != '\0') {
-                in.nro_path[kNroPathSize - 1] = '\0';
-                in.nro_argv[kNroArgvSize - 1] = '\0';
-                strncpy(g_defaultNroPath, in.nro_path, sizeof(g_defaultNroPath) - 1);
-                g_defaultNroPath[sizeof(g_defaultNroPath) - 1] = '\0';
-                if (in.nro_argv[0] != '\0') {
-                    strncpy(g_defaultNroArgv, in.nro_argv, sizeof(g_defaultNroArgv) - 1);
-                    g_defaultNroArgv[sizeof(g_defaultNroArgv) - 1] = '\0';
-                } else {
-                    strncpy(g_defaultNroArgv, in.nro_path, sizeof(g_defaultNroArgv) - 1);
-                    g_defaultNroArgv[sizeof(g_defaultNroArgv) - 1] = '\0';
-                }
+    AppletStorage target_storage;
+    if (SelfIsApplet()) {
+        // We don't make use of the common args storage
+        AppletStorage common_storage;
+        if (R_FAILED(appletPopInData(&common_storage))) {
+            appletExit();
+            return;
+        }
+        appletStorageClose(&common_storage);
+        if (R_FAILED(appletPopLaunchParameter(&target_storage, AppletLaunchParameterKind_UserChannel))) {
+            appletExit();
+            return;
+        }
+    } else if (SelfIsApplication()) {
+        if (R_FAILED(appletPopLaunchParameter(&target_storage, AppletLaunchParameterKind_UserChannel))) {
+            appletExit();
+            return;
+        }
+    } else {
+        appletExit();
+        return;
+    }
+
+    s64 size = 0;
+    if (R_SUCCEEDED(appletStorageGetSize(&target_storage, &size)) &&
+        size >= (s64)sizeof(NroTargetInput)) {
+        NroTargetInput in;
+        memset(&in, 0, sizeof(in));
+        if (R_SUCCEEDED(appletStorageRead(&target_storage, 0, &in, sizeof(in))) && in.magic == QEXT_NRO_MAGIC && in.nro_path[0] != '\0') {
+            in.nro_path[kNroPathSize - 1] = '\0';
+            in.nro_argv[kNroArgvSize - 1] = '\0';
+            strncpy(g_defaultNroPath, in.nro_path, sizeof(g_defaultNroPath) - 1);
+            
+            g_defaultNroPath[sizeof(g_defaultNroPath) - 1] = '\0';
+            if (in.nro_argv[0] != '\0') {
+                strncpy(g_defaultNroArgv, in.nro_argv, sizeof(g_defaultNroArgv) - 1);
+                g_defaultNroArgv[sizeof(g_defaultNroArgv) - 1] = '\0';
+            } else {
+                strncpy(g_defaultNroArgv, in.nro_path, sizeof(g_defaultNroArgv) - 1);
+                g_defaultNroArgv[sizeof(g_defaultNroArgv) - 1] = '\0';
             }
         }
-        appletStorageClose(&st);
     }
+    appletStorageClose(&target_storage);
     appletExit();
 }
 
@@ -177,7 +238,7 @@ static void setupHbHeap(void)
     void* addr = NULL;
     u64 size = calculateMaxHeapSize();
 
-    if (!g_isApplication) {
+    if (!SelfIsApplication()) {
         if (g_appletHeapSize) {
             u64 requested_size = (g_appletHeapSize + 0x1FFFFF) &~ 0x1FFFFF;
             if (requested_size < size)
@@ -220,36 +281,6 @@ static void procHandleReceiveThread(void* arg)
     svcCloseHandle(session);
 }
 
-// Sets g_isApplication if the loader process is running as an Application.
-static void getIsApplication(void)
-{
-    Result rc;
-
-    // Try asking the kernel directly (only works on [9.0.0+] or mesosphère)
-    u64 flag=0;
-    rc = svcGetInfo(&flag, InfoType_IsApplication, CUR_PROCESS_HANDLE, 0);
-    if (R_SUCCEEDED(rc)) {
-        g_isApplication = flag!=0;
-        return;
-    }
-
-    // Retrieve our process' PID
-    u64 cur_pid=0;
-    rc = svcGetProcessId(&cur_pid, CUR_PROCESS_HANDLE);
-    if (R_FAILED(rc)) diagAbortWithResult(rc); // shouldn't happen
-
-    // Try reading the current application PID through pm:shell - if it matches ours then we are indeed an application
-    rc = pmshellInitialize();
-    if (R_SUCCEEDED(rc)) {
-        u64 app_pid=0;
-        rc = pmshellGetApplicationProcessIdForShell(&app_pid);
-        pmshellExit();
-
-        if (cur_pid == app_pid)
-            g_isApplication = 1;
-    }
-}
-
 // Sets g_isAutomaticGameplayRecording if the current program has automatic gameplay recording enabled in its NACP.
 //Gets the control.nacp for the current program id, and then sets g_isAutomaticGameplayRecording if less memory should be allocated.
 static void getIsAutomaticGameplayRecording(void)
@@ -257,7 +288,7 @@ static void getIsAutomaticGameplayRecording(void)
     Result rc;
 
     // Do nothing if the HOS version predates [4.0.0], or we're not an application.
-    if (hosversionBefore(4,0,0) || !g_isApplication)
+    if (hosversionBefore(4,0,0) || !SelfIsApplication())
         return;
 
     // Retrieve our process' Program ID
@@ -514,10 +545,8 @@ void loadNro(void)
     ConfigEntry *entry_AppletType = &entries[2];
     ConfigEntry *entry_Syscalls   = &entries[7];
 
-    if (g_isApplication) {
-        entry_AppletType->Value[0] = AppletType_SystemApplication;
-        entry_AppletType->Value[1] = EnvAppletFlags_ApplicationOverride;
-    }
+    entry_AppletType->Value[0] = (u64)GetSelfAppletType();
+    entry_AppletType->Value[1] = SelfIsApplication() ? (u64)EnvAppletFlags_ApplicationOverride : 0;
 
     if (!(g_codeMemoryCapability & BIT(0))) {
         // Revoke access to svcCreateCodeMemory if it's not available.
@@ -562,13 +591,19 @@ int main(int argc, char **argv)
 {
     memcpy(g_savedTls, (u8*)armGetTls() + 0x100, 0x100);
 
-    getIsApplication();
+    u64 self_program_id = 0;
+    Result prog_rc = svcGetInfo(&self_program_id, InfoType_ProgramId, CUR_PROCESS_HANDLE, 0);
+    if (R_FAILED(prog_rc))
+        diagAbortWithResult(prog_rc); // shouldn't happen
+    DetermineSelfAppletType(self_program_id);
+
     getIsAutomaticGameplayRecording();
-    smExit(); // Close SM as we don't need it anymore.
     /* Hang if not a application */
-    if (!g_isApplication)
+    if (!SelfIsApplication())
         diagAbortWithResult(MAKERESULT(Module_HomebrewLoader, 50));
     readTargetOrDefault();
+    
+    smExit(); // Close SM as we don't need it anymore.
     setupHbHeap();
     getOwnProcessHandle();
     getCodeMemoryCapability();

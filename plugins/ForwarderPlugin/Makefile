@@ -1,6 +1,7 @@
 TOP := $(CURDIR)
 DLINK := $(TOP)/../../extern/libnx-dlink
 SDK := $(TOP)/../../plugins/include
+MINIINI := $(TOP)/../../extern/miniini
 
 DEVKITPRO ?= /opt/devkitpro
 DKA64 := $(DEVKITPRO)/devkitA64
@@ -9,7 +10,7 @@ CXX := $(DKA64)/bin/aarch64-none-elf-g++
 PY := python3
 
 ARCH := -march=armv8-a -mtune=cortex-a57 -mtp=soft -fPIC
-BASEFLAGS := -g -O2 -ffunction-sections -fdata-sections $(ARCH) -D__SWITCH__ -I$(DEVKITPRO)/libnx/include -I$(SDK) -I$(TOP)/src
+BASEFLAGS := -g -O2 -ffunction-sections -fdata-sections $(ARCH) -D__SWITCH__ -I$(DEVKITPRO)/libnx/include -I$(SDK) -I$(MINIINI) -I$(TOP)/src -DINI_READONLY -DINI_NOBROWSE -DNDEBUG
 CFLAGS := $(BASEFLAGS) -fvisibility=hidden
 
 CXXFLAGS := $(BASEFLAGS) -std=gnu++23 -fno-exceptions -fno-rtti -fno-threadsafe-statics -fvisibility=hidden

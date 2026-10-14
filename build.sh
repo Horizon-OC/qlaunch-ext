@@ -22,6 +22,8 @@ fi
 if [ ! -f "$ROOT/lib/neko3d-module/neko3d.dnro" ]; then
     make -C "$ROOT/lib/neko3d-module" -j"$(nproc)"
 fi
+# Shared INI parser for plugins (tiny, always rebuilt).
+make -C "$ROOT/lib/miniini-module" -j"$(nproc)"
 # ffmpeg libs for the menu (built once from extern/ffmpeg, gitignored).
 if [ ! -f "$ROOT/extern/ffmpeg-install/lib/libavcodec.a" ]; then
     sh "$ROOT/build-ffmpeg.sh"
@@ -61,6 +63,7 @@ rm -rf "$PKG/sdroot"
 mkdir -p "$PKG/qlaunch-ext/plugins"
 cp "$ROOT/loader/loader.nsp" "$DEST/exefs.nsp"
 cp "$ROOT/lib/neko3d-module/neko3d.dnro" "$PKG/lib/neko3d.dnro"
+cp "$ROOT/lib/miniini-module/miniini.dnro" "$PKG/lib/miniini.dnro"
 mkdir -p "$PKG/qlaunch-ext/menus"
 cp "$ROOT/menu/menu.dnro" "$PKG/qlaunch-ext/menus/menu.dnro"
 for f in "$ROOT"/plugins/*/*.dnro; do
@@ -76,6 +79,14 @@ for f in "$ROOT"/plugins/*/icon/*.jpg; do
 done
 mkdir -p "$PKG/qlaunch-ext/bin"
 cp "$ROOT/loader/nroloader/nroloader.nsp" "$PKG/qlaunch-ext/bin/"
+mkdir -p "$PKG/qlaunch-ext/forwarders"
+for f in "$ROOT"/plugins/ForwarderPlugin/forwarders/*.ini; do
+    if [ -f "$f" ]; then
+        cp "$f" "$PKG/qlaunch-ext/forwarders/"
+    fi
+done
+mkdir -p "$PKG/qlaunch-ext/config/plugin"
+cp "$ROOT/plugins/ForwarderPlugin/config/forwarder.ini" "$PKG/qlaunch-ext/config/plugin/"
 echo "copy dist/lib/* -> sdmc:/lib/"
 echo "copy dist/qlaunch-ext/* -> sdmc:/qlaunch-ext/"
 

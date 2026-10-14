@@ -206,19 +206,22 @@ Result Launch(u64 donor, const char *nro_path, const char *argv_or_null)
     NroTargetInput in{};
     in.magic = QEXT_NRO_MAGIC;
     size_t n = strlen(nro_path);
+
     if (n >= kNroPathSize)
         n = kNroPathSize - 1;
+
     memcpy(in.nro_path, nro_path, n);
     in.nro_path[n] = '\0';
-    const char *argv = (argv_or_null != nullptr && argv_or_null[0] != '\0')
-        ? argv_or_null : nro_path;
+    const char *argv = (argv_or_null != nullptr && argv_or_null[0] != '\0') ? argv_or_null : nro_path;
+    
     n = strlen(argv);
     if (n >= kNroArgvSize)
         n = kNroArgvSize - 1;
+
     memcpy(in.nro_argv, argv, n);
     in.nro_argv[n] = '\0';
-    logging::LogLine("[nro] booting '%s' over donor %016llX",
-                     in.nro_path, (unsigned long long)donor);
+    logging::LogLine("[nro] booting '%s' with donor title %016llX", in.nro_path, (unsigned long long)donor);
+            
     return app::Start(donor, false, PickUser(), &in, sizeof(in));
 }
 
