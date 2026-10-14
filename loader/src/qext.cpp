@@ -6,11 +6,14 @@
 #include "app.hpp"
 #include "la.hpp"
 #include "titles.hpp"
+#include "plugins/vtitles.hpp"
 #include "album.hpp"
 #include "sys.hpp"
+#include <qlaunch/nro.h>
 #include <shared/logging.hpp>
 
 namespace {
+    u64 g_launchedTid = 0;
 
     AccountUid PickUser()
     {
@@ -63,19 +66,44 @@ extern "C" Result qext_launch_title(u64 tid)
 {
     if (!tid)
         return MAKERESULT(Module_Libnx, LibnxError_BadInput);
+
+    Result rc = 0;
+    if (vtitles::IsId(tid)) {
+        u64 donor = vtitles::DonorOf(tid);
+        char nro[kNroPathSize];
+        if (donor != 0 && vtitles::NroOf(tid, nro, sizeof(nro)) >= 0) {
+            rc = nro::Launch(donor, nro, nullptr);
+        } else {
+            nro::Disarm();
+            if (app::IsActive()) {
+                rc = app::Terminate();
+                if (R_FAILED(rc))
+                    return rc;
+            }
+            rc = vtitles::Launch(tid);
+        }
+        if (R_SUCCEEDED(rc)) {
+            titles::NoteLaunched(tid);
+            g_launchedTid = tid;
+        }
+        return rc;
+    }
+
+    /* Any other launch scrubs leftovers so donors boot raw. */
+    nro::Disarm();
+
     if (app::IsActive()) {
         /* Asking is for the menu */
-        logging::LogLine("[qext] replacing running %016llX",
-                         (unsigned long long)app::GetId());
-        Result rc = app::Terminate();
+        rc = app::Terminate();
         if (R_FAILED(rc))
             return rc;
     }
+
     AccountUid uid = PickUser();
-    logging::LogLine("[qext] launching %016llX", (unsigned long long)tid);
-    Result rc = app::Start(tid, false, uid);
+    rc = app::Start(tid, false, uid);
     if (R_SUCCEEDED(rc)) {
         titles::NoteLaunched(tid);
+        g_launchedTid = tid;
     }
     return rc;
 }
@@ -120,4 +148,6 @@ extern "C" void qext_display_size(int *w, int *h)
 
 extern "C" int qext_game_running(void) { return app::IsActive() ? 1 : 0; }
 extern "C" int qext_game_has_foreground(void) { return app::HasForeground() ? 1 : 0; }
-extern "C" u64 qext_suspended_title(void) { return app::IsActive() ? app::GetId() : 0; }
+/* Reports the tapped identity, so a suspended forwarder matches its
+   virtual tile (not its donor's real tile) and vice versa. */
+extern "C" u64 qext_suspended_title(void) { return app::IsActive() ? g_launchedTid : 0; }

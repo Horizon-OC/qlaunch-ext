@@ -5,6 +5,8 @@
 #pragma once
 
 namespace Log {
-void Line(const char *fmt, ...);
+    /// @brief Write a formatted line to the menu log.
+    /// @param fmt printf-style format string.
+    /// @param ... Format arguments.
+    void Line(const char *fmt, ...);
 } /* namespace Log */
-

@@ -13,7 +13,8 @@ static char s_clock[40] = "--:--"; static char s_time[16] = "--:--"; static char
 static char s_date[16] = "--/--";
 static unsigned s_batt = 100;
 
-void Tick()
+    /// @brief Poll system time and battery state into the cache.
+    void Tick()
 {
     u64 ts = 0;
     TimeCalendarTime cal = { 0 };
@@ -40,9 +41,25 @@ void Tick()
         s_batt = pct;
 }
 
-const char *Str() { return s_clock; } const char *TimeStr() { return s_time; } const char *AmPm() { return s_ampm; }
-const char *Date() { return s_date; }
-unsigned Batt() { return s_batt; }
+    /// @brief Give the cached date/time string.
+    /// @return Date/time text.
+    const char *Str() { return s_clock; }
+
+    /// @brief Give the cached time string ("h:mm").
+    /// @return Time text.
+    const char *TimeStr() { return s_time; }
+
+    /// @brief Give the cached meridiem ("AM"/"PM").
+    /// @return Meridiem text.
+    const char *AmPm() { return s_ampm; }
+
+    /// @brief Give the cached date string.
+    /// @return Date text.
+    const char *Date() { return s_date; }
+
+    /// @brief Give the cached battery percentage.
+    /// @return 0-100, or >100 when unknown.
+    unsigned Batt() { return s_batt; }
 
 } /* namespace Clock */
 

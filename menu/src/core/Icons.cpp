@@ -71,6 +71,7 @@ extern const uint32_t marker_sheet_png_size;
 
 namespace Icons {
 static Entry entries_[ICONS_MAX];
+static u64 s_seq = 0;
 static DkMemBlock hudMem_[HUD_COUNT] = { 0 };
 static DkImage hudImg_[HUD_COUNT];
 static bool hudOk_[HUD_COUNT] = { false };
@@ -176,10 +177,62 @@ static uint8_t *Downscale(uint8_t *px, int *w, int *h)
     return d;
 }
 
-static bool HudNoInvert(int i)
+    /// @brief Whether a HUD icon skips theme inversion.
+    /// @param i HUD_* icon id.
+    /// @return True for icons drawn with native colors.
+    static bool HudNoInvert(int i)
 {
     return i == HUD_BATTERY;
 }
+
+    /// @brief Fetch, decode and upload one title icon into an entry.
+    /// The entry must be freed first when it was in use.
+    /// @param e Entry receiving the icon.
+    /// @param tid Title id to load.
+    /// @return True when the entry holds a fresh icon.
+    static bool LoadTitleIcon(Icons::Entry *e, u64 tid)
+    {
+        int count = qext_title_count();
+        for (int ti = 0; ti < count; ti++) {
+            if (qext_title_id(ti) != tid)
+                continue;
+            int jsize = qext_title_icon_size(ti);
+            if (jsize <= 0 || jsize > 0x40000)
+                break;
+            uint8_t head[4] = { 0 };
+            uint8_t *jpg = (uint8_t *)malloc((unsigned)jsize);
+            if (!jpg)
+                break;
+            int got = qext_title_icon(ti, jpg, (unsigned)jsize);
+            if (got > 2 && jpg[0] == 0xFF && jpg[1] == 0xD8) {
+                int w = 0, h = 0;
+                uint8_t *px = stbi_load_from_memory(
+                    jpg, got, &w, &h, NULL, 4);
+                if (px && w > 0 && h > 0 && w <= 1024 && h <= 1024) {
+                    if (e->slot <= 2)
+                        e->slot = Gfx::TexAlloc();
+                    if (e->slot >= 3 && Icons::Upload(e, px, w, h)) {
+                        e->tid = tid;
+                        e->used = true;
+                        DkImageView uv;
+                        dkImageViewDefaults(&uv, &e->img);
+                        Gfx::WriteImageDesc(e->slot, &uv);
+                        free(jpg);
+                        if (px)
+                            stbi_image_free(px);
+                        return true;
+                    }
+                    Gfx::TexFree(e->slot);
+                    e->slot = -1;
+                }
+                if (px)
+                    stbi_image_free(px);
+            }
+            free(jpg);
+            break;
+        }
+        return false;
+    }
 
 } // namespace
 
@@ -365,98 +418,76 @@ void Icons::FreeAll()
     }
 }
 
-void Icons::Sync(const u64 *tids, int *slots, int n)
+void Icons::Sync(const u64 *tids, int *slots, int n, int focus)
 {
-    for (int i = 0; i < n; i++) {
-        if (!tids[i])
-            continue;
-        bool have = false;
-        for (int k = 0; k < ICONS_MAX; k++) {
-            if (entries_[k].used && entries_[k].tid == tids[i]) {
-                have = true;
-                break;
-            }
-        }
-        if (!have) {
-            Gfx::WaitIdle();
-            break;
-        }
-    }
-    for (int i = 0; i < ICONS_MAX; i++)
-        entries_[i].sweep = false;
-    for (int i = 0; i < n; i++) {
-        u64 tid = tids[i];
+    if (!tids || !slots || n <= 0)
+        return;
+    if (focus < 0)
+        focus = 0;
+    if (focus >= n)
+        focus = n - 1;
+
+    for (int i = 0; i < n; i++)
         slots[i] = -1;
-        if (!tid)
-            continue;
-        int found = -1;
-        for (int k = 0; k < ICONS_MAX; k++) {
-            if (entries_[k].used && entries_[k].tid == tid) {
-                found = k;
-                break;
+
+    /* Outward from the focus, so the visible window owns the fixed
+       budget. Entries stamped this pass are never evicted by it. */
+    u64 passStart = s_seq;
+    int loads = 0;
+    for (int step = 0; step < n; step++) {
+        for (int side = 0; side < 2; side++) {
+            if (side == 1 && step == 0)
+                continue;
+            int i = (side == 0) ? focus + step : focus - step;
+            if (i < 0 || i >= n)
+                continue;
+            u64 tid = tids[i];
+            if (!tid)
+                continue;
+
+            Entry *hit = nullptr;
+            for (int k = 0; k < ICONS_MAX; k++) {
+                if (entries_[k].used && entries_[k].tid == tid) {
+                    hit = &entries_[k];
+                    break;
+                }
             }
-        }
-        if (found < 0) {
+            if (hit) {
+                hit->seq = ++s_seq;
+                slots[i] = hit->slot;
+                continue;
+            }
+
+            /* At most a full turnover per pass; the rest keeps
+               fallback tiles until scrolling re-runs the pass. */
+            if (loads >= ICONS_MAX)
+                continue;
+
+            Entry *victim = nullptr;
             for (int k = 0; k < ICONS_MAX; k++) {
                 if (!entries_[k].used) {
-                    found = k;
+                    victim = &entries_[k];
                     break;
                 }
             }
-        }
-        if (found < 0)
-            continue;
-        Entry *e = &entries_[found];
-        if (!e->used) {
-            bool ok = false;
-            int count = qext_title_count();
-            for (int ti = 0; ti < count; ti++) {
-                if (qext_title_id(ti) != tid)
-                    continue;
-                int jsize = qext_title_icon_size(ti);
-                if (jsize <= 0 || jsize > 0x40000)
-                    break;
-                uint8_t head[4] = { 0 };
-                uint8_t *jpg = (uint8_t *)malloc((unsigned)jsize);
-                if (!jpg)
-                    break;
-                int got = qext_title_icon(ti, jpg, (unsigned)jsize);
-                if (got > 2 && jpg[0] == 0xFF && jpg[1] == 0xD8) {
-                    int w = 0, h = 0;
-                    uint8_t *px = stbi_load_from_memory(
-                        jpg, got, &w, &h, NULL, 4);
-                    if (px && w > 0 && h > 0 && w <= 1024 && h <= 1024) {
-                        if (e->slot <= 2)
-                            e->slot = Gfx::TexAlloc();
-                        if (e->slot >= 3 && Upload(e, px, w, h)) {
-                            e->tid = tid;
-                            e->used = true;
-                            DkImageView uv;
-                            dkImageViewDefaults(&uv, &e->img);
-                            Gfx::WriteImageDesc(e->slot, &uv);
-                            ok = true;
-                        } else {
-                            Gfx::TexFree(e->slot);
-                            e->slot = -1;
-                        }
-                    }
-                    if (px)
-                        stbi_image_free(px);
+            if (!victim) {
+                for (int k = 0; k < ICONS_MAX; k++) {
+                    if (!entries_[k].used || entries_[k].seq > passStart)
+                        continue;
+                    if (!victim || entries_[k].seq < victim->seq)
+                        victim = &entries_[k];
                 }
-                free(jpg);
-                break;
             }
-            if (!ok)
+            if (!victim)
                 continue;
-        }
-        e->sweep = true;
-        slots[i] = e->slot;
-    }
 
-    for (int k = 0; k < ICONS_MAX; k++) {
-        if (entries_[k].used && !entries_[k].sweep)
-            Free(&entries_[k]);
+            Free(victim);
+            if (LoadTitleIcon(victim, tid)) {
+                victim->seq = ++s_seq;
+                slots[i] = victim->slot;
+                loads++;
+            }
+        }
     }
-    (void)n;
 }
 

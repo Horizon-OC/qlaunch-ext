@@ -9,7 +9,10 @@
 
 namespace Log {
 
-void Line(const char *fmt, ...)
+    /// @brief Write a formatted line to the menu log.
+    /// @param fmt printf-style format string.
+    /// @param ... Format arguments.
+    void Line(const char *fmt, ...)
 {
     char buf[256];
     va_list ap;

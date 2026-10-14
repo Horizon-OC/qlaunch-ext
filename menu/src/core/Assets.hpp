@@ -8,6 +8,8 @@
 
 extern const char layout_json[];
 extern const unsigned layout_json_size;
+extern const char sfx_json[];
+extern const unsigned sfx_json_size;
 extern const char theme_light_json[];
 extern const unsigned theme_light_json_size;
 extern const char theme_dark_json[];

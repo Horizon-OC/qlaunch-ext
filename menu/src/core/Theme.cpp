@@ -45,7 +45,13 @@ static ThemeRow g_themes[MAX_THEMES];
 static int g_nThemes;
 static int g_theme = -1;
 
-static bool ParseHex(const char *s, float *r, float *g, float *b)
+    /// @brief Parse a #RRGGBB or #RGB hex color.
+    /// @param s Hex text (leading '#' or spaces skipped).
+    /// @param r Red output.
+    /// @param g Green output.
+    /// @param b Blue output.
+    /// @return True on success.
+    static bool ParseHex(const char *s, float *r, float *g, float *b)
 {
     while (*s == 35 || *s == 32)
         s++;
@@ -78,7 +84,12 @@ static bool ParseHex(const char *s, float *r, float *g, float *b)
     return false;
 }
 
-static void StoreColor(const char *key, float r, float g, float b)
+    /// @brief Store (or replace) a named color.
+    /// @param key Color key.
+    /// @param r Red 0-1.
+    /// @param g Green 0-1.
+    /// @param b Blue 0-1.
+    static void StoreColor(const char *key, float r, float g, float b)
 {
     for (int i = 0; i < g_nColors; i++) {
         if (strcmp(g_colors[i].name, key) == 0) {
@@ -101,7 +112,10 @@ static void StoreColor(const char *key, float r, float g, float b)
     e->c = b;
 }
 
-static void StoreMetric(const char *key, float v)
+    /// @brief Store (or replace) a named metric.
+    /// @param key Metric key.
+    /// @param v Metric value.
+    static void StoreMetric(const char *key, float v)
 {
     for (int i = 0; i < g_nMetrics; i++) {
         if (strcmp(g_metrics[i].name, key) == 0) {
@@ -122,7 +136,9 @@ static void StoreMetric(const char *key, float v)
     e->c = 0.0f;
 }
 
-static void ApplyRow(int idx)
+    /// @brief Apply a theme table row to the live color set.
+    /// @param idx Theme table index.
+    static void ApplyRow(int idx)
 {
     const ThemeRow *t = &g_themes[idx];
     g_nColors = 0;
@@ -160,7 +176,11 @@ static void ApplyRow(int idx)
     g_name[nl] = 0;
 }
 
-static bool LoadTable(const char *json, unsigned len)
+    /// @brief Load the packed theme table JSON.
+    /// @param json JSON text.
+    /// @param len Text length.
+    /// @return True when at least one theme loaded.
+    static bool LoadTable(const char *json, unsigned len)
 {
     JxDoc doc;
     if (!Jx::Parse(doc, json, len))
@@ -202,7 +222,11 @@ static bool LoadTable(const char *json, unsigned len)
     return g_nThemes > 0;
 }
 
-bool LoadJson(const char *json, unsigned len)
+    /// @brief Load a legacy single-theme JSON blob.
+    /// @param json JSON text.
+    /// @param len Text length.
+    /// @return True on success.
+    bool LoadJson(const char *json, unsigned len)
 {
     JxDoc doc;
     if (!Jx::Parse(doc, json, len))
@@ -244,7 +268,12 @@ bool LoadJson(const char *json, unsigned len)
     return true;
 }
 
-void Color(const char *key, float *r, float *g, float *b)
+    /// @brief Look up a theme color.
+    /// @param key Color key (for example "ink").
+    /// @param r Red output.
+    /// @param g Green output.
+    /// @param b Blue output.
+    void Color(const char *key, float *r, float *g, float *b)
 {
     for (int i = 0; i < g_nColors; i++) {
         if (strcmp(g_colors[i].name, key) == 0) {
@@ -259,7 +288,11 @@ void Color(const char *key, float *r, float *g, float *b)
     *b = 1.0f;
 }
 
-float Metric(const char *key, float dflt)
+    /// @brief Look up a theme metric.
+    /// @param key Metric key (for example "corner").
+    /// @param dflt Default when missing.
+    /// @return Metric value or default.
+    float Metric(const char *key, float dflt)
 {
     for (int i = 0; i < g_nMetrics; i++) {
         if (strcmp(g_metrics[i].name, key) == 0)
@@ -268,34 +301,50 @@ float Metric(const char *key, float dflt)
     return dflt;
 }
 
-const char *Name()
+    /// @brief Give the active theme name.
+    /// @return Theme name.
+    const char *Name()
 {
     return g_name;
 }
 
-int ThemeCount()
+    /// @brief Number of themes in the table.
+    /// @return Theme count.
+    int ThemeCount()
 {
     return g_nThemes;
 }
 
-const char *ThemeName(int i)
+    /// @brief Look up a theme name by index.
+    /// @param i Theme index.
+    /// @return Theme name, or "" when out of range.
+    const char *ThemeName(int i)
 {
     if (i < 0 || i >= g_nThemes)
         return "";
     return g_themes[i].name;
 }
 
-int GetTheme()
+    /// @brief Give the active theme index.
+    /// @return Theme index.
+    int GetTheme()
 {
     return g_theme;
 }
 
-bool IsDark()
+    /// @brief Whether the active theme is dark.
+    /// @return True for dark themes.
+    bool IsDark()
 {
     return g_theme >= 0 && g_theme < g_nThemes && g_themes[g_theme].dark;
 }
 
-void MenuColor(int menu, float *r, float *g, float *b)
+    /// @brief Give a tab's background color.
+    /// @param menu Tab index.
+    /// @param r Red output.
+    /// @param g Green output.
+    /// @param b Blue output.
+    void MenuColor(int menu, float *r, float *g, float *b)
 {
     if (g_theme < 0 || g_theme >= g_nThemes || menu < 0 || menu > 4) {
         *r = 1.0f;
@@ -308,7 +357,12 @@ void MenuColor(int menu, float *r, float *g, float *b)
     *b = g_themes[g_theme].col[menu][2];
 }
 
-void MenuAccent(int menu, float *r, float *g, float *b)
+    /// @brief Give a tab's accent color.
+    /// @param menu Tab index.
+    /// @param r Red output.
+    /// @param g Green output.
+    /// @param b Blue output.
+    void MenuAccent(int menu, float *r, float *g, float *b)
 {
     if (g_theme < 0 || g_theme >= g_nThemes || menu < 0 || menu > 4) {
         *r = 0.5f;
@@ -321,7 +375,12 @@ void MenuAccent(int menu, float *r, float *g, float *b)
     *b = g_themes[g_theme].col[8 + menu][2];
 }
 
-void ThemePreview(int t, float *r, float *g, float *b)
+    /// @brief Give a theme's preview swatch color.
+    /// @param t Theme index.
+    /// @param r Red output.
+    /// @param g Green output.
+    /// @param b Blue output.
+    void ThemePreview(int t, float *r, float *g, float *b)
 {
     if (t < 0 || t >= g_nThemes) {
         *r = 0.5f;
@@ -334,7 +393,8 @@ void ThemePreview(int t, float *r, float *g, float *b)
     *b = g_themes[t].col[0][2];
 }
 
-static void PersistTheme()
+    /// @brief Persist the active theme index to the SD card.
+    static void PersistTheme()
 {
     char buf[48];
     snprintf(buf, sizeof(buf), "{\"theme\": %d}", g_theme);
@@ -345,7 +405,10 @@ static void PersistTheme()
     fclose(f);
 }
 
-bool SetTheme(int i)
+    /// @brief Activate a theme by index.
+    /// @param i Theme index.
+    /// @return True on success.
+    bool SetTheme(int i)
 {
     if (i < 0 || i >= g_nThemes)
         return false;
@@ -370,7 +433,10 @@ bool SetTheme(int i)
     return true;
 }
 
-bool LoadBuiltin(const char *name)
+    /// @brief Load a builtin theme by name.
+    /// @param name "light" or "dark".
+    /// @return True on success.
+    bool LoadBuiltin(const char *name)
 {
     if (!g_nThemes &&
         !LoadTable(themes_json, themes_json_size))
@@ -382,7 +448,10 @@ bool LoadBuiltin(const char *name)
     return SetTheme(0);
 }
 
-bool LoadFile(const char *path)
+    /// @brief Load a theme override from an SD file.
+    /// @param path Filesystem path (64KB max).
+    /// @return True on success.
+    bool LoadFile(const char *path)
 {
     FILE *f = fopen(path, "rb");
     if (!f)
@@ -424,7 +493,9 @@ bool LoadFile(const char *path)
     return ok;
 }
 
-bool InitAuto()
+    /// @brief Load the SD theme index, else the system color set.
+    /// @return True on success.
+    bool InitAuto()
 {
     if (!g_nThemes)
         LoadTable(themes_json, themes_json_size);

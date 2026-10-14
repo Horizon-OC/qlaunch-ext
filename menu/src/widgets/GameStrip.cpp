@@ -11,19 +11,39 @@
 #include "../core/Sfx.hpp"
 #include "../core/Icons.hpp"
 #include "../core/Qext.hpp"
+#include "../core/Input.hpp"
+#include "../core/Tabs.hpp"
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
 
 namespace WStrip {
 
-static float s_scroll = 0.0f;
-static float s_target = 0.0f;
-static float s_maxS = 0.0f;
-static unsigned s_rep = 0;
-static float s_hlT = 1.0f;
+    namespace {
 
-static void TileFallback(const AppRow &r, float x, float y, float w, float h, float rad, float alpha)
+        /// @brief Scroll + highlight state for the game strip.
+        struct StripState {
+            float scroll;
+            float target;
+            float maxScroll;
+            float highlightT;
+            float markerT;
+            InputRepeat repeat;
+        };
+
+        static StripState s_state = { 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, { 0 } };
+
+    } // namespace
+
+    /// @brief Draw a fallback tile when no icon is available.
+    /// @param r Row to represent.
+    /// @param x X position.
+    /// @param y Y position.
+    /// @param w Width.
+    /// @param h Height.
+    /// @param rad Corner radius.
+    /// @param alpha Opacity.
+    static void TileFallback(const AppRow &r, float x, float y, float w, float h, float rad, float alpha)
 {
     float cr = 0.5f, cg = 0.5f, cb = 0.55f;
     unsigned glyph = 0;
@@ -74,16 +94,18 @@ static void TileFallback(const AppRow &r, float x, float y, float w, float h, fl
     }
 }
 
-/* TODO: generate the frames at runtime instead of getting them. */
-static float s_markT = 0.0f;
-
-static void DrawMarker(float cx, float bandTop, float bandH, float t)
+    /// @brief Draw the animated "new" marker above the selected tile.
+    /// @param cx Center X.
+    /// @param bandTop Top of the growth band.
+    /// @param bandH Height of the growth band.
+    /// @param t Highlight progress.
+    static void DrawMarker(float cx, float bandTop, float bandH, float t)
 {
     (void)t;
-    s_markT += 1.0f / 60.0f;
-    if (s_markT >= 4.0f)
-        s_markT -= 4.0f;
-    int fr = (int)(s_markT * 12.0f);
+    s_state.markerT += 1.0f / 60.0f;
+    if (s_state.markerT >= 4.0f)
+        s_state.markerT -= 4.0f;
+    int fr = (int)(s_state.markerT * 12.0f);
     if (fr < 0)
         fr = 0;
     if (fr > 47)
@@ -101,7 +123,11 @@ static void DrawMarker(float cx, float bandTop, float bandH, float t)
     Gfx::PushIcon(mx, my, mw, mh, 6.0f, 1.0f, 1.0f, 1.0f, 0.0f, slot, 0.0f, u0, v0, u1, v1);
 }
 
-static void DrawWrappedName(const char *name, float tcx, float yTop)
+    /// @brief Draw a title wrapped to two lines under the selected tile.
+    /// @param name Title name.
+    /// @param tcx Center X.
+    /// @param yTop Top Y of the label block.
+    static void DrawWrappedName(const char *name, float tcx, float yTop)
 {
     char buf[128];
     unsigned bi = 0;
@@ -181,7 +207,9 @@ static void DrawWrappedName(const char *name, float tcx, float yTop)
     for (int li = 0; li < nl; li++)
         Font::Centered(line[li], tcx, yTop + (float)li * 36.0f, 30.0f, 460.0f, 0.043f, 0.337f, 0.804f);
 }
-void Draw(const LayoutNode &nd)
+    /// @brief Draw the home game strip from a layout node.
+    /// @param nd Gamestrip node carrying tile geometry.
+    void Draw(const LayoutNode &nd)
 {
     float corner = 24.0f;
     float frame = 6.0f;
@@ -194,56 +222,56 @@ void Draw(const LayoutNode &nd)
     int n = App::RowCount();
     int sel = App::Sel();
     /* Focus */
-    bool gamesActive = App::Menu() == MENU_HOME && !App::TopFocus() &&
+    bool gamesActive = App::Menu() == Tabs::FindById("home") && !App::TopFocus() &&
                        !App::BottomFocus() && App::HomeSub() == HOMESUB_GAMES;
     float outer = tile + frame * 2.0f;
 
     /* Game label 30px accent, 461px wide. */
     if (nd.label && gamesActive && sel >= 0 && sel < n) {
-        float lt = s_hlT < 0.0f ? 0.0f : (s_hlT > 1.0f ? 1.0f : s_hlT);
-        float tcx = nd.x + shx + (float)sel * pitch - s_scroll + outer * 0.5f;
+        float lt = s_state.highlightT < 0.0f ? 0.0f : (s_state.highlightT > 1.0f ? 1.0f : s_state.highlightT);
+        float tcx = nd.x + shx + (float)sel * pitch - s_state.scroll + outer * 0.5f;
         DrawWrappedName(App::Row(sel).name, tcx,
                         nd.y + shy + outer + 20.0f * lt + 45.0f);
     }
 
     float viewW = 1920.0f - nd.x;
-    s_maxS = (float)(n - 1) * pitch + outer + nd.x * 2.0f - 1920.0f;
-    if (s_maxS < 0.0f)
-        s_maxS = 0.0f;
+    s_state.maxScroll = (float)(n - 1) * pitch + outer + nd.x * 2.0f - 1920.0f;
+    if (s_state.maxScroll < 0.0f)
+        s_state.maxScroll = 0.0f;
     
-    if (s_target < 0.0f)
-        s_target = 0.0f;
+    if (s_state.target < 0.0f)
+        s_state.target = 0.0f;
     
-    if (s_target > s_maxS)
-        s_target = s_maxS;
+    if (s_state.target > s_state.maxScroll)
+        s_state.target = s_state.maxScroll;
 
     if (n > 0 && sel >= 0 && sel < n) {
         float tl = (float)sel * pitch;
         float tr = tl + outer;
-        if (tr - s_target > viewW - nd.x)
-            s_target = tr - (viewW - nd.x);
-        if (tl - s_target < 0.0f)
-            s_target = tl;
+        if (tr - s_state.target > viewW - nd.x)
+            s_state.target = tr - (viewW - nd.x);
+        if (tl - s_state.target < 0.0f)
+            s_state.target = tl;
     }
 
-    s_scroll += (s_target - s_scroll) * 0.25f;
-    if (s_scroll < 0.0f)
-        s_scroll = 0.0f;
+    s_state.scroll += (s_state.target - s_state.scroll) * 0.25f;
+    if (s_state.scroll < 0.0f)
+        s_state.scroll = 0.0f;
 
     float slide = shx < 0.0f ? -shx : shx;
-    int k0 = (int)((s_scroll - slide) / pitch) - 2;
+    int k0 = (int)((s_state.scroll - slide) / pitch) - 2;
     if (k0 < 0)
         k0 = 0;
 
-    int k1 = (int)((s_scroll + 1920.0f + slide) / pitch) + 3;
+    int k1 = (int)((s_state.scroll + 1920.0f + slide) / pitch) + 3;
     if (k1 > n)
         k1 = n;
 
-    if (s_hlT < 1.0f)
-        s_hlT += 1.0f / 7.0f;
+    if (s_state.highlightT < 1.0f)
+        s_state.highlightT += 1.0f / 7.0f;
 
-    if (s_hlT > 1.0f)
-        s_hlT = 1.0f;
+    if (s_state.highlightT > 1.0f)
+        s_state.highlightT = 1.0f;
     
     /* Gamecard animation stuff */
     int selK = (gamesActive && sel >= k0 && sel < k1) ? sel : -1;
@@ -251,7 +279,7 @@ void Draw(const LayoutNode &nd)
         if (k == selK)
             continue;
 
-        float cx = nd.x + shx + (float)k * pitch - s_scroll + outer * 0.5f;
+        float cx = nd.x + shx + (float)k * pitch - s_state.scroll + outer * 0.5f;
         const AppRow &r = App::Row(k);
         float ta = r.ejected ? 0.50f : 1.0f;
         float x = cx - outer * 0.5f;
@@ -270,13 +298,13 @@ void Draw(const LayoutNode &nd)
     }
 
     if (selK >= 0) {
-        float cx = nd.x + shx + (float)selK * pitch - s_scroll + outer * 0.5f;
+        float cx = nd.x + shx + (float)selK * pitch - s_state.scroll + outer * 0.5f;
         const AppRow &r = App::Row(selK);
         float ta = r.ejected ? 0.50f : 1.0f;
         float brad = r.ejected ? corner : 0.0f;
         float x = cx - outer * 0.5f;
         float y = nd.y + shy;
-        float t = r.ejected ? 0.0f : (s_hlT < 0.0f ? 0.0f : (s_hlT > 1.0f ? 1.0f : s_hlT));
+        float t = r.ejected ? 0.0f : (s_state.highlightT < 0.0f ? 0.0f : (s_state.highlightT > 1.0f ? 1.0f : s_state.highlightT));
 
         /* More gamecard stuff. */
         float grow = 84.0f * t;
@@ -299,8 +327,8 @@ void Draw(const LayoutNode &nd)
     }
 }
 
-/* Draw folders/VGC (TBD: What do do with VGC, maybe file manager?) */
-void DrawSubs()
+    /// @brief Draw folders/VGC sub-screens under the strip.
+    void DrawSubs()
 {
     float shx = Layout::ShiftX();
     float shy = App::HomeShiftY();
@@ -367,7 +395,10 @@ void DrawSubs()
     }
 }
 
-static bool StepSel(int delta)
+    /// @brief Step the strip selection with clamping (no wraparound).
+    /// @param delta Signed step.
+    /// @return True when the selection changed.
+    static bool StepSel(int delta)
 {
     int n = App::RowCount();
     if (n <= 0)
@@ -385,7 +416,7 @@ static bool StepSel(int delta)
     /* Ensure we don't restart animation every time. */
     if (sel != App::Sel()) {
         App::SetSel(sel);
-        s_hlT = 0.0f;
+        s_state.highlightT = 0.0f;
         Sfx::Play(Sfx::Hover);
         App::SetTopFocus(false);
         return true;
@@ -395,16 +426,21 @@ static bool StepSel(int delta)
     return false;
 }
 
-void Input(const LayoutNode &nd, u64 down, u64 held)
+    /// @brief Handle home strip navigation input.
+    /// @param nd Gamestrip node (reserved).
+    /// @param down Buttons pressed.
+    /// @param held Buttons held.
+    void Input(const LayoutNode &nd, u64 down, u64 held)
 {
     (void)nd;
-    if (App::TopFocus() || App::Menu() != MENU_HOME)
+
+    if (App::TopFocus() || App::Menu() != Tabs::FindById("home"))
         return;
 
     /* Dont input during a transition. */
     if (App::HomeShiftBusy())
         return;
-    
+
     /* Folders / VGC submenus. */
     if (App::HomeSub() == HOMESUB_FOLDERS) {
         if (down & HidNpadButton_A) {
@@ -418,14 +454,19 @@ void Input(const LayoutNode &nd, u64 down, u64 held)
     }
 
     if (App::HomeSub() == HOMESUB_VGC) {
-        if (down & HidNpadButton_AnyLeft) {
+        u64 vgcDown = down;
+        s_state.repeat.Poll(vgcDown, held, HidNpadButton_AnyLeft | HidNpadButton_AnyRight, StripRepeat());
+
+        if (vgcDown & HidNpadButton_AnyLeft) {
             StepSel(-1);
             return;
         }
-        if (down & HidNpadButton_AnyRight) {
+
+        if (vgcDown & HidNpadButton_AnyRight) {
             StepSel(1);
             return;
         }
+
         if (down & (HidNpadButton_B | HidNpadButton_AnyUp)) {
             App::SetHomeSub(HOMESUB_GAMES);
             Sfx::Play(Sfx::Back);
@@ -435,14 +476,18 @@ void Input(const LayoutNode &nd, u64 down, u64 held)
 
     if (App::BottomFocus())
         return;
-    
+
+    u64 repDown = down;
+    s_state.repeat.Poll(repDown, held, HidNpadButton_AnyLeft | HidNpadButton_AnyRight, StripRepeat());
+
     bool moved = false;
-    if (down & HidNpadButton_AnyLeft) {
+
+    if (repDown & HidNpadButton_AnyLeft) {
         StepSel(-1);
         moved = true;
     }
 
-    if (down & HidNpadButton_AnyRight) {
+    if (repDown & HidNpadButton_AnyRight) {
         StepSel(1);
         moved = true;
     }
@@ -453,29 +498,16 @@ void Input(const LayoutNode &nd, u64 down, u64 held)
         Sfx::Play(Sfx::Hover);
         moved = true;
     }
-    
+
     if (down & HidNpadButton_AnyDown) {
         App::SetBottomSel(1);
         App::SetBottomFocus(true);
         Sfx::Play(Sfx::Hover);
         moved = true;
     }
-    
-    if (!moved) {
-        u64 dirs = HidNpadButton_AnyLeft | HidNpadButton_AnyRight;
-        if (held & dirs) {
-            s_rep++;
-            if (s_rep > 20 && (s_rep % 6) == 0) {
-                if (held & HidNpadButton_AnyLeft)
-                    StepSel(-1);
-                if (held & HidNpadButton_AnyRight)
-                    StepSel(1);
-            }
-        } else {
-            s_rep = 0;
-        }
-    } else {
-        s_rep = 0;
+
+    if (moved) {
+        s_state.repeat.Reset();
     }
 }
 

@@ -9,13 +9,16 @@
 
 namespace WBackground {
 
-void Draw(const LayoutNode &nd)
-{
-    (void)nd;
-    int m = App::MenuT() < 1.0f ? App::MenuFrom() : App::Menu();
-    float r, g, b;
-    Theme::MenuColor(m, &r, &g, &b);
-    Gfx::PushPanel(0.0f, 0.0f, 1920.0f, 1080.0f, 0.0f, r, g, b, 1.0f);
-}
+    /// @brief Draw the fullscreen background for the active (or outgoing) tab.
+    /// @param nd Layout node (reserved for JSON-driven colors).
+    void Draw(const LayoutNode &nd)
+    {
+        (void)nd;
+
+        int m = App::MenuT() < 1.0f ? App::MenuFrom() : App::Menu();
+        float r, g, b;
+        Theme::MenuColor(m, &r, &g, &b);
+        Gfx::PushPanel(0.0f, 0.0f, 1920.0f, 1080.0f, 0.0f, r, g, b, 1.0f);
+    }
 
 } /* namespace WBackground */

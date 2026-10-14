@@ -1,3 +1,5 @@
+_ZdlPvm
+_ZN7logging7LogLineEPKcz
 eventClear
 fclose
 fgets
@@ -65,5 +67,3 @@ usbDsSetBinaryObjectStore
 usbDsSetUsbDeviceDescriptor
 vsnprintf
 waitObjects
-_ZdlPvm
-_ZN7logging7LogLineEPKcz

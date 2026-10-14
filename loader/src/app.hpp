@@ -22,7 +22,8 @@ namespace app {
 
     bool IsActive();
     Result Terminate();
-    Result Start(u64 app_id, bool system, const AccountUid &user_id);
+    Result Start(u64 app_id, bool system, const AccountUid &user_id,
+                 const void *data = nullptr, size_t size = 0);
     bool HasForeground();
     Result SetForeground();
     Result Send(const void *data, size_t size, AppletLaunchParameterKind kind);

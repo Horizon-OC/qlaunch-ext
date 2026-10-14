@@ -1,3 +1,4 @@
+# todo: remove neko3d as it is actually unneeded
 # 凸 deko3d ( ͡° ͜ʖ ͡°)
 
 ![deko3d logo](res/logo-300w.png)

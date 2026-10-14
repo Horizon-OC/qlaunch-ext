@@ -1,8 +1,8 @@
-_Z19qext_titles_changedv
-_ZN7logging7LogLineEPKcz
 __errno
 __getreent
 __xpg_strerror_r
+_Z19qext_titles_changedv
+_ZN7logging7LogLineEPKcz
 abort
 accept
 accountGetProfile
@@ -57,8 +57,8 @@ dkCmdBufBindShaders
 dkCmdBufBindTextures
 dkCmdBufBindUniformBuffers
 dkCmdBufBindVtxAttribState
-dkCmdBufBindVtxBufferState
 dkCmdBufBindVtxBuffers
+dkCmdBufBindVtxBufferState
 dkCmdBufClear
 dkCmdBufCreate
 dkCmdBufDestroy
@@ -149,11 +149,6 @@ nvFenceExit
 nvFenceInit
 nvFenceWait
 nvInitialize
-nvMapClose
-nvMapCreate
-nvMapExit
-nvMapGetFd
-nvMapInit
 nvioctlChannel_GetModuleClockRate
 nvioctlChannel_GetSyncpt
 nvioctlChannel_MapCommandBuffer
@@ -161,6 +156,11 @@ nvioctlChannel_SetModuleClockRate
 nvioctlChannel_SetSubmitTimeout
 nvioctlChannel_Submit
 nvioctlChannel_UnmapCommandBuffer
+nvMapClose
+nvMapCreate
+nvMapExit
+nvMapGetFd
+nvMapInit
 open
 padConfigureInput
 padInitializeWithMask
@@ -232,6 +232,7 @@ strrchr
 strspn
 strstr
 strtod
+strtof
 strtol
 strtoll
 strtoul

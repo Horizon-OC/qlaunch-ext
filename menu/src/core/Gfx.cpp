@@ -86,7 +86,8 @@ static void LoadOne(DkMemBlock codeMem, unsigned *off, DkShader *sh,
     dkShaderInitialize(sh, &mk);
 }
 
-static void FitTransform()
+    /// @brief Fit the 1920x1080 design into the framebuffer, letterboxed.
+    static void FitTransform()
 {
     Gfx::s_ = Gfx::fbW_ / 1920.0f;
     float sy = Gfx::fbH_ / 1080.0f;

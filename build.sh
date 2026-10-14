@@ -22,6 +22,10 @@ fi
 if [ ! -f "$ROOT/lib/neko3d-module/neko3d.dnro" ]; then
     make -C "$ROOT/lib/neko3d-module" -j"$(nproc)"
 fi
+# ffmpeg libs for the menu (built once from extern/ffmpeg, gitignored).
+if [ ! -f "$ROOT/extern/ffmpeg-install/lib/libavcodec.a" ]; then
+    sh "$ROOT/build-ffmpeg.sh"
+fi
 make -C "$ROOT/menu" -j"$(nproc)"
 if [ -d "$ROOT/plugins" ]; then
     for p in "$ROOT"/plugins/*/; do
@@ -30,6 +34,9 @@ if [ -d "$ROOT/plugins" ]; then
         fi
     done
 fi
+
+# NRO payload
+make -C "$ROOT/loader/nroloader" -j"$(nproc)"
 make -C "$ROOT/loader" -j"$(nproc)"
 
 # ABI check: every menu import must resolve from the loader or neko3d.
@@ -61,6 +68,14 @@ for f in "$ROOT"/plugins/*/*.dnro; do
         cp "$f" "$PKG/qlaunch-ext/plugins/"
     fi
 done
+mkdir -p "$PKG/qlaunch-ext/icons"
+for f in "$ROOT"/plugins/*/icon/*.jpg; do
+    if [ -f "$f" ]; then
+        cp "$f" "$PKG/qlaunch-ext/icons/"
+    fi
+done
+mkdir -p "$PKG/qlaunch-ext/bin"
+cp "$ROOT/loader/nroloader/nroloader.nsp" "$PKG/qlaunch-ext/bin/"
 echo "copy dist/lib/* -> sdmc:/lib/"
 echo "copy dist/qlaunch-ext/* -> sdmc:/qlaunch-ext/"
 

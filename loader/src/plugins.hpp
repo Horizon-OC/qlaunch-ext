@@ -2,19 +2,6 @@
 /* Licensed under the GPLv2         */
 /* Pain... and suffering...         */
 
+/* TODO: Remove this */
 #pragma once
-#include <switch.h>
-
-namespace plugins {
-
-void Boot(NWindow *win);
-
-void Loop(bool inGame);
-
-void OpenAll();
-void PowerAll();
-
-void Shutdown();
-
-} /* namespace plugins */
-
+#include "plugins/manager.hpp"

@@ -10,6 +10,8 @@
 #include "../core/App.hpp"
 #include "../core/Sfx.hpp"
 #include "../core/Qext.hpp"
+#include "../core/Input.hpp"
+#include "../core/Tabs.hpp"
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -18,11 +20,23 @@
 
 namespace WAlbum {
 
+    namespace {
+
+        /// @brief Viewer phase state machine (grid vs fullscreen image).
+        enum ViewerPhase {
+            ViewerPhase_Grid = 0,
+            ViewerPhase_Full = 1,
+        };
+
+    } // namespace
+
 static bool s_open = false;
 static bool s_full = false;
+static ViewerPhase s_phase = ViewerPhase_Grid;
 static int s_sel = 0;
 static int s_top = 0;
 static int sAlbumRefreshCount = 0;
+static InputRepeat s_repeat = { 0 };
 
 enum { COLS = 5, ROWS = 3, VIS = COLS * ROWS };
 enum { THUMB_SLOTS = 15, FULL_SLOT = 15 };
@@ -44,7 +58,9 @@ static int s_fullErr = -1;
 static bool s_fresh = false;
 static int s_decodeBudget = 0;
 
-static void FreeSlot(Slot *s)
+    /// @brief Free a texture slot's GPU resources.
+    /// @param s Slot to free.
+    static void FreeSlot(Slot *s)
 {
     if (s->used) {
         Gfx::WaitIdle();
@@ -57,7 +73,13 @@ static void FreeSlot(Slot *s)
     s->tex = -1;
 }
 
-static bool UploadSlot(Slot *s, const uint8_t *rgba, int w, int h)
+    /// @brief Upload RGBA pixels into a texture slot.
+    /// @param s Slot receiving the image.
+    /// @param rgba Pixel data.
+    /// @param w Width.
+    /// @param h Height.
+    /// @return True on success.
+    static bool UploadSlot(Slot *s, const uint8_t *rgba, int w, int h)
 {
     if (!rgba || w <= 0 || h <= 0 || w > 1920 || h > 1080)
         return false;
@@ -111,7 +133,11 @@ static bool UploadSlot(Slot *s, const uint8_t *rgba, int w, int h)
     return true;
 }
 
-static bool EnsureThumb(int pos, int albumIndex)
+    /// @brief Ensure a grid thumbnail is decoded and uploaded.
+    /// @param pos Thumbnail slot position.
+    /// @param albumIndex Album entry index.
+    /// @return True when the thumbnail is ready to draw.
+    static bool EnsureThumb(int pos, int albumIndex)
 {
     Slot *s = &s_thumb[pos];
     if (s->used && s->index == albumIndex) return true;
@@ -150,7 +176,10 @@ static bool EnsureThumb(int pos, int albumIndex)
     return ok;
 }
 
-static bool EnsureFull(int albumIndex)
+    /// @brief Ensure the fullscreen image is decoded and uploaded.
+    /// @param albumIndex Album entry index.
+    /// @return True when the image is ready to draw.
+    static bool EnsureFull(int albumIndex)
 {
     if (s_fullImg.used && s_fullImg.index == albumIndex)
         return true;
@@ -197,7 +226,8 @@ static bool EnsureFull(int albumIndex)
     return ok;
 }
 
-static void ClearThumbs()
+    /// @brief Free all thumbnail slots and clear error caches.
+    static void ClearThumbs()
 {
     for (int i = 0; i < THUMB_SLOTS; i++) {
         FreeSlot(&s_thumb[i]);
@@ -205,7 +235,8 @@ static void ClearThumbs()
     }
 }
 
-static void ClampSel()
+    /// @brief Clamp the selection and scroll the grid window onto it.
+    static void ClampSel()
 {
     if (sAlbumRefreshCount <= 0) {
         s_sel = 0;
@@ -227,17 +258,22 @@ static void ClampSel()
         s_top = 0;
 }
 
-bool IsOpen()
+    /// @brief Whether the album tab is open.
+    /// @return True when open.
+    bool IsOpen()
 {
     return s_open;
 }
 
-bool IsFull()
+    /// @brief Whether the album viewer covers the screen.
+    /// @return True when grid-fullscreen or video is open.
+    bool IsFull()
 {
-    return s_open && (s_full || WVideo::IsOpen());
+    return s_open && (s_phase == ViewerPhase_Full || WVideo::IsOpen());
 }
 
-void Open()
+    /// @brief Open the album grid and refresh thumbnails.
+    void Open()
 {
     int growRc = qext_album_grow();
 
@@ -255,6 +291,7 @@ void Open()
     s_sel = 0;
     s_top = 0;
     s_full = false;
+    s_phase = ViewerPhase_Grid;
     s_fresh = true;
     ClearThumbs();
     FreeSlot(&s_fullImg);
@@ -262,7 +299,9 @@ void Open()
     s_open = true;
 }
 
-void OpenFull(int albumIndex)
+    /// @brief Open one image fullscreen (images only, not movies).
+    /// @param albumIndex Album entry index.
+    void OpenFull(int albumIndex)
 {
     if (!s_open || albumIndex < 0 || albumIndex >= sAlbumRefreshCount) {
         return;
@@ -275,21 +314,25 @@ void OpenFull(int albumIndex)
     s_sel = albumIndex;
     ClampSel();
     s_full = true;
+    s_phase = ViewerPhase_Full;
     s_fresh = false;
     Sfx::Play(Sfx::Hover);
 }
 
-void DropFull()
+    /// @brief Drop the fullscreen image texture.
+    void DropFull()
 {
     FreeSlot(&s_fullImg);
 }
 
-void DropThumbs()
+    /// @brief Drop all thumbnail textures.
+    void DropThumbs()
 {
     ClearThumbs();
 }
 
-void Close()
+    /// @brief Close the album viewer and free its buffers.
+    void Close()
 {
     if (WVideo::IsOpen()) {
         WVideo::Close();
@@ -299,6 +342,7 @@ void Close()
 
     s_open = false;
     s_full = false;
+    s_phase = ViewerPhase_Grid;
     ClearThumbs();
     FreeSlot(&s_fullImg);
     free(s_jpg);
@@ -307,16 +351,19 @@ void Close()
     s_big = 0;
 }
 
-void OnRefresh()
+    /// @brief Drop cached textures after an external refresh.
+    void OnRefresh()
 {
     if (!s_open)
         return;
     ClearThumbs();
     FreeSlot(&s_fullImg);
     s_full = false;
+    s_phase = ViewerPhase_Grid;
 }
 
-static void DrawGrid()
+    /// @brief Draw the thumbnail grid plus scrollbar.
+    static void DrawGrid()
 {
     float inkR, inkG, inkB;
     Theme::Color("ink", &inkR, &inkG, &inkB);
@@ -390,7 +437,8 @@ static void DrawGrid()
     }
 }
 
-static void DrawFull()
+    /// @brief Draw the fullscreen image (or an error placeholder).
+    static void DrawFull()
 {
     float inkR, inkG, inkB;
     Theme::Color("ink", &inkR, &inkG, &inkB);
@@ -410,7 +458,22 @@ static void DrawFull()
     }
 }
 
-void Draw()
+    /// @brief Enter the fullscreen phase.
+    static void EnterFull()
+    {
+        s_full = true;
+        s_phase = ViewerPhase_Full;
+    }
+
+    /// @brief Enter the grid phase.
+    static void EnterGrid()
+    {
+        s_full = false;
+        s_phase = ViewerPhase_Grid;
+    }
+
+    /// @brief Draw the active viewer phase.
+    void Draw()
 {
     if (!s_open)
         return;
@@ -418,16 +481,18 @@ void Draw()
         WVideo::Draw();
         return;
     }
-    if (s_full)
+    if (s_phase == ViewerPhase_Full)
         DrawFull();
     else
         DrawGrid();
 }
 
-static int s_rep = 0;
+    /// @brief Handle album grid/full navigation input.
+    /// @param down Buttons pressed.
+    /// @param held Buttons held.
+    /// @return True when the input was consumed.
 bool Input(u64 down, u64 held)
 {
-    (void)held;
     if (!s_open)
         return false;
 
@@ -438,16 +503,14 @@ bool Input(u64 down, u64 held)
         s_fresh = false;
         return true;
     }
-    u64 rdirs = HidNpadButton_AnyLeft | HidNpadButton_AnyRight | HidNpadButton_AnyUp | HidNpadButton_AnyDown;
-    if (down & rdirs) s_rep = 0;
-    else if (held & rdirs) {
-        s_rep++;
-        if (s_rep > 20 && (s_rep % 6) == 0) down |= held & rdirs;
-    } else s_rep = 0;
 
-    if (s_full) {
+    s_repeat.Poll(down, held,
+        HidNpadButton_AnyLeft | HidNpadButton_AnyRight | HidNpadButton_AnyUp | HidNpadButton_AnyDown,
+        DefaultRepeat());
+
+    if (s_phase == ViewerPhase_Full) {
         if (down & HidNpadButton_B) {
-            s_full = false;
+            EnterGrid();
             FreeSlot(&s_fullImg);
             Sfx::Play(Sfx::Back);
             return true;
@@ -459,7 +522,7 @@ bool Input(u64 down, u64 held)
                 if (qext_album_is_movie(ni) > 0) {
                     if (WVideo::Open(ni)) {
                         s_sel = ni;
-                        s_full = false;
+                        EnterGrid();
                         ClampSel();
                         Sfx::Play(Sfx::Hover);
                     }
@@ -479,7 +542,7 @@ bool Input(u64 down, u64 held)
                 if (qext_album_is_movie(ni) > 0) {
                     if (WVideo::Open(ni)) {
                         s_sel = ni;
-                        s_full = false;
+                        EnterGrid();
                         ClampSel();
                         Sfx::Play(Sfx::Hover);
                     }
@@ -508,7 +571,7 @@ bool Input(u64 down, u64 held)
 
     if (down & HidNpadButton_B) {
         Sfx::Play(Sfx::Back);
-        App::SwitchMenu(MENU_HOME);
+        App::SwitchMenuById("home");
         return true;
     }
 
@@ -520,7 +583,7 @@ bool Input(u64 down, u64 held)
                 if (!WVideo::Open(s_sel))
                     Sfx::Play(Sfx::Back);
             } else {
-                s_full = true;
+                EnterFull();
                 Sfx::Play(Sfx::Click);
             }
         }

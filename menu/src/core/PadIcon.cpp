@@ -12,7 +12,12 @@ static float s_r = 0.55f, s_g = 0.55f, s_b = 0.60f;
 static unsigned s_tick = 0;
 static bool s_done = false;
 
-static void DecodeU32(float *r, float *g, float *b, u32 v)
+    /// @brief Decode a packed controller color into floats.
+    /// @param r Red output.
+    /// @param g Green output.
+    /// @param b Blue output.
+    /// @param v Packed 0xRRGGBBAA color.
+    static void DecodeU32(float *r, float *g, float *b, u32 v)
 {
     if (v == 0)
         return;
@@ -25,7 +30,8 @@ static void DecodeU32(float *r, float *g, float *b, u32 v)
     *b = bb;
 }
 
-static void Refresh()
+    /// @brief Poll the controller style set and cache glyph + color.
+    static void Refresh()
 {
     u32 style = hidGetNpadStyleSet(HidNpadIdType_No1);
     if (style == 0)
@@ -88,7 +94,8 @@ static void Refresh()
     s_done = true;
 }
 
-void Tick()
+    /// @brief Poll connected styles into the cached pad icon.
+    void Tick()
 {
     /* Poll colors slowly. */
     s_tick++;
@@ -96,14 +103,20 @@ void Tick()
         Refresh();
 }
 
-unsigned Glyph()
+    /// @brief Give the glyph for the current controller type.
+    /// @return Glyph codepoint.
+    unsigned Glyph()
 {
     if (!s_done)
         Refresh();
     return s_glyph;
 }
 
-void Color(float *r, float *g, float *b)
+    /// @brief Give the tint for the current controller type.
+    /// @param r Red output.
+    /// @param g Green output.
+    /// @param b Blue output.
+    void Color(float *r, float *g, float *b)
 {
     if (!s_done)
         Refresh();

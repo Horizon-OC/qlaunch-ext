@@ -1,7 +1,19 @@
 {"design": {"w": 1920, "h": 1080},
+ "tabs": [
+  {"id": "home", "jingle": "home_jingle"},
+  {"id": "connect", "jingle": "chat_jingle"},
+  {"id": "eshop", "jingle": "eshop_jingle"},
+  {"id": "album", "jingle": "album_jingle"},
+  {"id": "settings", "jingle": "settings_jingle"}
+ ],
  "children": [
   {"type": "background"},
   {"type": "topbar"},
   {"type": "gamestrip", "id": "games", "x": 120, "y": 342, "tile": 384, "gap": 50, "label": true},
-  {"type": "bottombar"}
+  {"type": "bottombar"},
+  {"type": "hints", "id": "footer", "items": [
+   {"button": "A", "label": "OK"},
+   {"button": "B", "label": "Back"},
+   {"button": "+", "label": "Options"}
+  ]}
  ]}

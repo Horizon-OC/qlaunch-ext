@@ -20,7 +20,9 @@ static DkMemBlock s_mem[AV_MAX];
 static DkImage s_img[AV_MAX];
 static bool s_ok[AV_MAX];
 
-static void FreeOne(int i)
+    /// @brief Free one avatar's GPU resources.
+    /// @param i Avatar slot.
+    static void FreeOne(int i)
 {
     if (s_ok[i]) {
         Gfx::WaitIdle();
@@ -32,7 +34,13 @@ static void FreeOne(int i)
     s_tex[i] = -1;
 }
 
-static bool UploadOne(int i, const uint8_t *rgba, int w, int h)
+    /// @brief Upload RGBA pixels into an avatar slot.
+    /// @param i Avatar slot.
+    /// @param rgba Pixel data.
+    /// @param w Width.
+    /// @param h Height.
+    /// @return True on success.
+    static bool UploadOne(int i, const uint8_t *rgba, int w, int h)
 {
     if (!rgba || w <= 0 || h <= 0 || w > 512 || h > 512)
         return false;
@@ -91,7 +99,8 @@ static AccountUid s_uids[AV_MAX];
 static s32 s_uidTotal = -1;
 static bool s_haveUids = false;
 
-void Refresh()
+    /// @brief Refresh cached avatar images from accounts.
+    void Refresh()
 {
     AccountUid uids[AV_MAX] = {};
     s32 total = 0;
@@ -140,12 +149,17 @@ void Refresh()
     s_haveUids = true;
 }
 
-int Count()
+    /// @brief Number of cached avatars.
+    /// @return Avatar count.
+    int Count()
 {
     return s_count;
 }
 
-int Slot(int i)
+    /// @brief Look up the icon slot for an avatar.
+    /// @param i Avatar index.
+    /// @return HUD icon slot, or <= 0 when missing.
+    int Slot(int i)
 {
     if (i < 0 || i >= AV_MAX || !s_ok[i])
         return -1;

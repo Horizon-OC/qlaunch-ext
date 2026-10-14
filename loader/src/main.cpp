@@ -301,6 +301,7 @@ static void menu_unload(void)
 enum BootStage {
     BootStage_Provide,
     BootStage_Layer,
+    BootStage_Plugins,
     BootStage_Neko,
     BootStage_Menu,
     BootStage_Syms,
@@ -336,70 +337,75 @@ static Result boot_step(void)
 {
     Result rc = 0;
     switch (g_bootStage) {
-    case BootStage_Provide:
-        logging::LogLine("[qlaunch-ext] trying to boot menu...");
-        rc = host_provide_all();
-        logging::LogLine("[qlaunch-ext] functions loaded (rc=0x%X)", rc);
-        if (R_FAILED(rc))
-            return boot_fail(rc);
-        g_bootStage = BootStage_Layer;
-        break;
-    case BootStage_Layer:
-        rc = gfx_layer_init();
-        logging::LogLine("[qlaunch-ext] initialized layers (rc=0x%X)", rc);
-        if (R_FAILED(rc))
-            return boot_fail(rc);
-        g_bootStage = BootStage_Neko;
-        break;
-    case BootStage_Neko:
-        dlink_set_library_dir(NULL);
-        if (!g_neko) {
-            g_neko = dlopen("neko3d", RTLD_GLOBAL);
-            logging::LogLine("[qlaunch-ext] opening neko3d at %p (dlerr=%s)", g_neko,
-                             g_neko ? "NONE" : dlerror());
-            if (!g_neko)
+        case BootStage_Provide:
+            logging::LogLine("[qlaunch-ext] trying to boot menu...");
+            rc = host_provide_all();
+            logging::LogLine("[qlaunch-ext] functions loaded (rc=0x%X)", rc);
+            if (R_FAILED(rc))
+                return boot_fail(rc);
+            g_bootStage = BootStage_Layer;
+            break;
+        case BootStage_Layer:
+            rc = gfx_layer_init();
+            logging::LogLine("[qlaunch-ext] initialized layers (rc=0x%X)", rc);
+            if (R_FAILED(rc))
+                return boot_fail(rc);
+            g_bootStage = BootStage_Plugins;
+            break;
+        case BootStage_Plugins:
+            /* Load plugins very early */
+            plugins::Boot(&g_win);
+            g_bootStage = BootStage_Neko;
+            break;
+        case BootStage_Neko:
+            dlink_set_library_dir(NULL);
+            if (!g_neko) {
+                g_neko = dlopen("neko3d", RTLD_GLOBAL);
+                logging::LogLine("[qlaunch-ext] opening neko3d at %p (dlerr=%s)", g_neko,
+                                g_neko ? "NONE" : dlerror());
+                if (!g_neko)
+                    return boot_fail(MAKERESULT(Module_Libnx, LibnxError_NotFound));
+            }
+            g_bootStage = BootStage_Menu;
+            break;
+        case BootStage_Menu:
+            if (g_menu) {
+                dlclose(g_menu);
+                g_menu = nullptr;
+            }
+            g_menu = dlopen("sdmc:/qlaunch-ext/menus/menu.dnro", RTLD_LOCAL);
+            logging::LogLine("[qlaunch-ext] opening menu at %p (dlerr=%s)", g_menu,
+                            g_menu ? "NONE" : dlerror());
+            if (!g_menu)
                 return boot_fail(MAKERESULT(Module_Libnx, LibnxError_NotFound));
+            g_bootStage = BootStage_Syms;
+            break;
+        case BootStage_Syms:
+            s_onBoot = (int (*)(NWindow *))dlsym(g_menu, "onBoot");
+            s_onReload = (void (*)(void))dlsym(g_menu, "onReload");
+            s_onShutdown = (void (*)(void))dlsym(g_menu, "onShutdown");
+            s_onPowerButton = (void (*)(void))dlsym(g_menu, "onPowerButton");
+            s_onOpen = (void (*)(void))dlsym(g_menu, "onOpen");
+            s_loop = (int (*)(void))dlsym(g_menu, "loop");
+            s_onHomeButton = (void (*)(void))dlsym(g_menu, "onHomeButton");
+            if (!s_onBoot || !s_onReload || !s_onShutdown || !s_onPowerButton || !s_onOpen || !s_loop ||
+                !s_onHomeButton) {
+                logging::LogLine("[qlaunch-ext] can't load menu symbols");
+                return boot_fail(MAKERESULT(Module_Libnx, LibnxError_NotFound));
+            }
+            g_bootStage = BootStage_OnBoot;
+            break;
+        case BootStage_OnBoot: {
+            int brc = s_onBoot(&g_win);
+            logging::LogLine("[qlaunch-ext] ran onBoot (rc=%d)", brc);
+            if (brc != 0)
+                return boot_fail(MAKERESULT(Module_Libnx, LibnxError_BadGfxInit));
+            g_bootStage = BootStage_Done;
+            logging::LogLine("[qlaunch-ext] started menu");
+            break;
         }
-        g_bootStage = BootStage_Menu;
-        break;
-    case BootStage_Menu:
-        if (g_menu) {
-            dlclose(g_menu);
-            g_menu = nullptr;
-        }
-        g_menu = dlopen("sdmc:/qlaunch-ext/menus/menu.dnro", RTLD_LOCAL);
-        logging::LogLine("[qlaunch-ext] opening menu at %p (dlerr=%s)", g_menu,
-                         g_menu ? "NONE" : dlerror());
-        if (!g_menu)
-            return boot_fail(MAKERESULT(Module_Libnx, LibnxError_NotFound));
-        g_bootStage = BootStage_Syms;
-        break;
-    case BootStage_Syms:
-        s_onBoot = (int (*)(NWindow *))dlsym(g_menu, "onBoot");
-        s_onReload = (void (*)(void))dlsym(g_menu, "onReload");
-        s_onShutdown = (void (*)(void))dlsym(g_menu, "onShutdown");
-        s_onPowerButton = (void (*)(void))dlsym(g_menu, "onPowerButton");
-        s_onOpen = (void (*)(void))dlsym(g_menu, "onOpen");
-        s_loop = (int (*)(void))dlsym(g_menu, "loop");
-        s_onHomeButton = (void (*)(void))dlsym(g_menu, "onHomeButton");
-        if (!s_onBoot || !s_onReload || !s_onShutdown || !s_onPowerButton || !s_onOpen || !s_loop ||
-            !s_onHomeButton) {
-            logging::LogLine("[qlaunch-ext] can't load menu symbols");
-            return boot_fail(MAKERESULT(Module_Libnx, LibnxError_NotFound));
-        }
-        g_bootStage = BootStage_OnBoot;
-        break;
-    case BootStage_OnBoot: {
-        int brc = s_onBoot(&g_win);
-        logging::LogLine("[qlaunch-ext] ran onBoot (rc=%d)", brc);
-        if (brc != 0)
-            return boot_fail(MAKERESULT(Module_Libnx, LibnxError_BadGfxInit));
-        g_bootStage = BootStage_Done;
-        logging::LogLine("[qlaunch-ext] started menu");
-        break;
-    }
-    default:
-        break;
+        default:
+            break;
     }
     return 0;
 }
@@ -638,7 +644,7 @@ int main(int argc, char **argv)
 {
     (void)argc;
     (void)argv;
-    logging::LogLine("[qlaunch-ext] initialized (build %s %s)", __DATE__, __TIME__);
+    logging::LogLine("[qlaunch-ext] initialized (built at %s %s)", __DATE__, __TIME__);
     u32 hosVersion = hosversionGet();
     logging::LogLine("[qlaunch-ext] fw %u.%u.%u", HOSVER_MAJOR(hosVersion), HOSVER_MINOR(hosVersion), HOSVER_MICRO(hosVersion));
     Result iprc = appletLoadAndApplyIdlePolicySettings();
@@ -701,7 +707,6 @@ int main(int argc, char **argv)
             if (g_bootStage == BootStage_Done) {
                 g_booted = true;
                 logging::LogLine("[qlaunch-ext] booted menu");
-                plugins::Boot(&g_win);
             } else {
                 wait_wake(16000000ULL);
                 continue;

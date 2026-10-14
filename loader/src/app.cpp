@@ -168,8 +168,11 @@ namespace app {
     /// @param app_id The app ID
     /// @param system Is it a system app
     /// @param user_id What user to provide to the app
+    /// @param data Optional extra launch data (UserChannel)
+    /// @param size Extra launch data size (0 = none)
     /// @return Result code
-    Result Start(u64 app_id, bool system, const AccountUid &user_id) {
+    Result Start(u64 app_id, bool system, const AccountUid &user_id,
+                 const void *data, size_t size) {
         appletApplicationClose(&g_holder);
         g_hasFocus = false;
         /* Create the system application if nessesary */
@@ -222,6 +225,15 @@ namespace app {
             Result rc = Send(&arg, sizeof(arg), AppletLaunchParameterKind_PreselectedUser);
             if (R_FAILED(rc))
                 logging::LogLine("[app] Ignoring preselected user (rc=0x%X)", rc);
+        }
+        /* Extra launch data (for example the NRO target block). */
+        if (data != nullptr && size > 0) {
+            Result rc = Send(data, size, AppletLaunchParameterKind_UserChannel);
+            if (R_FAILED(rc)) {
+                logging::LogLine("[app] Launch data rejected (rc=0x%X)", rc);
+                appletApplicationClose(&g_holder);
+                return rc;
+            }
         }
         /* Unlock the foreground */
         Result rc = appletUnlockForeground();

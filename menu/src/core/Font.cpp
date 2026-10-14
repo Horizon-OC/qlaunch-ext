@@ -34,8 +34,14 @@ static uint8_t s_scratch[FONT_ATLAS_W * FONT_ATLAS_H];
 static Atlas s_at[3];
 static bool s_ok;
 
-static bool BakeOne(Atlas *a, const uint8_t *file, const float *heights,
-                    int nHeights)
+    /// @brief Bake one glyph range into the scratch atlas.
+    /// @param a Atlas receiving the bake.
+    /// @param file Font file bytes.
+    /// @param heights Pixel heights to try.
+    /// @param nHeights Height count.
+    /// @return True when a height fit.
+    static bool BakeOne(Atlas *a, const uint8_t *file, const float *heights,
+                        int nHeights)
 {
     for (int i = 0; i < nHeights; i++) {
         memset(s_scratch, 0, sizeof(s_scratch));
@@ -52,7 +58,10 @@ static bool BakeOne(Atlas *a, const uint8_t *file, const float *heights,
     return false;
 }
 
-static bool UploadOne(Atlas *a)
+    /// @brief Upload a baked atlas into GPU memory.
+    /// @param a Atlas to upload.
+    /// @return True on success.
+    static bool UploadOne(Atlas *a)
 {
     DkDevice dev = Gfx::Device();
     DkImageLayoutMaker lm;
@@ -88,7 +97,8 @@ static bool UploadOne(Atlas *a)
     return true;
 }
 
-void Shutdown()
+    /// @brief Shut down font rendering.
+    void Shutdown()
 {
     if (!s_ok)
         return;
@@ -103,7 +113,9 @@ void Shutdown()
     }
 }
 
-bool Init()
+    /// @brief Initialize font atlases and text buffers.
+    /// @return True on success.
+    bool Init()
 {
     static const float big[] = { 64.0f, 56.0f, 48.0f, 40.0f };
     static const float sml[] = { 48.0f, 40.0f, 32.0f };
@@ -132,8 +144,14 @@ bool Init()
     return true;
 }
 
-static bool RebakeOne(Atlas *a, const uint8_t *file, const float *heights,
-                    int nHeights)
+    /// @brief Re-bake an atlas in place and re-upload its descriptor.
+    /// @param a Atlas to refresh.
+    /// @param file Font file bytes.
+    /// @param heights Pixel heights to try.
+    /// @param nHeights Height count.
+    /// @return True on success.
+    static bool RebakeOne(Atlas *a, const uint8_t *file, const float *heights,
+                        int nHeights)
 {
     if (!BakeOne(a, file, heights, nHeights))
         return false;
@@ -143,7 +161,8 @@ static bool RebakeOne(Atlas *a, const uint8_t *file, const float *heights,
     return true;
 }
 
-void Refresh()
+    /// @brief Reload system fonts (theme/content change).
+    void Refresh()
 {
     if (!s_ok)
         return;
@@ -155,12 +174,17 @@ void Refresh()
     Gfx::WriteSamplerDesc();
 }
 
-bool Ok()
+    /// @brief Whether font rendering is usable.
+    /// @return True when initialized.
+    bool Ok()
 {
     return s_ok;
 }
 
-unsigned Next(const char **pp)
+    /// @brief Decode the next codepoint and advance the cursor.
+    /// @param pp Pointer to the UTF-8 cursor (updated).
+    /// @return Codepoint, or 0 at end of string.
+    unsigned Next(const char **pp)
 {
     const uint8_t *p = (const uint8_t *)*pp;
     uint8_t c = *p;
@@ -186,7 +210,10 @@ unsigned Next(const char **pp)
     return cp;
 }
 
-static Atlas *Pick(unsigned cp)
+    /// @brief Pick the atlas covering a codepoint.
+    /// @param cp Unicode codepoint.
+    /// @return Atlas pointer, or null when unavailable.
+    static Atlas *Pick(unsigned cp)
 {
     if (cp >= 0xE000u && cp < 0xE200u && s_at[2].ok)
         return &s_at[2];
@@ -197,8 +224,18 @@ static Atlas *Pick(unsigned cp)
     return 0;
 }
 
-static float Pen(const char *s, float x, float y, float px, bool dry,
-                 float r, float g, float b)
+    /// @brief Walk a string, optionally emitting text quads.
+    /// @param s UTF-8 text.
+    /// @param x Start X.
+    /// @param y Baseline Y.
+    /// @param px Pixel size.
+    /// @param dry True to measure without drawing.
+    /// @param r Red 0-1.
+    /// @param g Green 0-1.
+    /// @param b Blue 0-1.
+    /// @return End pen position.
+    static float Pen(const char *s, float x, float y, float px, bool dry,
+                     float r, float g, float b)
 {
     if (!s || !s_ok)
         return x;
@@ -242,19 +279,41 @@ static float Pen(const char *s, float x, float y, float px, bool dry,
     return pen;
 }
 
-float Draw(const char *s, float x, float y, float px,
-           float r, float g, float b)
+    /// @brief Draw a string at a position.
+    /// @param s UTF-8 text.
+    /// @param x X position.
+    /// @param y Baseline Y position.
+    /// @param px Pixel size.
+    /// @param r Red 0-1.
+    /// @param g Green 0-1.
+    /// @param b Blue 0-1.
+    /// @return Advance width drawn.
+    float Draw(const char *s, float x, float y, float px,
+               float r, float g, float b)
 {
     return Pen(s, x, y, px, false, r, g, b);
 }
 
-float Measure(const char *s, float px)
+    /// @brief Measure a string without drawing.
+    /// @param s UTF-8 text.
+    /// @param px Pixel size.
+    /// @return Advance width.
+    float Measure(const char *s, float px)
 {
     return Pen(s, 0.0f, 0.0f, px, true, 0.0f, 0.0f, 0.0f);
 }
 
-void Centered(const char *s, float cx, float y, float px, float maxW,
-              float r, float g, float b)
+    /// @brief Draw a string centered on X with a max width.
+    /// @param s UTF-8 text.
+    /// @param cx Center X.
+    /// @param y Baseline Y position.
+    /// @param px Pixel size.
+    /// @param maxW Maximum width before squeezing.
+    /// @param r Red 0-1.
+    /// @param g Green 0-1.
+    /// @param b Blue 0-1.
+    void Centered(const char *s, float cx, float y, float px, float maxW,
+                  float r, float g, float b)
 {
     float w = Measure(s, px);
     while (w > maxW && px > 14.0f) {

@@ -64,12 +64,19 @@ namespace WVideo {
     static bool s_aFlushed = false;
     static bool s_eosV = false;
     static bool s_eosA = false;
+    /// @brief Pump the decoder toward the next presentable frame.
+    /// @param force True to decode regardless of pause/end state.
     static void Step(bool force);
 
     static DkMemBlock s_mem = 0;
     static DkImage s_img;
     static int s_tex = -1;
 
+    /// @brief FFmpeg read callback pulling from the album movie handle.
+    /// @param opaque Unused.
+    /// @param buf Output buffer.
+    /// @param size Bytes requested.
+    /// @return Bytes read, or AVERROR_EOF.
     static int AvioRead(void *opaque, uint8_t *buf, int size)
     {
         (void)opaque;
@@ -98,6 +105,11 @@ namespace WVideo {
         return total;
     }
 
+    /// @brief FFmpeg seek callback over the album movie handle.
+    /// @param opaque Unused.
+    /// @param offset Byte offset.
+    /// @param whence Seek mode (or AVSEEK_SIZE for size query).
+    /// @return New position, or the size for AVSEEK_SIZE.
     static int64_t AvioSeek(void *opaque, int64_t offset, int whence)
     {
         (void)opaque;
@@ -119,6 +131,7 @@ namespace WVideo {
         return offset;
     }
 
+    /// @brief Free the video frame texture.
     static void FreeTexture()
     {
         if (s_mem) {
@@ -131,6 +144,8 @@ namespace WVideo {
         s_tex = -1;
     }
 
+    /// @brief Allocate the fixed video frame texture.
+    /// @return True on success.
     static bool AllocTexture()
     {
         if (s_mem) {
@@ -186,6 +201,7 @@ namespace WVideo {
         return true;
     }
 
+    /// @brief Free all FFmpeg contexts and IO buffers.
     static void Cleanup()
     {
         if (s_swr) {
@@ -244,11 +260,14 @@ namespace WVideo {
         s_vhw = false;
     }
 
+    /// @brief Close the album movie handle without touching decoders.
     static void DropHandle()
     {
         qext_album_movie_close();
     }
 
+    /// @brief Ensure the NVTEGRA hardware device exists.
+    /// @return True when ready.
     static bool EnsureHwDev()
     {
         if (s_hwdev) {
@@ -264,6 +283,10 @@ namespace WVideo {
         return true;
     }
 
+    /// @brief Pick an HW-friendly pixel format for the decoder.
+    /// @param ctx Codec context (unused).
+    /// @param fmts Candidate formats.
+    /// @return Chosen format.
     static enum AVPixelFormat HwGetFormat(AVCodecContext *ctx, const enum AVPixelFormat *fmts)
     {
         (void)ctx;
@@ -277,6 +300,9 @@ namespace WVideo {
         return fmts[0];
     }
 
+    /// @brief Open a decoder for one stream, with HW accel for H264.
+    /// @param streamIdx Stream index in s_fmt.
+    /// @return Codec context, or null on failure.
     static AVCodecContext *OpenDecoder(int streamIdx)
     {
         if (!s_fmt || streamIdx < 0) {
@@ -335,6 +361,9 @@ namespace WVideo {
         return ctx;
     }
 
+    /// @brief Open a movie entry for playback.
+    /// @param albumIndex Album entry index.
+    /// @return True on success.
     bool Open(int albumIndex)
     {
         Close();
@@ -556,6 +585,9 @@ namespace WVideo {
         return true;
     }
 
+    /// @brief Send one video packet through the bitstream filter.
+    /// @param pkt Packet to send (null flushes).
+    /// @return True on success.
     static bool SendVideoPkt(AVPacket *pkt)
     {
         if (!s_vctx) {
@@ -598,6 +630,8 @@ namespace WVideo {
         return rc == 0 || rc == AVERROR(EAGAIN);
     }
 
+    /// @brief Receive and scale one video frame into the texture.
+    /// @return True when a frame became ready.
     static bool RecvVideo()
     {
         if (!s_vctx || s_haveFrame) {
@@ -652,6 +686,8 @@ namespace WVideo {
         return true;
     }
 
+    /// @brief Receive one audio frame and push it to the SFX queue.
+    /// @return True when samples were pushed.
     static bool RecvAudio()
     {
         if (!s_actx || !s_swr) {
@@ -686,6 +722,7 @@ namespace WVideo {
         return false;
     }
 
+    /// @brief Demux and feed one round of video/audio decode.
     static void Iterate()
     {
         if (!s_open) {
@@ -743,9 +780,13 @@ namespace WVideo {
         av_packet_unref(s_pkt);
     }
 
+    /// @brief Present the decoded frame (texture upload hook).
     static void Upload()
     {
     }
+
+    /// @brief Pump the decoder toward the next presentable frame.
+    /// @param force True to decode regardless of pause/end state.
     static void Step(bool force)
     {
         if (!s_open) {
@@ -804,6 +845,8 @@ namespace WVideo {
         }
     }
 
+    /// @brief Seek to an absolute timestamp and decode a fresh frame.
+    /// @param t Target time in seconds.
     static void SeekAbs(double t)
     {
         if (!s_open) {
@@ -852,6 +895,9 @@ namespace WVideo {
         Step(true);
     }
 
+    /// @brief Step to a neighboring album entry, keeping video or image mode.
+    /// @param delta Signed step.
+    /// @return True when the step was handled.
     static bool StepContent(int delta)
     {
         int n = qext_album_count();
@@ -878,11 +924,14 @@ namespace WVideo {
         return true;
     }
 
+    /// @brief Whether a video is currently open.
+    /// @return True when open.
     bool IsOpen()
     {
         return s_open;
     }
 
+    /// @brief Close the video player.
     void Close()
     {
         if (!s_open) {
@@ -929,6 +978,7 @@ namespace WVideo {
         s_idx = -1;
     }
 
+    /// @brief Drop pinned video textures.
     void DropPinned()
     {
         if (s_open) {
@@ -953,6 +1003,7 @@ namespace WVideo {
         }
     }
 
+    /// @brief Draw the current video frame and OSD.
     void Draw()
     {
         if (!s_open) {
@@ -966,6 +1017,10 @@ namespace WVideo {
         }
     }
 
+    /// @brief Handle video playback input.
+    /// @param down Buttons pressed.
+    /// @param held Buttons held.
+    /// @return True when the input was consumed.
     bool Input(u64 down, u64 held)
     {
         (void)held;
@@ -1052,6 +1107,9 @@ namespace WVideo {
     static double s_durCache[256];
     static bool s_durInit = false;
 
+    /// @brief Probe a movie's duration without disturbing playback.
+    /// @param albumIndex Album entry index.
+    /// @return Duration in seconds, or negative on failure.
     static double ProbeDuration(int albumIndex)
     {
         if (!qext_album_movie_open(albumIndex)) {
@@ -1112,6 +1170,9 @@ namespace WVideo {
         return dur;
     }
 
+    /// @brief Probe (and cache) a movie's duration.
+    /// @param albumIndex Album entry index.
+    /// @return Duration in seconds, or 0 when unknown.
     double Duration(int albumIndex)
     {
         if (albumIndex < 0 || albumIndex >= 256) {
@@ -1148,6 +1209,7 @@ namespace WVideo {
         return d;
     }
 
+    /// @brief Clear cached durations.
     void DurReset()
     {
         s_durInit = false;

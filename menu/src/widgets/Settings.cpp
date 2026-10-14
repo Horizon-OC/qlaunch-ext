@@ -10,6 +10,8 @@
 #include "../core/App.hpp"
 #include "../core/Sfx.hpp"
 #include "../core/Qext.hpp"
+#include "../core/Input.hpp"
+#include "../core/Tabs.hpp"
 #include <string.h>
 
 namespace WSettings {
@@ -134,7 +136,10 @@ static const SRow *PageRows(int page)
     }
 }
 
-static int RowCount(const SRow *rows)
+    /// @brief Count rows in a null-terminated settings page.
+    /// @param rows Page rows.
+    /// @return Row count.
+    static int RowCount(const SRow *rows)
 {
     int n = 0;
     while (rows && rows[n].label)
@@ -145,7 +150,9 @@ static int RowCount(const SRow *rows)
 /* Stubbed for now */
 static bool s_tog[18][8];
 
-static void DrawOptions(float shx)
+    /// @brief Draw the left settings option list.
+    /// @param shx Horizontal slide offset.
+    static void DrawOptions(float shx)
 {
     float inkR, inkG, inkB;
     Theme::Color("ink", &inkR, &inkG, &inkB);
@@ -175,7 +182,12 @@ static void DrawOptions(float shx)
     }
 }
 
-static void DrawToggleValue(int page, int i, float x, float y)
+    /// @brief Draw a toggle row's ON/OFF value right-aligned.
+    /// @param page Settings page index.
+    /// @param i Row index inside the page.
+    /// @param x Right edge X.
+    /// @param y Baseline Y.
+    static void DrawToggleValue(int page, int i, float x, float y)
 {
     float inkR, inkG, inkB;
     Theme::Color("ink", &inkR, &inkG, &inkB);
@@ -189,7 +201,9 @@ static void DrawToggleValue(int page, int i, float x, float y)
                on ? inkB : dimB);
 }
 
-static void DrawDetail(float shx)
+    /// @brief Draw the right detail pane (theme grid or page rows).
+    /// @param shx Horizontal slide offset.
+    static void DrawDetail(float shx)
 {
     float inkR, inkG, inkB;
     Theme::Color("ink", &inkR, &inkG, &inkB);
@@ -253,14 +267,16 @@ static void DrawDetail(float shx)
     }
 }
 
-void Draw()
+    /// @brief Draw the settings option list and detail pane.
+    void Draw()
 {
     float shx = Layout::ShiftX();
     DrawOptions(shx);
     DrawDetail(shx);
 }
 
-static void ActivateRow()
+    /// @brief Activate the focused row (toggle, applet, or theme).
+    static void ActivateRow()
 {
     int page = App::SettingsPage();
     int row = App::SettingsRow();
@@ -282,18 +298,23 @@ static void ActivateRow()
     }
 }
 
-static int s_rep = 0;
-void Input(u64 down, u64 held)
+    namespace {
+
+        /// @brief Settings input repeat state.
+        InputRepeat s_repeat = { 0 };
+
+    } // namespace
+
+    /// @brief Handle settings navigation input.
+    /// @param down Buttons pressed.
+    /// @param held Buttons held.
+    void Input(u64 down, u64 held)
 {
-    (void)held;
     int page = App::SettingsPage();
     int row = App::SettingsRow();
-    u64 rdirs = HidNpadButton_AnyLeft | HidNpadButton_AnyRight | HidNpadButton_AnyUp | HidNpadButton_AnyDown;
-    if (down & rdirs) s_rep = 0;
-    else if (held & rdirs) {
-        s_rep++;
-        if (s_rep > 20 && (s_rep % 6) == 0) down |= held & rdirs;
-    } else s_rep = 0;
+    s_repeat.Poll(down, held,
+        HidNpadButton_AnyLeft | HidNpadButton_AnyRight | HidNpadButton_AnyUp | HidNpadButton_AnyDown,
+        DefaultRepeat());
     if (page < 0) {
         if (down & HidNpadButton_AnyUp) {
             row = (row + 17) % 18;
@@ -310,7 +331,7 @@ void Input(u64 down, u64 held)
             Sfx::Play(Sfx::Click);
         }
         if (down & HidNpadButton_B) {
-            App::SwitchMenu(MENU_HOME);
+            App::SwitchMenuById("home");
             Sfx::Play(Sfx::Back);
         }
         return;

@@ -6,67 +6,158 @@
 #include <switch.h>
 #include "../core/Layout.hpp"
 
+/// @brief Widget collection. Each namespace is one plugin-driven tab
+/// (or chrome). Tabs are registered in Tabs::RegisterBuiltin() and
+/// ordered by layout.json; Layout dispatches Draw/Input to them.
+
 namespace WBackground {
+    /// @brief Draw the fullscreen background for the active (or outgoing) tab.
+    /// @param nd Layout node (reserved for JSON-driven colors).
     void Draw(const LayoutNode &nd);
 } /* namespace WBackground */
 
 namespace WTopBar {
+    /// @brief Draw the top bar (avatars, tab icons, clock, status).
+    /// @param nd Layout node (currently unused, geometry is fixed).
     void Draw(const LayoutNode &nd);
+
+    /// @brief Handle top-bar navigation input.
+    /// @param down Buttons pressed.
+    /// @param held Buttons held.
     void Input(u64 down, u64 held);
 } /* namespace WTopBar */
 
 namespace WBottomBar {
+    /// @brief Draw the bottom bar (pad icon + home shortcuts).
     void Draw();
+
+    /// @brief Handle bottom-bar navigation input.
+    /// @param down Buttons pressed.
+    /// @param held Buttons held.
     void Input(u64 down, u64 held);
 } /* namespace WBottomBar */
 
 namespace WStrip {
+    /// @brief Draw the home game strip from a layout node.
+    /// @param nd Gamestrip node carrying tile geometry.
     void Draw(const LayoutNode &nd);
+
+    /// @brief Draw folders/VGC sub-screens under the strip.
     void DrawSubs();
+
+    /// @brief Handle home strip navigation input.
+    /// @param nd Gamestrip node (reserved).
+    /// @param down Buttons pressed.
+    /// @param held Buttons held.
     void Input(const LayoutNode &nd, u64 down, u64 held);
 } /* namespace WStrip */
 
 namespace WSettings {
+    /// @brief Draw the settings option list and detail pane.
     void Draw();
+
+    /// @brief Handle settings navigation input.
+    /// @param down Buttons pressed.
+    /// @param held Buttons held.
     void Input(u64 down, u64 held);
 } /* namespace WSettings */
 
 namespace WConnect {
+    /// @brief Draw the friends strip.
     void Draw();
+
+    /// @brief Handle friends navigation input.
+    /// @param down Buttons pressed.
+    /// @param held Buttons held.
     void Input(u64 down, u64 held);
 } /* namespace WConnect */
 
 namespace WEShop {
+    /// @brief Draw the shop grid or the news list.
     void Draw();
+
+    /// @brief Handle shop toggle input.
+    /// @param down Buttons pressed.
+    /// @param held Buttons held.
     void Input(u64 down, u64 held);
 } /* namespace WEShop */
 
 namespace WHints {
+    /// @brief Draw footer hints from the layout node, else fallback state hints.
+    /// @param nd Layout node carrying optional hint items.
     void Draw(const LayoutNode &nd);
 } /* namespace WHints */
 
 namespace WAlbum {
+    /// @brief Whether the album viewer covers the screen.
+    /// @return True when grid-fullscreen or video is open.
     bool IsFull();
+
+    /// @brief Whether the album tab is open.
+    /// @return True when open.
     bool IsOpen();
+
+    /// @brief Open the album grid and refresh thumbnails.
     void Open();
+
+    /// @brief Open one image fullscreen (images only, not movies).
+    /// @param albumIndex Album entry index.
     void OpenFull(int albumIndex);
+
+    /// @brief Drop the fullscreen image texture.
     void DropFull();
+
+    /// @brief Drop all thumbnail textures.
     void DropThumbs();
+
+    /// @brief Close the album viewer and free its buffers.
     void Close();
+
+    /// @brief Draw the active viewer phase.
     void Draw();
+
+    /// @brief Handle album grid/full navigation input.
+    /// @param down Buttons pressed.
+    /// @param held Buttons held.
+    /// @return True when the input was consumed.
     bool Input(u64 down, u64 held);
+
+    /// @brief Drop cached textures after an external refresh.
     void OnRefresh();
 
 } /* namespace WAlbum */
 
 namespace WVideo {
+    /// @brief Whether a video is currently open.
+    /// @return True when open.
     bool IsOpen();
+
+    /// @brief Open a movie entry for playback.
+    /// @param albumIndex Album entry index.
+    /// @return True on success.
     bool Open(int albumIndex);
+
+    /// @brief Close the video player.
     void Close();
+
+    /// @brief Drop pinned video textures.
     void DropPinned();
+
+    /// @brief Draw the current video frame and OSD.
     void Draw();
+
+    /// @brief Handle video playback input.
+    /// @param down Buttons pressed.
+    /// @param held Buttons held.
+    /// @return True when the input was consumed.
     bool Input(u64 down, u64 held);
+
+    /// @brief Probe (and cache) a movie's duration.
+    /// @param albumIndex Album entry index.
+    /// @return Duration in seconds, or 0 when unknown.
     double Duration(int albumIndex);
+
+    /// @brief Clear cached durations.
     void DurReset();
 } // namespace WVideo
 
@@ -100,6 +191,10 @@ enum : unsigned {
     GLYPH_PAD_PRO = 0xE12C,
 };
 
+/// @brief Encode a codepoint as UTF-8.
+/// @param cp Unicode codepoint.
+/// @param out Output buffer (at least 3 bytes).
+/// @return Bytes written.
 inline int GlyphUTF8(unsigned cp, char *out)
 {
     if (cp < 0x80) {
@@ -110,7 +205,7 @@ inline int GlyphUTF8(unsigned cp, char *out)
         out[1] = (char)(0x80 | (cp & 0x3F));
         return 2;
     }
-    
+
     out[0] = (char)(0xE0 | (cp >> 12));
     out[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
     out[2] = (char)(0x80 | (cp & 0x3F));

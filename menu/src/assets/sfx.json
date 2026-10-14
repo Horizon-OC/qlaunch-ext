@@ -1,0 +1,14 @@
+{"clips": [
+ {"id": "hover", "asset": "s2_cursor_move", "db": -7.0, "jitter": true},
+ {"id": "click", "asset": "s2_button_click", "db": 0.0},
+ {"id": "back", "asset": "s2_back_select", "db": 0.0},
+ {"id": "album_jingle", "asset": "s2_album", "db": -7.362},
+ {"id": "settings_jingle", "asset": "s2_settings", "db": -5.0},
+ {"id": "home_jingle", "asset": "s2_home_menu", "db": -10.464},
+ {"id": "home_boot", "asset": "s2_home_menu", "db": -16.0},
+ {"id": "eshop_jingle", "asset": "s2_eshop", "db": -1.517},
+ {"id": "chat_jingle", "asset": "s2_game_chat", "db": -5.119},
+ {"id": "folder_jingle", "asset": "news", "db": 0.0},
+ {"id": "vgc_jingle", "asset": "virtual_game_cards", "db": 0.0},
+ {"id": "standby_jingle", "asset": "s2_standby", "db": -20.0}
+]}

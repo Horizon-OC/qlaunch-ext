@@ -10,7 +10,12 @@
 
 namespace Jx {
 
-static int SkipTok(const JxTok *toks, int count, int t)
+    /// @brief Skip a token's whole subtree.
+    /// @param toks Token table.
+    /// @param count Token count.
+    /// @param t Token index.
+    /// @return Next sibling token index.
+    static int SkipTok(const JxTok *toks, int count, int t)
 {
     if (t < 0 || t >= count)
         return count;
@@ -26,7 +31,12 @@ static int SkipTok(const JxTok *toks, int count, int t)
     return i > count ? count : i;
 }
 
-bool Parse(JxDoc &d, const char *text, unsigned len)
+    /// @brief Parse JSON text into a token table.
+    /// @param d Output document (references text, no copy).
+    /// @param text JSON source bytes.
+    /// @param len Byte count (max 1MB).
+    /// @return True when at least one token parsed.
+    bool Parse(JxDoc &d, const char *text, unsigned len)
 {
     d.text = text;
     d.count = 0;
@@ -65,21 +75,34 @@ bool Parse(JxDoc &d, const char *text, unsigned len)
     return d.count > 0;
 }
 
-int TokType(const JxDoc &d, int t)
+    /// @brief Give a token's type code.
+    /// @param d Parsed document.
+    /// @param t Token index.
+    /// @return 0 undef, 1 obj, 2 arr, 3 str, 4 prim.
+    int TokType(const JxDoc &d, int t)
 {
     if (t < 0 || t >= d.count)
         return 0;
     return d.toks[t].type;
 }
 
-int TokAfter(const JxDoc &d, int t)
+    /// @brief Give the token after a value's whole subtree.
+    /// @param d Parsed document.
+    /// @param t Token index.
+    /// @return Next sibling token index.
+    int TokAfter(const JxDoc &d, int t)
 {
     if (t < 0 || t >= d.count)
         return t + 1;
     return SkipTok(d.toks, d.count, t);
 }
 
-int ObjGet(const JxDoc &d, int obj, const char *key)
+    /// @brief Look up a key inside an object token.
+    /// @param d Parsed document.
+    /// @param obj Object token index.
+    /// @param key Nul-terminated key.
+    /// @return Value token index, or -1 when missing.
+    int ObjGet(const JxDoc &d, int obj, const char *key)
 {
     if (obj < 0 || obj >= d.count || d.toks[obj].type != 1 || !key)
         return -1;
@@ -98,14 +121,23 @@ int ObjGet(const JxDoc &d, int obj, const char *key)
     return -1;
 }
 
-int ArrSize(const JxDoc &d, int arr)
+    /// @brief Give an array token's element count.
+    /// @param d Parsed document.
+    /// @param arr Array token index.
+    /// @return Element count, or 0 when not an array.
+    int ArrSize(const JxDoc &d, int arr)
 {
     if (arr < 0 || arr >= d.count || d.toks[arr].type != 2)
         return 0;
     return d.toks[arr].size;
 }
 
-int ArrAt(const JxDoc &d, int arr, int i)
+    /// @brief Give an array element's token index.
+    /// @param d Parsed document.
+    /// @param arr Array token index.
+    /// @param i Element position.
+    /// @return Token index, or -1 when out of range.
+    int ArrAt(const JxDoc &d, int arr, int i)
 {
     if (arr < 0 || arr >= d.count || d.toks[arr].type != 2)
         return -1;
@@ -120,7 +152,11 @@ int ArrAt(const JxDoc &d, int arr, int i)
     return (j < d.count) ? j : -1;
 }
 
-bool IsTrue(const JxDoc &d, int t)
+    /// @brief Test whether a primitive token is JSON true.
+    /// @param d Parsed document.
+    /// @param t Token index.
+    /// @return True only for the literal "true".
+    bool IsTrue(const JxDoc &d, int t)
 {
     if (t < 0 || t >= d.count || d.toks[t].type != 4)
         return false;
@@ -128,7 +164,12 @@ bool IsTrue(const JxDoc &d, int t)
            memcmp(d.text + d.toks[t].start, "true", 4) == 0;
 }
 
-long Num(const JxDoc &d, int t, long dflt)
+    /// @brief Parse a primitive token as a long integer.
+    /// @param d Parsed document.
+    /// @param t Token index.
+    /// @param dflt Default when malformed.
+    /// @return Parsed value or default.
+    long Num(const JxDoc &d, int t, long dflt)
 {
     if (t < 0 || t >= d.count || d.toks[t].type != 4)
         return dflt;
@@ -141,7 +182,12 @@ long Num(const JxDoc &d, int t, long dflt)
     return strtol(buf, NULL, 10);
 }
 
-static void EmitUtf8(char *out, unsigned *pos, unsigned cap, unsigned cp)
+    /// @brief Append one codepoint as UTF-8.
+    /// @param out Output buffer.
+    /// @param pos Write cursor (updated).
+    /// @param cap Buffer capacity.
+    /// @param cp Codepoint to emit.
+    static void EmitUtf8(char *out, unsigned *pos, unsigned cap, unsigned cp)
 {
     if (cp < 0x80) {
         if (*pos + 1 < cap)
@@ -157,7 +203,13 @@ static void EmitUtf8(char *out, unsigned *pos, unsigned cap, unsigned cp)
     }
 }
 
-int Str(const JxDoc &d, int t, char *out, unsigned cap)
+    /// @brief Decode a string token with escape handling.
+    /// @param d Parsed document.
+    /// @param t Token index (string or primitive).
+    /// @param out Output buffer.
+    /// @param cap Buffer capacity.
+    /// @return Decoded length, or -1 on failure.
+    int Str(const JxDoc &d, int t, char *out, unsigned cap)
 {
     if (t < 0 || t >= d.count || !out || !cap)
         return -1;
@@ -201,7 +253,12 @@ int Str(const JxDoc &d, int t, char *out, unsigned cap)
     return (int)pos;
 }
 
-bool StrEq(const JxDoc &d, int t, const char *s)
+    /// @brief Compare a string token against a C string.
+    /// @param d Parsed document.
+    /// @param t Token index.
+    /// @param s Expected value.
+    /// @return True on exact match.
+    bool StrEq(const JxDoc &d, int t, const char *s)
 {
     if (t < 0 || t >= d.count || !s)
         return false;

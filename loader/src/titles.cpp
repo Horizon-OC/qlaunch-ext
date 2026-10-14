@@ -3,6 +3,7 @@
 /* Pain... and suffering.           */
 
 #include "titles.hpp"
+#include "plugins/vtitles.hpp"
 #include <switch.h>
 #include <cstring>
 #include <shared/logging.hpp>
@@ -13,7 +14,7 @@ namespace titles {
 
 namespace {
 
-constexpr int kMaxTitles = 128;
+constexpr int kMaxTitles = 256;
 constexpr int kChunkCount = 30;
 constexpr char kOrderPath[] = "sdmc:/qlaunch-ext/order.json";
 
@@ -39,37 +40,37 @@ static char s_rb[] = { 'r', 'b', 0 };
 /* NsApplicationControlData is NACP + 128KB icon */
 NsApplicationControlData s_ctrl;
 
-
 /* For newer games using compressed NACP */
-struct NacpExCompressed {
-    u16 csize;
-    u8 data[0x2FFE];
-    u8 unusedA[0x215];
-    u8 titlesDataFormat;
-    u8 unusedB[0xDEA];
-};
 
-static_assert(sizeof(NacpStruct) == sizeof(NacpExCompressed), "nacp size mismatch");
+/// @brief Decompress FW21+ title data into the language table.
+/// @param nacp Control NACP to convert in place.
+/// @return True when entries are usable (or were already plain).
+static bool NacpConvertTitleData(NacpStruct *nacp) {
+    if (!nacp)
+        return false;
 
-static bool NacpConvertTitleData(NacpStruct *nacp)
-{
-    NacpExCompressed *compressed = (NacpExCompressed *)nacp;
-
-    if (compressed->titlesDataFormat == 0)
+    if (nacp->titles_data_format == 0)
         return true;
 
-    if (compressed->titlesDataFormat != 1) {
-        logging::LogLine("[titles] Cant decode NACP (format %u)", compressed->titlesDataFormat);
+    if (nacp->titles_data_format != 1) {
+        logging::LogLine("[titles] Cant decode NACP (format %u)", (unsigned)nacp->titles_data_format);
         return false;
     }
-    
+
+    u16 csize = nacp->lang_data.compressed_data.buffer_size;
+
+    if (csize == 0 || csize > sizeof(nacp->lang_data.compressed_data.buffer)) {
+        logging::LogLine("[titles] Bad NACP payload (%u)", (unsigned)csize);
+        return false;
+    }
+
     NacpLanguageEntry tmp[32];
     z_stream stream = {};
-    
+
     stream.avail_out = sizeof(tmp);
     stream.next_out = (Bytef *)tmp;
-    stream.avail_in = compressed->csize;
-    stream.next_in = compressed->data;
+    stream.avail_in = csize;
+    stream.next_in = nacp->lang_data.compressed_data.buffer;
 
     int ret = inflateInit2(&stream, -15);
     if (ret != Z_OK) {
@@ -83,13 +84,17 @@ static bool NacpConvertTitleData(NacpStruct *nacp)
         logging::LogLine("[titles] Can't inflate NACP (rc: %d)", ret);
         return false;
     }
-    compressed->titlesDataFormat = 0;
-    memcpy(nacp->lang, tmp, sizeof(nacp->lang));
+    nacp->titles_data_format = 0;
+    memcpy(nacp->lang_data.lang, tmp, sizeof(nacp->lang_data.lang));
     return true;
 }
 
-bool ResolveName(u64 tid, char *out, unsigned cap)
-{
+/// @brief Resolve a title's display name from its control NACP.
+/// @param tid Title id.
+/// @param out Output buffer.
+/// @param cap Buffer capacity.
+/// @return True when a non-empty name was written.
+bool ResolveName(u64 tid, char *out, unsigned cap) {
     if (cap == 0)
         return false;
     out[0] = 0;
@@ -98,24 +103,23 @@ bool ResolveName(u64 tid, char *out, unsigned cap)
                                             &s_ctrl, sizeof(s_ctrl), &actual);
     if (R_FAILED(rc) || actual < sizeof(NacpStruct))
         return false;
-    
+
     NacpConvertTitleData(&s_ctrl.nacp);
-    
+
     NacpLanguageEntry *lang = nullptr;
     if (R_SUCCEEDED(nacpGetLanguageEntry(&s_ctrl.nacp, &lang)) && lang && lang->name[0])
         snprintf(out, cap, "%s", lang->name);
     else {
         for (int i = 0; i < 16 && !out[0]; i++) {
-            if (s_ctrl.nacp.lang[i].name[0])
-                snprintf(out, cap, "%s", s_ctrl.nacp.lang[i].name);
+            if (s_ctrl.nacp.lang_data.lang[i].name[0])
+                snprintf(out, cap, "%s", s_ctrl.nacp.lang_data.lang[i].name);
         }
     }
     out[cap - 1] = 0;
     return out[0] != 0;
 }
 
-int FetchIcon(u64 tid, unsigned *out_size)
-{
+int FetchIcon(u64 tid, unsigned *out_size) {
     u64 actual = 0;
     Result rc = nsGetApplicationControlData(NsApplicationControlSource_Storage, tid,
                                             &s_ctrl, sizeof(s_ctrl), &actual);
@@ -131,17 +135,71 @@ int FetchIcon(u64 tid, unsigned *out_size)
     return 0;
 }
 
+/* SD Icon overrides */
+constexpr char kIconDir[] = "sdmc:/qlaunch-ext/icons";
+constexpr unsigned kIconFileCap = 0x40000;
+
+/// @brief Build the override path for a title id.
+/// @param tid Title id (real or virtual).
+/// @param out Output buffer.
+/// @param cap Buffer capacity.
+/// @return True when the path fit.
+static bool IconFilePath(u64 tid, char *out, unsigned cap) {
+    if (!out || cap < 64)
+        return false;
+    int w = snprintf(out, cap, "%s/%016llX.jpg", kIconDir, (unsigned long long)tid);
+    return w > 0 && (unsigned)w < cap;
+}
+
+/// @brief Give an override icon's byte size.
+/// @param tid Title id (real or virtual).
+/// @return Byte size (<0 if none or unusable).
+static int IconFileSize(u64 tid) {
+    char path[80];
+    if (!IconFilePath(tid, path, sizeof(path)))
+        return -1;
+    FILE *f = fopen(path, "rb");
+    if (!f)
+        return -1;
+    fseek(f, 0, SEEK_END);
+    long sz = ftell(f);
+    fclose(f);
+    if (sz <= 2 || (unsigned)sz > kIconFileCap)
+        return -1;
+    return (int)sz;
+}
+
+/// @brief Copy an override icon's bytes.
+/// @param tid Title id (real or virtual).
+/// @param out Output buffer.
+/// @param cap Buffer capacity.
+/// @return Bytes written (<0 on error).
+static int IconFileRead(u64 tid, void *out, unsigned cap) {
+    int want = IconFileSize(tid);
+    if (want < 0 || !out || (unsigned)want > cap)
+        return -1;
+    char path[80];
+    if (!IconFilePath(tid, path, sizeof(path)))
+        return -1;
+    FILE *f = fopen(path, "rb");
+    if (!f)
+        return -1;
+    size_t got = fread(out, 1, (unsigned)want, f);
+    fclose(f);
+    if (got != (unsigned)want)
+        return -1;
+    return (int)got;
+}
+
 } // namespace
 
-
-static void WriteU64(FILE *f, u64 v)
-{
+static void WriteU64(FILE *f, u64 v) {
     char b[24];
     int n = 0;
 
     if (v == 0)
         fputc('0', f);
-    
+
     while (v > 0 && n < 24) {
         b[n++] = (char)('0' + v % 10);
         v /= 10;
@@ -151,27 +209,26 @@ static void WriteU64(FILE *f, u64 v)
         fputc(b[--n], f);
 }
 
-static int ParseOrderFile(u64 *tids, int cap)
-{
+static int ParseOrderFile(u64 *tids, int cap) {
     int n = 0;
     FILE *f = fopen(kOrderPath, s_rb);
     if (!f)
         return 0;
-    
+
     int c;
     while ((c = fgetc(f)) != -1 && n < cap) {
         if (c != 'g')
             continue;
-        
+
         if (fgetc(f) != 'a' || fgetc(f) != 'm' || fgetc(f) != 'e')
             continue;
-        
+
         while ((c = fgetc(f)) != -1 && c >= '0' && c <= '9')
             ;
-        
+
         while (c != -1 && !(c >= '0' && c <= '9'))
             c = fgetc(f);
-        
+
         u64 tid = 0;
         bool any = false;
         while (c != -1 && c >= '0' && c <= '9') {
@@ -187,12 +244,11 @@ static int ParseOrderFile(u64 *tids, int cap)
     return n;
 }
 
-static void SaveOrder()
-{
+static void SaveOrder() {
     FILE *f = fopen(kOrderPath, s_wb);
     if (!f)
         return;
-    
+
     fputc('{', f);
     fputc('\n', f);
     for (int i = 0; i < s_count; i++) {
@@ -209,8 +265,8 @@ static void SaveOrder()
     fputc('\n', f);
     fclose(f);
 }
-static void SortByRank(Entry *a, int n)
-{
+
+static void SortByRank(Entry *a, int n) {
     for (int i = 1; i < n; i++) {
         Entry key = a[i];
         int j = i - 1;
@@ -221,8 +277,8 @@ static void SortByRank(Entry *a, int n)
         a[j + 1] = key;
     }
 }
-bool IsOnGameCard(u64 tid)
-{
+
+bool IsOnGameCard(u64 tid) {
     NsApplicationContentMetaStatus st{};
     s32 out = 0;
     if (R_FAILED(nsListApplicationContentMetaStatus(tid, 0, &st, 1, &out)))
@@ -231,8 +287,8 @@ bool IsOnGameCard(u64 tid)
         return false;
     return st.storageID == NcmStorageId_GameCard;
 }
-int Refresh()
-{
+
+int Refresh() {
     /* Collect titles that are currently loaded first */
     u64 tids[kMaxTitles];
     int ntid = 0;
@@ -268,7 +324,14 @@ int Refresh()
 
     Entry next[kMaxTitles];
     int nnext = 0;
-    bool changed = (ntid != s_count);
+    int prevTotal = s_count;
+    bool changed = false;
+    /* A failed enumeration is not a removal: keep the old list instead
+       of gutting order.json on transient ns errors. */
+    if (ntid == 0 && prevTotal > 0) {
+        logging::LogLine("[titles] empty enumeration, keeping %d", prevTotal);
+        return prevTotal;
+    }
     for (int i = 0; i < ntid; i++) {
         bool kept = false;
         for (int j = 0; j < s_count; j++) {
@@ -307,6 +370,40 @@ int Refresh()
         }
         nnext++;
     }
+
+    /* Merge virtual titles into the title list */
+    vtitles::Refresh();
+    for (int vi = 0, nv = vtitles::Count(); vi < nv && nnext < kMaxTitles; vi++) {
+        u64 vtid = vtitles::Id(vi);
+        if (!vtid)
+            continue;
+        bool kept = false;
+        for (int j = 0; j < s_count; j++) {
+            if (s_list[j].tid == vtid) {
+                next[nnext] = s_list[j];
+                kept = true;
+                break;
+            }
+        }
+        char vname[sizeof(next[nnext].name)];
+        int namerc = vtitles::Name(vi, vname, sizeof(vname));
+        if (namerc < 0) {
+            if (!kept)
+                continue; /* skip nameless provider entries */
+            memcpy(vname, next[nnext].name, sizeof(vname));
+        }
+        if (!kept) {
+            changed = true;
+            next[nnext].tid = vtid;
+            next[nnext].gamecard = false;
+            next[nnext].seq = ++s_seq;
+            next[nnext].ejected = false;
+        }
+        memcpy(next[nnext].name, vname, sizeof(vname));
+        nnext++;
+    }
+    if (nnext != prevTotal)
+        changed = true;
     if (s_fileN < 0) {
         s_fileN = ParseOrderFile(s_fileTids, kMaxTitles);
         logging::LogLine("[titles] order file: %d", s_fileN);
@@ -321,14 +418,39 @@ int Refresh()
         if (s_fileN > 0 && s_seq < (u64)s_fileN + (u64)nnext)
             s_seq = (u64)s_fileN + (u64)nnext;
     }
+
+    for (int k = 0; k < s_fileN; k++) {
+        bool live = false;
+        for (int i = 0; i < nnext; i++) {
+            if (next[i].tid == s_fileTids[k]) {
+                live = true;
+                break;
+            }
+        }
+        if (!live) {
+            changed = true;
+            break;
+        }
+    }
+
     SortByRank(next, nnext);
-    for (int i = 0; i < nnext; i++)
+
+    for (int i = 0; i < nnext; i++) {
         s_list[i] = next[i];
+    }
+
     s_count = nnext;
+    /* Virtual titles don't have real IDs. */
     u64 uids[kMaxTitles];
-    for (int i = 0; i < s_count; i++)
-        uids[i] = s_list[i].tid;
-    
+    int vmap[kMaxTitles];
+    int nuid = 0;
+    for (int i = 0; i < s_count; i++) {
+        if (vtitles::IsId(s_list[i].tid))
+            continue;
+        vmap[nuid] = i;
+        uids[nuid++] = s_list[i].tid;
+    }
+
     bool prevEj[kMaxTitles];
     for (int i = 0; i < s_count; i++) {
         prevEj[i] = s_list[i].ejected;
@@ -336,12 +458,13 @@ int Refresh()
 
     NsApplicationView views[kMaxTitles];
     bool resorted = false;
-    if (s_count > 0 && R_SUCCEEDED(nsGetApplicationView(views, uids, s_count))) {
-        for (int i = 0; i < s_count; i++) {
-            if (views[i].flags & BIT(6))
+    if (nuid > 0 && R_SUCCEEDED(nsGetApplicationView(views, uids, nuid))) {
+        for (int k = 0; k < nuid; k++) {
+            int i = vmap[k];
+            if (views[k].flags & BIT(6))
                 s_list[i].gamecard = true;
             if (s_list[i].gamecard) {
-                bool ej = !(views[i].flags & BIT(7));
+                bool ej = !(views[k].flags & BIT(7));
                 if (ej != s_list[i].ejected) {
                     s_list[i].ejected = ej;
 
@@ -361,35 +484,40 @@ int Refresh()
     if (changed || s_orderDirty) {
         SaveOrder();
         s_orderDirty = false;
+        /* Memory mirrors the rebuilt file, so gutted tids refire once. */
+        s_fileN = 0;
+        for (int i = 0; i < s_count && i < kMaxTitles; i++)
+            s_fileTids[s_fileN++] = s_list[i].tid;
     }
     return s_count;
 }
 
-int Count()
-{
+int Count() {
     return s_count;
 }
 
-u64 Id(int index)
-{
+u64 Id(int index) {
     if (index < 0 || index >= s_count)
         return 0;
     return s_list[index].tid;
 }
-int Ejected(int index)
-{
+
+int Ejected(int index) {
     if (index < 0 || index >= s_count)
         return 0;
     return s_list[index].ejected ? 1 : 0;
 }
-void NoteLaunched(u64 tid)
-{
+
+void NoteLaunched(u64 tid) {
     int idx = -1;
     for (int i = 0; i < s_count; i++) {
-        if (s_list[i].tid == tid) { idx = i; break; }
+        if (s_list[i].tid == tid) {
+            idx = i;
+            break;
+        }
     }
 
-    if (idx < 0) 
+    if (idx < 0)
         return;
 
     Entry e = s_list[idx];
@@ -402,8 +530,11 @@ void NoteLaunched(u64 tid)
     SaveOrder();
     s_orderDirty = false;
 }
-int TitlesChanged()
-{
+
+int TitlesChanged() {
+    /* Virtual-set changes (provider load/unload, recount) trip first. */
+    if (vtitles::Changed())
+        return 1;
     if (!s_evInit) {
         if (R_FAILED(nsGetApplicationRecordUpdateSystemEvent(&s_ev)))
             return 0;
@@ -416,32 +547,48 @@ int TitlesChanged()
     return 0;
 }
 
-int Name(int index, char *out, unsigned out_cap)
-{
+int Name(int index, char *out, unsigned out_cap) {
     if (index < 0 || index >= s_count || !out || !out_cap)
         return -1;
+    int vi = vtitles::IndexOf(s_list[index].tid);
+    if (vi >= 0)
+        return vtitles::Name(vi, out, out_cap);
     snprintf(out, out_cap, "%s", s_list[index].name);
     out[out_cap - 1] = 0;
     return (int)strlen(out);
 }
 
-int IconSize(int index)
-{
+int IconSize(int index) {
     if (index < 0 || index >= s_count)
         return -1;
+    u64 tid = s_list[index].tid;
+    int vi = vtitles::IndexOf(tid);
+    if (vi >= 0) {
+        int vsz = vtitles::IconSize(vi);
+        if (vsz >= 0)
+            return vsz;
+        return IconFileSize(tid);
+    }
     unsigned size = 0;
-    if (FetchIcon(s_list[index].tid, &size) < 0)
-        return -1;
+    if (FetchIcon(tid, &size) < 0)
+        return IconFileSize(tid);
     return (int)size;
 }
 
-int Icon(int index, void *out, unsigned cap)
-{
+int Icon(int index, void *out, unsigned cap) {
     if (index < 0 || index >= s_count || !out || !cap)
         return -1;
+    u64 tid = s_list[index].tid;
+    int vi = vtitles::IndexOf(tid);
+    if (vi >= 0) {
+        int got = vtitles::Icon(vi, out, cap);
+        if (got >= 0)
+            return got;
+        return IconFileRead(tid, out, cap);
+    }
     unsigned size = 0;
-    if (FetchIcon(s_list[index].tid, &size) < 0)
-        return -1;
+    if (FetchIcon(tid, &size) < 0)
+        return IconFileRead(tid, out, cap);
     if (size > cap)
         return -1;
     memcpy(out, s_ctrl.icon, size);

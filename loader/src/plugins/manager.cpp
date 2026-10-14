@@ -2,7 +2,8 @@
 /* Licensed under the GPLv2         */
 /* Pain... and suffering...         */
 
-#include "plugins.hpp"
+#include "manager.hpp"
+#include "vtitles.hpp"
 #include <dlink/dlink.h>
 #include <shared/logging.hpp>
 #include <cstdio>
@@ -76,28 +77,64 @@ static bool NameOk(const char *name)
     return true;
 }
 
-static int ScanDir(char names[][kNameCap + 1], int cap)
-{
-    int n = 0;
-    DIR *d = opendir(kDir);
-    if (!d)
-        return 0;
-    for (struct dirent *e = readdir(d); e; e = readdir(d)) {
-        if (n >= cap)
-            break;
-        if (e->d_name[0] == '.')
-            continue;
-        if (!HasSuffixDnro(e->d_name))
-            continue;
-        if (!NameOk(e->d_name))
-            continue;
-        strncpy(names[n], e->d_name, kNameCap);
-        names[n][kNameCap] = 0;
-        n++;
+    /// @brief Copy a plugin file name with truncation safety.
+    /// @param dst Destination buffer ([kNameCap + 1]).
+    /// @param src Source name.
+    /// @return True when the whole name fit.
+    static bool CopyName(char *dst, const char *src)
+    {
+        if (!dst || !src)
+            return false;
+        size_t len = strlen(src);
+        if (len == 0 || len > (size_t)kNameCap)
+            return false;
+        memcpy(dst, src, len + 1);
+        return true;
     }
-    closedir(d);
-    return n;
-}
+
+    /// @brief Join the plugin dir and a file name into a path.
+    /// @param out Output buffer.
+    /// @param cap Buffer capacity.
+    /// @param name Plugin file name (length-checked).
+    /// @return True when the whole path fit.
+    static bool JoinPath(char *out, unsigned cap, const char *name)
+    {
+        if (!out || cap == 0 || !name)
+            return false;
+        size_t dl = strlen(kDir);
+        size_t nl = strlen(name);
+        if (nl == 0 || nl > (size_t)kNameCap)
+            return false;
+        if (dl + 1 + nl + 1 > cap)
+            return false;
+        memcpy(out, kDir, dl);
+        out[dl] = '/';
+        memcpy(out + dl + 1, name, nl + 1);
+        return true;
+    }
+
+    static int ScanDir(char names[][kNameCap + 1], int cap)
+    {
+        int n = 0;
+        DIR *d = opendir(kDir);
+        if (!d)
+            return 0;
+        for (struct dirent *e = readdir(d); e; e = readdir(d)) {
+            if (n >= cap)
+                break;
+            if (e->d_name[0] == '.')
+                continue;
+            if (!HasSuffixDnro(e->d_name))
+                continue;
+            if (!NameOk(e->d_name))
+                continue;
+            if (!CopyName(names[n], e->d_name))
+                continue;
+            n++;
+        }
+        closedir(d);
+        return n;
+    }
 
 static bool IsWs(char c)
 {
@@ -178,8 +215,8 @@ static int ParseJson(const char *text, size_t len, JsonEntry *out, int cap)
                 }
             }
             if (!dup) {
-                strncpy(out[n].name, name, kNameCap);
-                out[n].name[kNameCap] = 0;
+                if (!CopyName(out[n].name, name))
+                    continue;
                 out[n].enabled = val;
                 n++;
             }
@@ -263,6 +300,7 @@ static void UnloadAt(int idx)
     Plugin *p = &s_plugins[idx];
     if (p->shutdown)
         p->shutdown();
+    vtitles::Unregister(p->handle);
     if (p->handle)
         dlclose(p->handle);
     logging::LogLine("[plugins] unloaded %s", p->name);
@@ -272,47 +310,74 @@ static void UnloadAt(int idx)
     memset(&s_plugins[s_count], 0, sizeof(s_plugins[s_count]));
 }
 
-static bool LoadOne(const char *name, NWindow *win)
-{
-    if (s_count >= kMaxPlugins) {
-        logging::LogLine("[plugins] Can't load more plugins, skipping %s", name);
-        return false;
-    }
-    char path[128];
-    snprintf(path, sizeof(path), "%s/%s", kDir, name);
-    void *h = dlopen(path, RTLD_LOCAL);
-    logging::LogLine("[plugins] Opening %s at %p (dlerr=%s)", name, h,
-                     h ? "NONE" : dlerror());
-    if (!h)
-        return false;
-    Plugin p{};
-    strncpy(p.name, name, kNameCap);
-    p.handle = h;
-    p.loop = (int (*)(void))dlsym(h, "loop");
-    if (!p.loop) {
-        logging::LogLine("[plugins] %s has no loop, skipping", name);
-        dlclose(h);
-        return false;
-    }
-    p.shutdown = (void (*)(void))dlsym(h, "onShutdown");
-    p.open = (void (*)(void))dlsym(h, "onOpen");
-    p.power = (void (*)(void))dlsym(h, "onPowerButton");
-    bool (*isPers)(void) = (bool (*)(void))dlsym(h, "IsPersistent");
-    p.persistent = isPers ? isPers() : false;
-    int (*onBoot)(NWindow *) = (int (*)(NWindow *))dlsym(h, "onBoot");
-    if (onBoot) {
-        int rc = onBoot(win);
-        if (rc != 0) {
-            if (p.shutdown)
-                p.shutdown();
+    /// @brief Load one plugin file and run its boot hook.
+    /// @param name Plugin file name (length-checked).
+    /// @param win Native window handle for the boot hook.
+    /// @return True on success.
+    static bool LoadOne(const char *name, NWindow *win)
+    {
+        if (!NameOk(name)) {
+            logging::LogLine("[plugins] Bad plugin name, skipping");
+            return false;
+        }
+        if (s_count >= kMaxPlugins) {
+            logging::LogLine("[plugins] Can't load more plugins, skipping %s", name);
+            return false;
+        }
+        char path[128];
+        if (!JoinPath(path, sizeof(path), name)) {
+            logging::LogLine("[plugins] Path too long, skipping %s", name);
+            return false;
+        }
+        void *h = dlopen(path, RTLD_LOCAL);
+        logging::LogLine("[plugins] Opening %s at %p (dlerr=%s)", name, h,
+                         h ? "NONE" : dlerror());
+        if (!h)
+            return false;
+        Plugin p{};
+        CopyName(p.name, name);
+        p.handle = h;
+        p.loop = (int (*)(void))dlsym(h, "loop");
+        if (!p.loop) {
+            logging::LogLine("[plugins] %s has no loop, skipping", name);
             dlclose(h);
             return false;
         }
-    } else {
-        logging::LogLine("[plugins] %s loaded (Persistent = %d)", name,
-                         (int)p.persistent);
-    }
+        p.shutdown = (void (*)(void))dlsym(h, "onShutdown");
+        p.open = (void (*)(void))dlsym(h, "onOpen");
+        p.power = (void (*)(void))dlsym(h, "onPowerButton");
+        bool (*isPers)(void) = (bool (*)(void))dlsym(h, "IsPersistent");
+        p.persistent = isPers ? isPers() : false;
+        int (*onBoot)(NWindow *) = (int (*)(NWindow *))dlsym(h, "onBoot");
+        if (onBoot) {
+            int rc = onBoot(win);
+            if (rc != 0) {
+                if (p.shutdown)
+                    p.shutdown();
+                dlclose(h);
+                return false;
+            }
+        } else {
+            logging::LogLine("[plugins] %s loaded (Persistent = %d)", name,
+                             (int)p.persistent);
+        }
     s_plugins[s_count++] = p;
+    vtitles::Register(h);
+    /* Inventory record (not a diagnostic): identifies the plugin's
+       TitlePlugin interface generation on-device. */
+    {
+        char iface[16];
+        int pos = 0;
+        const char tags[] = "CTDONIiLR";
+        const char *names[] = { "TitleCount", "TitleTid", "TitleDonor", "TitleNro", "TitleName",
+                                "TitleIconSize", "TitleIcon", "TitleLaunch", "TitleRefresh" };
+        for (int k = 0; k < 9; k++) {
+            if (dlsym(h, names[k]) && pos + 1 < (int)sizeof(iface))
+                iface[pos++] = tags[k];
+        }
+        iface[pos] = 0;
+        logging::LogLine("[plugins] %s titles=[%s]", name, iface);
+    }
     return true;
 }
 
@@ -340,8 +405,8 @@ void Boot(NWindow *win)
     }
     for (int i = 0; i < nDisk && nEnts < kMaxJsonEntries; i++) {
         if (FindEntry(ents, nEnts, disk[i]) < 0) {
-            strncpy(ents[nEnts].name, disk[i], kNameCap);
-            ents[nEnts].name[kNameCap] = 0;
+            if (!CopyName(ents[nEnts].name, disk[i]))
+                continue;
             ents[nEnts].enabled = true; /* new plugins default to on */
             nEnts++;
             dirty = true;
