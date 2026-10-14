@@ -395,10 +395,13 @@ namespace WStrip {
     }
 }
 
-    /// @brief Step the strip selection with clamping (no wraparound).
+    /// @brief Step the strip selection.
+    /// A fresh press past an edge wraps around; holding into an edge
+    /// clamps instead, so a continuous hold never loops.
     /// @param delta Signed step.
+    /// @param fresh True when the direction was freshly pressed this frame.
     /// @return True when the selection changed.
-    static bool StepSel(int delta)
+    static bool StepSel(int delta, bool fresh)
 {
     int n = App::RowCount();
     if (n <= 0)
@@ -407,11 +410,11 @@ namespace WStrip {
     int sel = App::Sel();
     sel += delta;
 
-    /* No wraparound. */
-    if (sel < 0)
-        sel = 0;
-    else if (sel >= n)
-        sel = n - 1;
+    if (sel < 0) {
+        sel = fresh ? n - 1 : 0;
+    } else if (sel >= n) {
+        sel = fresh ? 0 : n - 1;
+    }
 
     /* Ensure we don't restart animation every time. */
     if (sel != App::Sel()) {
@@ -458,12 +461,12 @@ namespace WStrip {
         s_state.repeat.Poll(vgcDown, held, HidNpadButton_AnyLeft | HidNpadButton_AnyRight, StripRepeat());
 
         if (vgcDown & HidNpadButton_AnyLeft) {
-            StepSel(-1);
+            StepSel(-1, (down & HidNpadButton_AnyLeft) != 0);
             return;
         }
 
         if (vgcDown & HidNpadButton_AnyRight) {
-            StepSel(1);
+            StepSel(1, (down & HidNpadButton_AnyRight) != 0);
             return;
         }
 
@@ -480,34 +483,27 @@ namespace WStrip {
     u64 repDown = down;
     s_state.repeat.Poll(repDown, held, HidNpadButton_AnyLeft | HidNpadButton_AnyRight, StripRepeat());
 
-    bool moved = false;
-
+    /* No repeat reset on steps: fresh presses already reset the counter
+       in Poll, and resetting here would re-arm the full hold delay for
+       every step, so a hold would never actually auto-repeat. */
     if (repDown & HidNpadButton_AnyLeft) {
-        StepSel(-1);
-        moved = true;
+        StepSel(-1, (down & HidNpadButton_AnyLeft) != 0);
     }
 
     if (repDown & HidNpadButton_AnyRight) {
-        StepSel(1);
-        moved = true;
+        StepSel(1, (down & HidNpadButton_AnyRight) != 0);
     }
 
     if (down & HidNpadButton_AnyUp) {
         App::SetTopSel(App::Menu());
         App::SetTopFocus(true);
         Sfx::Play(Sfx::Hover);
-        moved = true;
     }
 
     if (down & HidNpadButton_AnyDown) {
         App::SetBottomSel(1);
         App::SetBottomFocus(true);
         Sfx::Play(Sfx::Hover);
-        moved = true;
-    }
-
-    if (moved) {
-        s_state.repeat.Reset();
     }
 }
 

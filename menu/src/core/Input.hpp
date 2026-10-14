@@ -54,12 +54,12 @@ inline RepeatSpec DefaultRepeat()
     return spec;
 }
 
-/// @brief Fast repeat timing for the home strip (2x the default rate).
-/// @return Spec with the same hold delay but half the repeat period.
+/// @brief Faster repeat timing for the home strip.
+/// @return Spec with the default hold delay and a shorter repeat period.
 inline RepeatSpec StripRepeat()
 {
     RepeatSpec spec;
     spec.holdFrames = 20;
-    spec.period = 3;
+    spec.period = 5;
     return spec;
 }
