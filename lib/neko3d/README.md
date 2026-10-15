@@ -1,4 +1,4 @@
-# todo: remove neko3d as it is actually unneeded
+# neko3d modification: dynamic linking + future neko2D api for low level 2d graphics(?)
 # 凸 deko3d ( ͡° ͜ʖ ͡°)
 
 ![deko3d logo](res/logo-300w.png)

@@ -45,19 +45,23 @@ fi
 make -C "$ROOT/loader/nroloader" -j"$(nproc)"
 make -C "$ROOT/loader" -j"$(nproc)"
 
-# ABI check: every menu import must resolve from the loader or neko3d.
-# Fails the build instead of shipping a menu that cannot open.
 NM="$DEVKITPRO/devkitA64/bin/aarch64-none-elf-nm"
-"$NM" -D -u "$ROOT/menu/menu.elf" | awk "{print \$NF}" | sort -u > "$ROOT/build.menuneed"
-{ "$NM" -D --defined-only "$ROOT/loader/loader.elf" | awk "{print \$NF}"; cat "$ROOT/lib/neko3d-module/neko3d.def"; } | sort -u > "$ROOT/build.hosthave"
-MISSING=$(comm -23 "$ROOT/build.menuneed" "$ROOT/build.hosthave" | grep -v "^dk" || true)
-rm -f "$ROOT/build.menuneed" "$ROOT/build.hosthave"
-if [ -n "$MISSING" ]; then
-    echo "error: menu imports the host does not provide:" >&2
-    echo "$MISSING" >&2
-    exit 1
-fi
-echo "abi check: menu imports all resolve"
+for p in "$ROOT"/plugins/*/*.elf; do
+    [ -f "$p" ] || continue
+    "$NM" -D -u "$p" | awk "{print \$NF}" | sort -u > "$ROOT/build.plugneed"
+    { "$NM" -D --defined-only "$ROOT/loader/loader.elf" | awk "{print \$NF}"
+      cat "$ROOT/lib/neko3d-module/neko3d.def" "$ROOT/lib/miniini-module/miniini.def" \
+          "$ROOT/lib/json-module/json.def" "$ROOT/lib/xxhash-module/xxhash.def"
+    } | sort -u > "$ROOT/build.plughave"
+    PMISSING=$(comm -23 "$ROOT/build.plugneed" "$ROOT/build.plughave" || true)
+    rm -f "$ROOT/build.plugneed" "$ROOT/build.plughave"
+    if [ -n "$PMISSING" ]; then
+        echo "error: $p bad imports:" >&2
+        echo "$PMISSING" >&2
+        exit 1
+    fi
+done
+echo "import check passed"
 
 rm -rf "$DEST"
 mkdir -p "$DEST"

@@ -15,9 +15,7 @@ namespace logging {
 void LogLine(const char *fmt, ...);
 }
 
-namespace xxhash {
-uint64_t xxh64(const void *data, size_t len, uint64_t seed);
-}
+extern "C" uint64_t xxh64(const void *data, size_t len, uint64_t seed);
 
 namespace fwd {
 
@@ -69,7 +67,7 @@ namespace fwd {
     /// @return Virtual tid with the high bit set.
     static u64 HashName(const char *name)
     {
-        u64 h = (u64)xxhash::xxh64(name, strlen(name), 0);
+        u64 h = (u64)xxh64(name, strlen(name), 0);
         u64 vtid = h | kVirtualBit;
         if (vtid == kVirtualBit)
             vtid |= 1;
