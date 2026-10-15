@@ -2,6 +2,7 @@
 /* Licensed under the GPLv2         */
 /* Pain... and suffering.           */
 
+#include <cstdio>
 #include <cstring>
 #include <malloc.h>
 #include <switch.h>
@@ -114,6 +115,8 @@ static bool g_winLive = false;
 static void *g_neko;
 static void *g_menu;
 static void *g_miniini;
+static void *g_json;
+static void *g_xxhash;
 
 /* Pointers to menu callbacks */
 static int (*s_onBoot)(NWindow *);
@@ -300,6 +303,33 @@ static void menu_unload(void)
         dlclose(g_miniini);
         g_miniini = nullptr;
     }
+    if (g_json) {
+        dlclose(g_json);
+        g_json = nullptr;
+    }
+    if (g_xxhash) {
+        dlclose(g_xxhash);
+        g_xxhash = nullptr;
+    }
+}
+
+constexpr char kMenuIni[] = "sdmc:/qlaunch-ext/config/menu.ini";
+constexpr char kDefaultMenu[] = "sdmc:/qlaunch-ext/menus/menu.dnro";
+
+static void resolve_menu_path(char *out, size_t cap)
+{
+    snprintf(out, cap, "%s", kDefaultMenu);
+    out[cap - 1] = 0;
+    if (!g_miniini)
+        return;
+    auto ini_gets = (int (*)(const char *, const char *, const char *, char *, int, const char *))dlsym(g_miniini, "ini_gets");
+    if (!ini_gets)
+        return;
+    ini_gets("menu", "path", "", out, (int)cap, kMenuIni);
+    out[cap - 1] = 0;
+    if (!out[0])
+        snprintf(out, cap, "%s", kDefaultMenu);
+    out[cap - 1] = 0;
 }
 
 /* One boot stage per part of the initcode, so we can keep applet services silent */
@@ -364,6 +394,16 @@ static Result boot_step(void)
                 logging::LogLine("[qlaunch-ext] opening miniini at %p (dlerr=%s)", g_miniini,
                                  g_miniini ? "NONE" : dlerror());
             }
+            if (!g_json) {
+                g_json = dlopen("json", RTLD_GLOBAL);
+                logging::LogLine("[qlaunch-ext] opening json at %p (dlerr=%s)", g_json,
+                                 g_json ? "NONE" : dlerror());
+            }
+            if (!g_xxhash) {
+                g_xxhash = dlopen("xxhash", RTLD_GLOBAL);
+                logging::LogLine("[qlaunch-ext] opening xxhash at %p (dlerr=%s)", g_xxhash,
+                                 g_xxhash ? "NONE" : dlerror());
+            }
             /* Load plugins very early */
             plugins::Boot(&g_win);
             g_bootStage = BootStage_Neko;
@@ -379,18 +419,21 @@ static Result boot_step(void)
             }
             g_bootStage = BootStage_Menu;
             break;
-        case BootStage_Menu:
+        case BootStage_Menu: {
             if (g_menu) {
                 dlclose(g_menu);
                 g_menu = nullptr;
             }
-            g_menu = dlopen("sdmc:/qlaunch-ext/menus/menu.dnro", RTLD_LOCAL);
-            logging::LogLine("[qlaunch-ext] opening menu at %p (dlerr=%s)", g_menu,
-                            g_menu ? "NONE" : dlerror());
+            char menuPath[256];
+            resolve_menu_path(menuPath, sizeof(menuPath));
+            g_menu = dlopen(menuPath, RTLD_LOCAL);
+            logging::LogLine("[qlaunch-ext] opening menu '%s' at %p (dlerr=%s)", menuPath, g_menu,
+                             g_menu ? "NONE" : dlerror());
             if (!g_menu)
                 return boot_fail(MAKERESULT(Module_Libnx, LibnxError_NotFound));
             g_bootStage = BootStage_Syms;
             break;
+        }
         case BootStage_Syms:
             s_onBoot = (int (*)(NWindow *))dlsym(g_menu, "onBoot");
             s_onReload = (void (*)(void))dlsym(g_menu, "onReload");

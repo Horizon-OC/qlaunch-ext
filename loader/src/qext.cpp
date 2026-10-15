@@ -9,6 +9,7 @@
 #include "plugins/vtitles.hpp"
 #include "album.hpp"
 #include "sys.hpp"
+#include "sysinfo.hpp"
 #include <qlaunch/nro.h>
 #include <shared/logging.hpp>
 
@@ -151,3 +152,12 @@ extern "C" int qext_game_has_foreground(void) { return app::HasForeground() ? 1 
 /* Reports the tapped identity, so a suspended forwarder matches its
    virtual tile (not its donor's real tile) and vice versa. */
 extern "C" u64 qext_suspended_title(void) { return app::IsActive() ? g_launchedTid : 0; }
+
+extern "C" int qext_account_list(AccountUid *o, int c) { return sysinfo::AccountList(o, c); }
+extern "C" int qext_account_image_size(AccountUid u) { return sysinfo::AccountImageSize(u); }
+extern "C" int qext_account_image(AccountUid u, void *o, unsigned c) { return sysinfo::AccountImage(u, o, c); }
+extern "C" Result qext_time_now(u64 *t) { return sysinfo::TimeNow(t); }
+extern "C" Result qext_time_calendar(u64 ts, TimeCalendarTime *c, TimeCalendarAdditionalInfo *i) { return sysinfo::TimeCalendar(ts, c, i); }
+extern "C" int qext_battery_percent(void) { return sysinfo::BatteryPercent(); }
+extern "C" ColorSetId qext_colorset(void) { return sysinfo::ColorSet(); }
+extern "C" int qext_account_uid_valid(AccountUid u) { return sysinfo::AccountUidValid(u); }

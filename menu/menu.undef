@@ -5,11 +5,6 @@ _Z19qext_titles_changedv
 _ZN7logging7LogLineEPKcz
 abort
 accept
-accountGetProfile
-accountListAllUsers
-accountProfileClose
-accountProfileGetImageSize
-accountProfileLoadImage
 acos
 acosf
 aligned_alloc
@@ -168,7 +163,6 @@ padUpdate
 poll
 pow
 powf
-psmGetBatteryChargePercentage
 pthread_cond_broadcast
 pthread_cond_destroy
 pthread_cond_init
@@ -181,6 +175,10 @@ pthread_mutex_init
 pthread_mutex_lock
 pthread_mutex_unlock
 pthread_once
+qext_account_image
+qext_account_image_size
+qext_account_list
+qext_account_uid_valid
 qext_album_count
 qext_album_grow
 qext_album_image
@@ -192,6 +190,8 @@ qext_album_movie_read
 qext_album_movie_size
 qext_album_refresh
 qext_album_thumb
+qext_battery_percent
+qext_colorset
 qext_display_size
 qext_game_has_foreground
 qext_game_running
@@ -202,6 +202,8 @@ qext_resume_game
 qext_sleep
 qext_suspended_title
 qext_terminate_game
+qext_time_calendar
+qext_time_now
 qext_title_count
 qext_title_ejected
 qext_title_icon
@@ -212,7 +214,6 @@ qsort
 realloc
 scalbn
 setsockopt
-setsysGetColorSetId
 setvbuf
 sin
 sinf
@@ -240,7 +241,5 @@ strtoull
 svcGetInfo
 tan
 tanh
-timeGetCurrentTime
-timeToCalendarTimeWithMyRule
 ungetc
 vsnprintf

@@ -136,102 +136,68 @@ static bool NameOk(const char *name)
         return n;
     }
 
-static bool IsWs(char c)
-{
-    return c == ' ' || c == '\t' || c == '\n' || c == '\r';
-}
+    /// @brief Build a JSON pointer for an object key, escaping '~'.
+    /// @param key Object key.
+    /// @param out Output buffer (needs room for '/' plus doubling).
+    /// @param cap Buffer capacity.
+    /// @return True when the pointer fit.
+    static bool KeyPtr(const char *key, char *out, unsigned cap)
+    {
+        if (!key || !out || cap < 4)
+            return false;
+        out[0] = '/';
+        unsigned pos = 1;
+        for (size_t i = 0; key[i] != 0; i++) {
+            if (pos + 2 >= cap)
+                return false;
+            if (key[i] == '~') {
+                out[pos++] = '~';
+                out[pos++] = '0';
+            } else {
+                out[pos++] = key[i];
+            }
+        }
+        out[pos] = 0;
+        return true;
+    }
 
 static int ParseJson(const char *text, size_t len, JsonEntry *out, int cap)
 {
+    auto object_size = (int (*)(const char *, size_t, const char *))dlsym(NULL, "json_object_size");
+    auto key_at = (int (*)(const char *, size_t, const char *, int, char *, size_t))dlsym(NULL, "json_key_at");
+    auto get_type = (int (*)(const char *, size_t, const char *))dlsym(NULL, "json_type");
+    auto get_bool = (int (*)(const char *, size_t, const char *, int))dlsym(NULL, "json_get_bool");
+    if (!object_size || !key_at || !get_type || !get_bool)
+        return 0;
+    int total = object_size(text, len, "");
+    if (total < 0)
+        return 0;
     int n = 0;
-    size_t i = 0;
-    if (len == 0 || text[0] != '{')
-        return 0;
-    /* Find the opening brace */
-    while (i < len && IsWs(text[i]))
-        i++;
-    if (i >= len || text[i] != '{')
-        return 0;
-    i++;
-    for (;;) {
-        while (i < len && IsWs(text[i]))
-            i++;
-        if (i < len && text[i] == '}') {
-            i++;
+    char key[kNameCap + 1];
+    char ptr[kNameCap * 2 + 4];
+    for (int i = 0; i < total && n < cap; i++) {
+        if (key_at(text, len, "", i, key, sizeof(key)) < 0)
             break;
-        }
-        if (i >= len || text[i] != '"')
-            break;
-        i++;
-        char name[kNameCap + 1];
-        int nl = 0;
-        bool bad = false;
-        while (i < len && text[i] != '"') {
-            char c = text[i];
-            if (c == '\\' && i + 1 < len) {
-                i++;
-                c = text[i];
-                if (c == 'u') {
-                    bad = true;
-                    break;
-                }
-            }
-            if (nl < kNameCap)
-                name[nl++] = c;
-            else
-                bad = true;
-            i++;
-        }
-        if (i >= len || text[i] != '"')
-            break;
-        i++;
-        name[nl] = 0;
-        while (i < len && IsWs(text[i]))
-            i++;
-        if (i >= len || text[i] != ':')
-            break;
-        i++;
-        while (i < len && IsWs(text[i]))
-            i++;
-        bool val = false;
-        bool haveVal = false;
-        if (i + 4 <= len && memcmp(text + i, "true", 4) == 0) {
-            val = true;
-            haveVal = true;
-            i += 4;
-        } else if (i + 5 <= len && memcmp(text + i, "false", 5) == 0) {
-            val = false;
-            haveVal = true;
-            i += 5;
-        }
-        if (!haveVal)
-            break;
-        if (!bad && NameOk(name) && HasSuffixDnro(name) && n < cap) {
-            bool dup = false;
-            for (int k = 0; k < n; k++) {
-                if (strcmp(out[k].name, name) == 0) {
-                    dup = true;
-                    break;
-                }
-            }
-            if (!dup) {
-                if (!CopyName(out[n].name, name))
-                    continue;
-                out[n].enabled = val;
-                n++;
-            }
-        }
-        while (i < len && IsWs(text[i]))
-            i++;
-        if (i < len && text[i] == ',') {
-            i++;
+        if (!NameOk(key) || !HasSuffixDnro(key))
             continue;
-        }
-        if (i < len && text[i] == '}') {
-            i++;
+        if (!KeyPtr(key, ptr, sizeof(ptr)))
+            continue;
+        if (get_type(text, len, ptr) != 1)
             break;
+        bool val = get_bool(text, len, ptr, 0) != 0;
+        bool dup = false;
+        for (int k = 0; k < n; k++) {
+            if (strcmp(out[k].name, key) == 0) {
+                dup = true;
+                break;
+            }
         }
-        break;
+        if (dup)
+            continue;
+        if (!CopyName(out[n].name, key))
+            continue;
+        out[n].enabled = val;
+        n++;
     }
     return n;
 }

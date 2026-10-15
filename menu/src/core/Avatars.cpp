@@ -4,6 +4,7 @@
 
 #include "Avatars.hpp"
 #include "Gfx.hpp"
+#include "Qext.hpp"
 #include <switch.h>
 #include <string.h>
 #include <stdlib.h>
@@ -103,8 +104,8 @@ static bool s_haveUids = false;
     void Refresh()
 {
     AccountUid uids[AV_MAX] = {};
-    s32 total = 0;
-    if (R_FAILED(accountListAllUsers(uids, AV_MAX, &total)))
+    int total = qext_account_list(uids, AV_MAX);
+    if (total < 0)
         return;
 
     if (s_haveUids && total == s_uidTotal && memcmp(uids, s_uids, sizeof(uids)) == 0)
@@ -114,35 +115,26 @@ static bool s_haveUids = false;
 
     s_count = 0;
     for (int i = 0; i < AV_MAX && i < total; i++) {
-        if (!accountUidIsValid(&uids[i]))
+        if (!qext_account_uid_valid(uids[i]))
             continue;
         s_count++;
-        AccountProfile prof{};
-        if (R_FAILED(accountGetProfile(&prof, uids[i])))
+        int size = qext_account_image_size(uids[i]);
+        if (size < 0)
             continue;
-        u32 size = 0;
-        uint8_t *jpg = 0;
+        uint8_t *jpg = (uint8_t *)malloc((unsigned)size);
         uint8_t *px = 0;
-        if (R_SUCCEEDED(accountProfileGetImageSize(&prof, &size)) &&
-            size > 0 && size <= 0x40000) {
-            jpg = (uint8_t *)malloc(size);
-            u32 done = 0;
-            if (jpg &&
-                R_SUCCEEDED(accountProfileLoadImage(&prof, jpg, size,
-                                                    &done)) &&
-                done > 2) {
+        if (jpg) {
+            int done = qext_account_image(uids[i], jpg, (unsigned)size);
+            if (done > 2) {
                 int w = 0, h = 0;
-                px = stbi_load_from_memory(jpg, (int)done, &w, &h, NULL,
-                                           4);
+                px = stbi_load_from_memory(jpg, done, &w, &h, NULL, 4);
                 if (px && w > 0 && h > 0)
                     UploadOne(i, px, w, h);
                 if (px)
                     stbi_image_free(px);
             }
-            if (jpg)
-                free(jpg);
+            free(jpg);
         }
-        accountProfileClose(&prof);
     }
     memcpy(s_uids, uids, sizeof(uids));
     s_uidTotal = total;

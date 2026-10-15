@@ -15,6 +15,10 @@ namespace logging {
 void LogLine(const char *fmt, ...);
 }
 
+namespace xxhash {
+uint64_t xxh64(const void *data, size_t len, uint64_t seed);
+}
+
 namespace fwd {
 
     constexpr char kPluginCfg[] = "sdmc:/qlaunch-ext/config/plugin/forwarder.ini";
@@ -60,16 +64,12 @@ namespace fwd {
         return strtoull(s, nullptr, 16);
     }
 
-    /// @brief Hash a tile name into a deterministic virtual tid (FNV-1a).
+    /// @brief Hash a tile name into a deterministic virtual tid (XXH64).
     /// @param name Tile name (non-empty).
     /// @return Virtual tid with the high bit set.
     static u64 HashName(const char *name)
     {
-        u64 h = 14695981039346656037ULL;
-        for (const unsigned char *p = (const unsigned char *)name; *p; p++) {
-            h ^= (u64)*p;
-            h *= 1099511628211ULL;
-        }
+        u64 h = (u64)xxhash::xxh64(name, strlen(name), 0);
         u64 vtid = h | kVirtualBit;
         if (vtid == kVirtualBit)
             vtid |= 1;

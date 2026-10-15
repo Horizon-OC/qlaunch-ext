@@ -7,7 +7,14 @@
 
 ## Making your own menu
 
-TODO: Write something here later
+You can use the existing menu as a base here
+
+To boot a different menu, drop its dnro under sdmc:/qlaunch-ext/menus/ and set it to boot like so
+sdmc:/qlaunch-ext/config/menu.ini:
+[menu]
+path=(the path of the menu)
+
+By default sdmc:/qlaunch-ext/menus/menu.dnro is booted.
 
 ## Theming
 

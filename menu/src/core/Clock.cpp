@@ -19,8 +19,8 @@ static unsigned s_batt = 100;
     u64 ts = 0;
     TimeCalendarTime cal = { 0 };
     TimeCalendarAdditionalInfo info = { 0 };
-    if (R_SUCCEEDED(timeGetCurrentTime(TimeType_UserSystemClock, &ts)) &&
-        R_SUCCEEDED(timeToCalendarTimeWithMyRule(ts, &cal, &info)) &&
+    if (R_SUCCEEDED(qext_time_now(&ts)) &&
+        R_SUCCEEDED(qext_time_calendar(ts, &cal, &info)) &&
         cal.year >= 2000 && cal.month >= 1 && cal.month <= 12 &&
         cal.day >= 1 && cal.day <= 31) {
         int h12 = (int)(cal.hour % 12);
@@ -36,9 +36,9 @@ static unsigned s_batt = 100;
         memcpy(s_clock, "--:--", 6); memcpy(s_time, "--:--", 6); memcpy(s_ampm, "--", 3);
         memcpy(s_date, "--/--", 6);
     }
-    u32 pct = 100;
-    if (R_SUCCEEDED(psmGetBatteryChargePercentage(&pct)) && pct <= 100)
-        s_batt = pct;
+    int pct = qext_battery_percent();
+    if (pct >= 0 && pct <= 100)
+        s_batt = (unsigned)pct;
 }
 
     /// @brief Give the cached date/time string.

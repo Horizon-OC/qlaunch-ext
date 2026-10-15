@@ -503,8 +503,7 @@ static int g_theme = -1;
         LoadTable(themes_json, themes_json_size);
     if (LoadFile("sdmc:/qlaunch-ext/theme.json"))
         return true;
-    ColorSetId cs = ColorSetId_Light;
-    if (R_SUCCEEDED(setsysGetColorSetId(&cs)) && cs == ColorSetId_Dark)
+    if (qext_colorset() == ColorSetId_Dark)
         return SetTheme(g_nThemes > 1 ? 1 : 0);
     return SetTheme(0);
 }

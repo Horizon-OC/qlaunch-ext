@@ -24,6 +24,10 @@ if [ ! -f "$ROOT/lib/neko3d-module/neko3d.dnro" ]; then
 fi
 # Shared INI parser for plugins (tiny, always rebuilt).
 make -C "$ROOT/lib/miniini-module" -j"$(nproc)"
+# Shared JSON reads for menus and plugins (tiny, always rebuilt).
+make -C "$ROOT/lib/json-module" -j"$(nproc)"
+# Shared hashing for menus and plugins.
+make -C "$ROOT/lib/xxhash-module" -j"$(nproc)"
 # ffmpeg libs for the menu (built once from extern/ffmpeg, gitignored).
 if [ ! -f "$ROOT/extern/ffmpeg-install/lib/libavcodec.a" ]; then
     sh "$ROOT/build-ffmpeg.sh"
@@ -64,6 +68,8 @@ mkdir -p "$PKG/qlaunch-ext/plugins"
 cp "$ROOT/loader/loader.nsp" "$DEST/exefs.nsp"
 cp "$ROOT/lib/neko3d-module/neko3d.dnro" "$PKG/lib/neko3d.dnro"
 cp "$ROOT/lib/miniini-module/miniini.dnro" "$PKG/lib/miniini.dnro"
+cp "$ROOT/lib/json-module/json.dnro" "$PKG/lib/json.dnro"
+cp "$ROOT/lib/xxhash-module/xxhash.dnro" "$PKG/lib/xxhash.dnro"
 mkdir -p "$PKG/qlaunch-ext/menus"
 cp "$ROOT/menu/menu.dnro" "$PKG/qlaunch-ext/menus/menu.dnro"
 for f in "$ROOT"/plugins/*/*.dnro; do

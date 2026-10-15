@@ -160,29 +160,51 @@ int qext_game_has_foreground(void);
 /// @return Title id, or 0 when none.
 u64 qext_suspended_title(void);
 
-/// @brief Get the current system time.
-/// @param type Time type.
-/// @param timestamp Output timestamp.
-/// @return Libnx result code.
-Result timeGetCurrentTime(TimeType type, u64 *timestamp);
+/* System info (raw data; formatting stays menu-side) */
 
-/// @brief Convert a timestamp to calendar time.
-/// @param timestamp Input timestamp.
-/// @param caltime Output calendar time.
+/// @brief List user ids into out (up to cap).
+/// @param out Output buffer.
+/// @param cap Buffer capacity.
+/// @return Total user count, or < 0 on failure.
+int qext_account_list(AccountUid *out, int cap);
+
+/// @brief Give a user's profile JPEG byte size.
+/// @param uid User id.
+/// @return Byte size, or < 0 when missing/unusable.
+int qext_account_image_size(AccountUid uid);
+
+/// @brief Copy a user's profile JPEG bytes.
+/// @param uid User id.
+/// @param out Output buffer.
+/// @param cap Buffer capacity.
+/// @return Bytes written (<0 on error).
+int qext_account_image(AccountUid uid, void *out, unsigned cap);
+
+/// @brief Read the user system clock.
+/// @param ts Output timestamp.
+/// @return Libnx result code.
+Result qext_time_now(u64 *ts);
+
+/// @brief Convert a timestamp to calendar time with the user rule.
+/// @param ts Input timestamp.
+/// @param cal Output calendar time.
 /// @param info Output additional info.
 /// @return Libnx result code.
-Result timeToCalendarTimeWithMyRule(u64 timestamp, TimeCalendarTime *caltime,
-                                    TimeCalendarAdditionalInfo *info);
+Result qext_time_calendar(u64 ts, TimeCalendarTime *cal,
+                          TimeCalendarAdditionalInfo *info);
 
-/// @brief Get the battery charge percentage.
-/// @param out Percentage output.
-/// @return Libnx result code.
-Result psmGetBatteryChargePercentage(u32 *out);
+/// @brief Give the battery charge percentage.
+/// @return 0-100, or < 0 when unknown.
+int qext_battery_percent(void);
 
-/// @brief Get the system color-set id.
-/// @param out Color-set output.
-/// @return Libnx result code.
-Result setsysGetColorSetId(ColorSetId *out);
+/// @brief Give the system color-set id, defaulting to light.
+/// @return The active color set.
+ColorSetId qext_colorset(void);
+
+/// @brief Test whether a user id is valid (non-empty).
+/// @param uid User id.
+/// @return Non-zero when valid.
+int qext_account_uid_valid(AccountUid uid);
 
 #ifdef __cplusplus
 }
