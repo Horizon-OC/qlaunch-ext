@@ -47,9 +47,7 @@ constexpr int FULL_SLOT = 15;
 struct Slot {
     bool used;
     int index;
-    int tex; /* dynamic TexAlloc slot, <=2 = none */
-    DkMemBlock mem;
-    DkImage img;
+    int tex; /* engine slot, -1 when none */
 };
 
 static Slot s_thumb[THUMB_SLOTS];
@@ -61,20 +59,37 @@ static int s_fullErr = -1;
 static bool s_fresh = false;
 static int s_decodeBudget = 0;
 
+    static bool s_slotsInit = false;
+
+    /// @brief One-time slot init (-1 = owns nothing).
+    static void EnsureSlots() {
+        if (s_slotsInit) {
+            return;
+        }
+        s_slotsInit = true;
+
+        for (int i = 0; i < THUMB_SLOTS; i++) {
+            s_thumb[i].used = false;
+            s_thumb[i].index = -1;
+            s_thumb[i].tex = -1;
+        }
+
+        s_fullImg.used = false;
+        s_fullImg.index = -1;
+        s_fullImg.tex = -1;
+    }
+
     /// @brief Free a texture slot's GPU resources.
     /// @param s Slot to free.
-    static void FreeSlot(Slot *s)
-{
-    if (s->used) {
-        Gfx::WaitIdle();
-        dkMemBlockDestroy(s->mem);
-        s->used = false;
-        s->index = -1;
-        s->mem = 0;
+    static void FreeSlot(Slot *s) {
+        EnsureSlots();
+        if (s->used) {
+            s->used = false;
+            s->index = -1;
+        }
+        Gfx::TexFree(s->tex);
+        s->tex = -1;
     }
-    Gfx::TexFree(s->tex);
-    s->tex = -1;
-}
 
     /// @brief Upload RGBA pixels into a texture slot.
     /// @param s Slot receiving the image.
@@ -86,53 +101,16 @@ static int s_decodeBudget = 0;
 {
     if (!rgba || w <= 0 || h <= 0 || w > 1920 || h > 1080)
         return false;
+    EnsureSlots();
     FreeSlot(s);
-    DkDevice dev = Gfx::Device();
-    DkImageLayoutMaker lm;
-    dkImageLayoutMakerDefaults(&lm, dev);
-    lm.flags = DkImageFlags_PitchLinear;
-    lm.format = DkImageFormat_RGBA8_Unorm;
-    lm.dimensions[0] = (uint32_t)w;
-    lm.dimensions[1] = (uint32_t)h;
-    DkImageLayout lay;
-    dkImageLayoutInitialize(&lay, &lm);
-    uint32_t sz = dkImageLayoutGetSize(&lay);
-    uint32_t al = dkImageLayoutGetAlignment(&lay);
-    sz = (sz + al - 1) & ~(al - 1);
-    sz = (sz + 0xFFFu) & ~0xFFFu;
-    DkMemBlockMaker mm;
-    dkMemBlockMakerDefaults(&mm, dev, sz);
-    mm.flags = DkMemBlockFlags_CpuUncached | DkMemBlockFlags_GpuCached | DkMemBlockFlags_Image;
-    DkMemBlock mem = dkMemBlockCreate(&mm);
-    if (!mem)
-        return false;
-    {
-        uint32_t rowBytes = (uint32_t)w * 4u;
-        uint32_t imgSize = dkImageLayoutGetSize(&lay);
-        uint32_t pitch = h > 0 ? imgSize / (uint32_t)h : 0;
-        uint8_t *dst = (uint8_t *)dkMemBlockGetCpuAddr(mem);
-        if (pitch == rowBytes) {
-            memcpy(dst, rgba, (size_t)rowBytes * (size_t)h);
-        } else if (pitch > rowBytes && imgSize == pitch * (uint32_t)h) {
-            for (int yy = 0; yy < h; yy++)
-                memcpy(dst + (size_t)yy * pitch, rgba + (size_t)yy * rowBytes, rowBytes);
-        } else {
-            memcpy(dst, rgba, (size_t)rowBytes * (size_t)h);
-        }
-    }
-    if (s->tex <= 2) {
+    if (s->tex < 0) {
         s->tex = Gfx::TexAlloc();
-        if (s->tex < 0) {
-            dkMemBlockDestroy(mem);
+        if (s->tex < 0)
             return false;
-        }
     }
-    dkImageInitialize(&s->img, &lay, mem, 0);
-    s->mem = mem;
+    if (!Gfx::TexUpload(s->tex, rgba, w, h, Gfx::TexFormat::RGBA))
+        return false;
     s->used = true;
-    DkImageView view;
-    dkImageViewDefaults(&view, &s->img);
-    Gfx::WriteImageDesc(s->tex, &view);
     return true;
 }
 
@@ -406,7 +384,7 @@ static int s_decodeBudget = 0;
             if (sel)
                 Gfx::PushSelectRing(x - 10.0f, y - 10.0f, tw + 20.0f, th + 20.0f, 18.0f, 8.0f);
             if (EnsureThumb(p, idx)) {
-                Gfx::PushIcon(x, y, tw, th, 8.0f, 1.0f, 1.0f, 1.0f, 0.0f, s_thumb[p].tex);
+                Gfx::PushIcon(x, y, tw, th, 8.0f, 8.0f, 8.0f, 8.0f, 1.0f, 1.0f, 1.0f, 0.0f, s_thumb[p].tex);
             } else {
                 Gfx::PushPanel(x, y, tw, th, 8.0f, 0.25f, 0.26f, 0.30f, 1.0f);
             }
@@ -453,7 +431,7 @@ static int s_decodeBudget = 0;
         Font::Centered("No image", 960.0f, 540.0f, 40.0f, 800.0f, inkR, inkG, inkB);
     } else if (EnsureFull(s_sel)) {
         Gfx::PushPanel(0.0f, 0.0f, 1920.0f, 1080.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f);
-        Gfx::PushIcon(0.0f, 0.0f, 1920.0f, 1080.0f, 0.0f, 1.0f, 1.0f, 1.0f, 0.0f, s_fullImg.tex, -1.0f, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f);
+        Gfx::PushIcon(0.0f, 0.0f, 1920.0f, 1080.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 0.0f, s_fullImg.tex, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f);
     } else {
         Gfx::PushPanel(0.0f, 0.0f, 1920.0f, 1080.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f);
         Font::Centered("Could not load image", 960.0f, 540.0f, 40.0f, 800.0f,

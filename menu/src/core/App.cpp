@@ -154,9 +154,9 @@ namespace App {
             Gfx::DrawPanels();
             Gfx::DrawHighlights();
             Gfx::DrawIcons();
-            Gfx::DrawTextBuf(0, 0);
-            Gfx::DrawTextBuf(1, 1);
-            Gfx::DrawTextBuf(2, 2);
+            Gfx::DrawTextBuf(Font::Slot(FONT_BUF_LATIN), FONT_BUF_LATIN);
+            Gfx::DrawTextBuf(Font::Slot(FONT_BUF_KANA), FONT_BUF_KANA);
+            Gfx::DrawTextBuf(Font::Slot(FONT_BUF_ICON), FONT_BUF_ICON);
             Gfx::EndFrame();
         }
 

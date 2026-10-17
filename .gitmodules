@@ -5,3 +5,7 @@
 	path = extern/ffmpeg
 	url = https://github.com/averne/FFmpeg.git
 	branch = nvtegra
+[submodule "extern/SDL-dlink"]
+	path = extern/SDL-dlink
+	url = https://github.com/souldbminerr/SDL-dlink.git
+	branch = switch-sdl-3.4

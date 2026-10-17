@@ -1,6 +1,7 @@
 TOP := $(CURDIR)
-NEKO := $(TOP)/../lib/neko3d
 DLINK := $(TOP)/../extern/libnx-dlink
+# SDL3 headers (extern/SDL-dlink submodule once committed; override for dev).
+SDLDIR ?= $(TOP)/../extern/SDL-dlink
 
 DEVKITPRO ?= /opt/devkitpro
 DKA64 := $(DEVKITPRO)/devkitA64
@@ -11,7 +12,7 @@ PY := python3
 UAM := $(DEVKITPRO)/tools/bin/uam
 
 ARCH := -march=armv8-a -mtune=cortex-a57 -mtp=soft -fPIC
-BASEFLAGS := -g -O2 -ffunction-sections -fdata-sections $(ARCH) -D__SWITCH__ -I$(NEKO)/include -I$(DEVKITPRO)/libnx/include -I$(TOP)/src -I$(TOP)/../extern/ffmpeg-install/include
+BASEFLAGS := -g -O2 -ffunction-sections -fdata-sections $(ARCH) -D__SWITCH__ -I$(SDLDIR)/include -I$(DEVKITPRO)/libnx/include -I$(TOP)/src -I$(TOP)/../extern/ffmpeg-install/include
 CFLAGS := $(BASEFLAGS)
 CXXFLAGS := $(BASEFLAGS) -std=c++17 -fno-exceptions -fno-rtti -fno-threadsafe-statics -MMD -MP
 ASFLAGS := -g $(ARCH)
@@ -21,12 +22,6 @@ FFLIBS := -lavformat -lavcodec -lswscale -lswresample -lavutil -lgcc
 SRCS := $(wildcard $(TOP)/src/*.cpp $(TOP)/src/core/*.cpp $(TOP)/src/widgets/*.cpp)
 OBJS := $(patsubst $(TOP)/%.cpp,$(TOP)/build/%.o,$(SRCS))
 OBJS += $(TOP)/build/stub/stub.o $(TOP)/build/stub/crt0.o
-OBJS += $(TOP)/build/shaders/quad_vsh.dksh.o $(TOP)/build/shaders/color_fsh.dksh.o
-OBJS += $(TOP)/build/shaders/text_vsh.dksh.o $(TOP)/build/shaders/text_fsh.dksh.o
-OBJS += $(TOP)/build/shaders/panel_vsh.dksh.o $(TOP)/build/shaders/panel_fsh.dksh.o
-OBJS += $(TOP)/build/shaders/icon_vsh.dksh.o $(TOP)/build/shaders/icon_fsh.dksh.o
-OBJS += $(TOP)/build/shaders/bg_fsh.dksh.o
-OBJS += $(TOP)/build/shaders/hl_vsh.dksh.o $(TOP)/build/shaders/hl_fsh.dksh.o
 OBJS += $(TOP)/build/assets/font.o $(TOP)/build/assets/iconfont.o $(TOP)/build/assets/layout.o $(TOP)/build/assets/sfx.o
 OBJS += $(TOP)/build/assets/hud/hud_wifi.o $(TOP)/build/assets/hud/hud_battery.o
 OBJS += $(TOP)/build/assets/hud/hud_user.o $(TOP)/build/assets/hud/hud_btn_a.o

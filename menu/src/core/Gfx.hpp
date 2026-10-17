@@ -1,27 +1,15 @@
 /* qlaunch-ext (C) 2026 Souldbminer */
 /* Licensed under the GPLv2         */
-/* Pain... and suffering.           */
+/* SDL3 renderer backend. Push and Draw signatures are unchanged so widgets
+   never touch SDL directly; textures live behind the historic int-slot
+   table (0-2 reserved for font atlases, like before). Rounded shapes are
+   tessellated on the CPU (see Gfx.cpp); icon border/edge blending from the
+   old SDF shaders is intentionally not reproduced. */
 
 #pragma once
 #include <switch.h>
-#include <deko3d.h>
+#include <stdint.h>
 
-struct HomeVtx { float x, y, r, g, b, a; };
-struct TextVtx { float x, y, u, v, r, g, b, a; };
-struct PanelVtx {
-    float x, y, ox, oy, w, h, rad, pad, r, g, b, a;
-};
-struct IconVtx {
-    float x, y, u, v, ox, oy, w, h, rad, pad, r, g, b, a, tslot, brad, edge;
-};
-struct HighlightVtx {
-    float x, y, ox, oy, w, h, rad, thick;
-    float c0r, c0g, c0b, c0a, c1r, c1g, c1b, c1a;
-    float c2r, c2g, c2b, c2a, c3r, c3g, c3b, c3a;
-    float rot;
-};
-
-constexpr int GFX_FB_NUM = 2;
 constexpr int GFX_VTX_MAX = 2048;
 constexpr int GFX_TEXT_MAX = 8192;
 constexpr int GFX_PANEL_MAX = 2048;
@@ -29,12 +17,17 @@ constexpr int GFX_ICONQ_MAX = 2048;
 constexpr int GFX_HL_MAX = 64;
 
 constexpr int GFX_MAX_TEX = 256;
-constexpr int GFX_CODE_SIZE = 64 * 1024;
-constexpr int GFX_CMD_SIZE = 64 * 1024;
 
 namespace Gfx {
-    /// @brief Initialize the renderer and framebuffers.
-    /// @param win Native window handle.
+
+    /// @brief Pixel source format for TexUpload.
+    enum class TexFormat {
+        RGBA, /* 32-bit RGBA bytes, native GPU layout. */
+        R8,   /* 8-bit gray, expanded to white-with-alpha on upload. */
+    };
+
+    /// @brief Initialize SDL video + the deko3d renderer on an adopted window.
+    /// @param win Host native window handle (adopted, never owned).
     /// @param fbW Framebuffer width.
     /// @param fbH Framebuffer height.
     /// @return True on success.
@@ -47,14 +40,14 @@ namespace Gfx {
     /// @return True when initialized.
     bool Ready();
 
-    /// @brief Begin a frame and map transient buffers.
+    /// @brief Begin a frame (queues are submitted by the Draw* calls).
     /// @return False when the frame must be skipped.
     bool BeginFrame();
 
     /// @brief Render queued solid-color quads.
     void DrawColor();
 
-    /// @brief Render panel background clears.
+    /// @brief Render the fullscreen background quad.
     void DrawPanelsBg();
 
     /// @brief Render queued rounded panels.
@@ -69,7 +62,7 @@ namespace Gfx {
     /// @brief Submit the frame and present it.
     void EndFrame();
 
-    /// @brief Wait for the GPU to go idle.
+    /// @brief No-op under SDL (texture destroy syncs internally).
     void WaitIdle();
 
     /// @brief Scale an X coordinate to framebuffer space.
@@ -87,24 +80,44 @@ namespace Gfx {
     /// @return Framebuffer value.
     float SC(float v);
 
-    /// @brief Allocate a texture descriptor slot.
+    /// @brief Allocate a texture slot (0..255, first free).
+    /// Slots are engine-managed: validity is allocation state, never a
+    /// hardcoded range. Owners hold -1 when they own nothing.
     /// @return Slot index, or < 0 when exhausted.
     int TexAlloc();
 
-    /// @brief Free a texture descriptor slot.
+    /// @brief Whether a slot handle is usable (the single validity rule;
+    /// use this instead of comparing against any range).
+    /// @param slot Slot handle (< 0 means no texture).
+    /// @return True when the handle refers to a texture.
+    bool TexValid(int slot);
+
+    /// @brief Free a texture slot. No-op unless currently allocated, so
+    /// stale or never-allocated handles are always safe to drop.
     /// @param slot Slot from TexAlloc().
     void TexFree(int slot);
 
-    /// @brief Write an image descriptor into a slot.
+    /// @brief Create (or recreate on size change) and fully upload a texture.
     /// @param slot Descriptor slot.
-    /// @param view Image view to bind.
-    void WriteImageDesc(int slot, const DkImageView *view);
+    /// @param px Pixel data (RGBA bytes, or R8 gray for TexFormat::R8).
+    /// @param w Width.
+    /// @param h Height.
+    /// @param fmt Pixel format.
+    /// @return True on success.
+    bool TexUpload(int slot, const uint8_t *px, int w, int h, TexFormat fmt);
 
-    /// @brief Write the shared sampler descriptor.
-    void WriteSamplerDesc();
+    /// @brief Lock a streaming texture for CPU writes (creates it sized).
+    /// @param slot Descriptor slot.
+    /// @param w Width.
+    /// @param h Height.
+    /// @param pixels Output CPU pointer.
+    /// @param pitch Output row pitch in bytes.
+    /// @return True on success.
+    bool TexLock(int slot, int w, int h, void **pixels, int *pitch);
 
-    /// @brief Clear all texture descriptors.
-    void ClearDescs();
+    /// @brief Unlock a locked texture.
+    /// @param slot Descriptor slot.
+    void TexUnlock(int slot);
 
     /// @brief Queue a solid-color quad.
     /// @param x X position.
@@ -136,22 +149,25 @@ namespace Gfx {
     /// @param y Y position.
     /// @param w Width.
     /// @param h Height.
-    /// @param rad Corner radius.
+    /// @param rTL Top-left corner radius.
+    /// @param rTR Top-right corner radius.
+    /// @param rBR Bottom-right corner radius.
+    /// @param rBL Bottom-left corner radius.
     /// @param r Red 0-1.
     /// @param g Green 0-1.
     /// @param b Blue 0-1.
-    /// @param border Border blend factor.
+    /// @param border Unused (old SDF border factor).
     /// @param tex Texture slot.
-    /// @param brad Bottom radius override (-1 keeps rad).
     /// @param u0 Left UV.
     /// @param v0 Top UV.
     /// @param u1 Right UV.
     /// @param v1 Bottom UV.
-    /// @param edgeBlend Edge blend factor.
+    /// @param edgeBlend Unused (old SDF edge factor).
     /// @param alpha Opacity multiplier.
     /// @return Queued quad count.
-    unsigned PushIcon(float x, float y, float w, float h, float rad,
-                      float r, float g, float b, float border, int tex, float brad = -1.0f,
+    unsigned PushIcon(float x, float y, float w, float h,
+                      float rTL, float rTR, float rBR, float rBL,
+                      float r, float g, float b, float border, int tex,
                       float u0 = 0.0f, float v0 = 0.0f, float u1 = 1.0f, float v1 = 1.0f, float edgeBlend = 1.0f, float alpha = 1.0f);
 
     /// @brief Queue a selection ring around a rect.
@@ -207,33 +223,5 @@ namespace Gfx {
     /// @brief Give the queued icon quad count.
     /// @return Quad count.
     unsigned IconQuads();
-
-    /// @brief Give the deko3d device.
-    /// @return Device handle.
-    DkDevice Device();
-
-    /// @brief Load compiled shaders into GPU memory.
-    /// @return True on success.
-    bool LoadShaders();
-
-    /// @brief Bind panel vertex attributes.
-    void BindPanelAttribs();
-
-    /// @brief Bind highlight vertex attributes.
-    void BindHlAttribs();
-
-    /// @brief Build the blended rasterizer/color state.
-    /// @param rast Rasterizer state output.
-    /// @param colW Color-write state output.
-    /// @param tcol Fragment color state output.
-    /// @param bl Blend state output.
-    void BlendedState(DkRasterizerState *rast, DkColorWriteState *colW,
-                      DkColorState *tcol, DkBlendState *bl);
-
-    /// @brief Bind texture descriptor sets.
-    void BindTexSets();
-
-    /// @brief Bind the shared uniform buffer.
-    void BindUbo();
 
 } /* namespace Gfx */

@@ -113,6 +113,7 @@ static bool g_winLive = false;
 
 /* Pointers to dynamic libraries */
 static void *g_neko;
+static void *g_sdl;
 static void *g_menu;
 static void *g_miniini;
 static void *g_json;
@@ -295,6 +296,10 @@ static void menu_unload(void)
         dlclose(g_menu);
         g_menu = nullptr;
     }
+    if (g_sdl) {
+        dlclose(g_sdl);
+        g_sdl = nullptr;
+    }
     if (g_neko) {
         dlclose(g_neko);
         g_neko = nullptr;
@@ -338,6 +343,7 @@ enum BootStage {
     BootStage_Layer,
     BootStage_Plugins,
     BootStage_Neko,
+    BootStage_Sdl,
     BootStage_Menu,
     BootStage_Syms,
     BootStage_OnBoot,
@@ -415,6 +421,17 @@ static Result boot_step(void)
                 logging::LogLine("[qlaunch-ext] opening neko3d at %p (dlerr=%s)", g_neko,
                                 g_neko ? "NONE" : dlerror());
                 if (!g_neko)
+                    return boot_fail(MAKERESULT(Module_Libnx, LibnxError_NotFound));
+            }
+            g_bootStage = BootStage_Sdl;
+            break;
+        case BootStage_Sdl:
+            dlink_set_library_dir(NULL);
+            if (!g_sdl) {
+                g_sdl = dlopen("sdl3", RTLD_GLOBAL);
+                logging::LogLine("[qlaunch-ext] opening sdl3 at %p (dlerr=%s)", g_sdl,
+                                 g_sdl ? "NONE" : dlerror());
+                if (!g_sdl)
                     return boot_fail(MAKERESULT(Module_Libnx, LibnxError_NotFound));
             }
             g_bootStage = BootStage_Menu;

@@ -67,8 +67,6 @@ namespace Icons {
         bool used;
         u64 seq;
         int slot;
-        DkMemBlock mem;
-        DkImage img;
     };
 
     /// @brief Upload RGBA pixels into an icon entry.

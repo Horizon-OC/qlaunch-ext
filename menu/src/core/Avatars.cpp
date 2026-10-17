@@ -16,24 +16,19 @@ constexpr int AV_MAX = 2;
 namespace Avatars {
 
 static int s_count;
-static int s_tex[AV_MAX] = { 0 };
-static DkMemBlock s_mem[AV_MAX];
-static DkImage s_img[AV_MAX];
+static int s_Texture[AV_MAX] = { -1, -1 };
+static_assert(AV_MAX == 2, "keep -1 init in sync");
 static bool s_ok[AV_MAX];
 
     /// @brief Free one avatar's GPU resources.
     /// @param i Avatar slot.
-    static void FreeOne(int i)
-{
-    if (s_ok[i]) {
-        Gfx::WaitIdle();
-        dkMemBlockDestroy(s_mem[i]);
-        s_ok[i] = false;
-        s_mem[i] = 0;
+    static void FreeOne(int i) {
+        if (s_ok[i]) {
+            s_ok[i] = false;
+        }
+        Gfx::TexFree(s_Texture[i]);
+        s_Texture[i] = -1;
     }
-    Gfx::TexFree(s_tex[i]);
-    s_tex[i] = -1;
-}
 
     /// @brief Upload RGBA pixels into an avatar slot.
     /// @param i Avatar slot.
@@ -46,52 +41,13 @@ static bool s_ok[AV_MAX];
     if (!rgba || w <= 0 || h <= 0 || w > 512 || h > 512)
         return false;
     FreeOne(i);
-    DkDevice dev = Gfx::Device();
-    DkImageLayoutMaker lm;
-    dkImageLayoutMakerDefaults(&lm, dev);
-    lm.flags = DkImageFlags_PitchLinear;
-    lm.format = DkImageFormat_RGBA8_Unorm;
-    lm.dimensions[0] = (uint32_t)w;
-    lm.dimensions[1] = (uint32_t)h;
-    DkImageLayout lay;
-    dkImageLayoutInitialize(&lay, &lm);
-    uint32_t sz = dkImageLayoutGetSize(&lay);
-    uint32_t al = dkImageLayoutGetAlignment(&lay);
-    sz = (sz + al - 1) & ~(al - 1);
-    sz = (sz + 0xFFFu) & ~0xFFFu;
-    DkMemBlockMaker mm;
-    dkMemBlockMakerDefaults(&mm, dev, sz);
-    mm.flags = DkMemBlockFlags_CpuUncached | DkMemBlockFlags_GpuCached | DkMemBlockFlags_Image;
-    DkMemBlock mem = dkMemBlockCreate(&mm);
-    if (!mem)
-        return false;
-    if (s_tex[i] <= 2) {
-        s_tex[i] = Gfx::TexAlloc();
-        if (s_tex[i] < 0) {
-            dkMemBlockDestroy(mem);
+    if (s_Texture[i] < 0) {
+        s_Texture[i] = Gfx::TexAlloc();
+        if (s_Texture[i] < 0)
             return false;
-        }
     }
-/* Pitch-linear rows may be padded: copy row by row unless packed. */
-    {
-        uint32_t rowBytes = (uint32_t)w * 4u;
-        uint32_t imgSize = dkImageLayoutGetSize(&lay);
-        uint32_t pitch = h > 0 ? imgSize / (uint32_t)h : 0;
-        uint8_t *dst = (uint8_t *)dkMemBlockGetCpuAddr(mem);
-        if (pitch == rowBytes) {
-            memcpy(dst, rgba, (size_t)rowBytes * (size_t)h);
-        } else if (pitch > rowBytes && imgSize == pitch * (uint32_t)h) {
-            for (int yy = 0; yy < h; yy++)
-                memcpy(dst + (size_t)yy * pitch, rgba + (size_t)yy * rowBytes, rowBytes);
-        } else {
-            memcpy(dst, rgba, (size_t)rowBytes * (size_t)h);
-        }
-    }
-    dkImageInitialize(&s_img[i], &lay, mem, 0);
-    s_mem[i] = mem;
-    DkImageView view;
-    dkImageViewDefaults(&view, &s_img[i]);
-    Gfx::WriteImageDesc(s_tex[i], &view);
+    if (!Gfx::TexUpload(s_Texture[i], rgba, w, h, Gfx::TexFormat::RGBA))
+        return false;
     s_ok[i] = true;
     return true;
 }
@@ -155,7 +111,7 @@ static bool s_haveUids = false;
 {
     if (i < 0 || i >= AV_MAX || !s_ok[i])
         return -1;
-    return s_tex[i];
+    return s_Texture[i];
 }
 
 } // namespace Avatars

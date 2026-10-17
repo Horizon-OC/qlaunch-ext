@@ -8,12 +8,18 @@
 constexpr int FONT_ATLAS_W = 1024;
 constexpr int FONT_ATLAS_H = 1024;
 
-/* Texture slots / text buffers. */
-constexpr int FONT_SLOT_LATIN = 0;
-constexpr int FONT_SLOT_KANA = 1;
-constexpr int FONT_SLOT_ICON = 2;
+/* Text buffers: 0 latin, 1 kana, 2 icons. Atlas texture slots are
+   engine-allocated at init (see Slot()). */
+constexpr int FONT_BUF_LATIN = 0;
+constexpr int FONT_BUF_KANA = 1;
+constexpr int FONT_BUF_ICON = 2;
 
 namespace Font {
+
+    /// @brief Give the engine texture slot for a text buffer.
+    /// @param buf Text buffer id (0-2).
+    /// @return Texture slot, or < 0 when unavailable.
+    int Slot(int buf);
     /// @brief Initialize font atlases and text buffers.
     /// @return True on success.
     bool Init();

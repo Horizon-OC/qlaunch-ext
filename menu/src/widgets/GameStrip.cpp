@@ -120,7 +120,7 @@ namespace WStrip {
     float mw = 100.0f, mh = 45.0f;
     float mx = cx - mw * 0.5f;
     float my = bandTop + (bandH - mh) * 0.5f;
-    Gfx::PushIcon(mx, my, mw, mh, 6.0f, 1.0f, 1.0f, 1.0f, 0.0f, slot, 0.0f, u0, v0, u1, v1);
+    Gfx::PushIcon(mx, my, mw, mh, 6.0f, 6.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 0.0f, slot, u0, v0, u1, v1);
 }
 
     /// @brief Draw a title wrapped to two lines under the selected tile.
@@ -288,8 +288,8 @@ namespace WStrip {
         if (x + outer < -50.0f || x > 1970.0f)
             continue;
         
-        if (r.iconSlot > 0) {
-            unsigned q = Gfx::PushIcon(x, y, outer, outer, corner, 1.0f, 1.0f, 1.0f, 0.0f, r.iconSlot, -1.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, ta);
+        if (Gfx::TexValid(r.iconSlot)) {
+            unsigned q = Gfx::PushIcon(x, y, outer, outer, corner, corner, corner, corner, 1.0f, 1.0f, 1.0f, 0.0f, r.iconSlot, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, ta);
             if (q >= (unsigned)(GFX_ICONQ_MAX / 6))
                 TileFallback(r, x, y, outer, outer, corner, ta);
         } else {
@@ -312,8 +312,8 @@ namespace WStrip {
         Gfx::PushSelectRing(gx - 9.0f, gy - 9.0f, gw + 18.0f, gh + 18.0f, corner + 9.0f, 12.0f);
 
         /* Rounded top and square bottom. */
-        if (r.iconSlot > 0) {
-            unsigned q = Gfx::PushIcon(gx, gy, outer, outer, corner, 1.0f, 1.0f, 1.0f, 0.0f, r.iconSlot, brad, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, ta);
+        if (Gfx::TexValid(r.iconSlot)) {
+            unsigned q = Gfx::PushIcon(gx, gy, outer, outer, corner, corner, brad, brad, 1.0f, 1.0f, 1.0f, 0.0f, r.iconSlot, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, ta);
             if (q >= (unsigned)(GFX_ICONQ_MAX / 6))
                 TileFallback(r, gx, gy, outer, outer, corner, ta);
         } else {
@@ -353,8 +353,8 @@ namespace WStrip {
                 float fr, fg, fb;
                 Theme::Color("panel", &fr, &fg, &fb);
                 Gfx::PushPanel(fx, y0, tw, tw, 24.0f, fr, fg, fb, 1.0f);
-                if (fslot > 0) {
-                    Gfx::PushIcon(fx + 40.0f, y0 + 20.0f, 220.0f, 220.0f, 16.0f, 1.0f, 1.0f, 1.0f, 0.0f, fslot);
+                if (Gfx::TexValid(fslot)) {
+                    Gfx::PushIcon(fx + 40.0f, y0 + 20.0f, 220.0f, 220.0f, 16.0f, 16.0f, 16.0f, 16.0f, 1.0f, 1.0f, 1.0f, 0.0f, fslot);
                 }
                 float nw = Font::Measure(nm, 36.0f);
                 Font::Draw(nm, fx + (tw - nw) * 0.5f, y0 + tw + 48.0f,
@@ -383,8 +383,8 @@ namespace WStrip {
                 bool isSel = (k == sel);
                 if (isSel)
                     Gfx::PushSelectRing(x - 8.0f, y - 8.0f, tw + 16.0f, tw + 16.0f, 20.0f, 8.0f);
-                if (r.iconSlot > 0) {
-                    unsigned q = Gfx::PushIcon(x, y, tw, tw, 12.0f, 1.0f, 1.0f, 1.0f, 0.0f, r.iconSlot, -1.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, ta);
+                if (Gfx::TexValid(r.iconSlot)) {
+                    unsigned q = Gfx::PushIcon(x, y, tw, tw, 12.0f, 12.0f, 12.0f, 12.0f, 1.0f, 1.0f, 1.0f, 0.0f, r.iconSlot, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, ta);
                     if (q >= (unsigned)(GFX_ICONQ_MAX / 6))
                         TileFallback(r, x, y, tw, tw, 12.0f, ta);
                 } else {

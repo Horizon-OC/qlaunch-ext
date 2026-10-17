@@ -55,7 +55,7 @@ namespace WVideo {
     static AVFrame *s_aframe = 0;
     static AVPacket *s_pkt = 0;
 
-    static uint32_t s_texPitch = 0;
+    static uint32_t s_TexturePitch = 0;
     static int16_t *s_pcmBuf = 0;
     static bool s_haveFrame = false;
     static double s_framePts = 0.0;
@@ -70,9 +70,7 @@ namespace WVideo {
     /// @param force True to decode regardless of pause/end state.
     static void Step(bool force);
 
-    static DkMemBlock s_mem = 0;
-    static DkImage s_img;
-    static int s_tex = -1;
+    static int s_Texture = -1;
 
     /// @brief FFmpeg read callback pulling from the album movie handle.
     /// @param opaque Unused.
@@ -136,70 +134,34 @@ namespace WVideo {
     /// @brief Free the video frame texture.
     static void FreeTexture()
     {
-        if (s_mem) {
-            Gfx::WaitIdle();
-            dkMemBlockDestroy(s_mem);
-            s_mem = 0;
-        }
-
-        Gfx::TexFree(s_tex);
-        s_tex = -1;
+        Gfx::TexFree(s_Texture);
+        s_Texture = -1;
     }
 
     /// @brief Allocate the fixed video frame texture.
     /// @return True on success.
     static bool AllocTexture()
     {
-        if (s_mem) {
+        void *px = nullptr;
+        int pitch = 0;
+        if (s_Texture >= 0) {
             return true;
         }
 
         FreeTexture();
+        s_Texture = Gfx::TexAlloc();
 
-        DkDevice dev = Gfx::Device();
-
-        DkImageLayoutMaker lm;
-        dkImageLayoutMakerDefaults(&lm, dev);
-        lm.flags = DkImageFlags_PitchLinear;
-        lm.format = DkImageFormat_RGBA8_Unorm;
-        lm.dimensions[0] = VW;
-        lm.dimensions[1] = VH;
-
-        DkImageLayout lay;
-        dkImageLayoutInitialize(&lay, &lm);
-        s_texPitch = dkImageLayoutGetSize(&lay) / (uint32_t)VH;
-
-        uint32_t sz = dkImageLayoutGetSize(&lay);
-        uint32_t al = dkImageLayoutGetAlignment(&lay);
-        sz = (sz + al - 1) & ~(al - 1);
-        sz = (sz + 0xFFFu) & ~0xFFFu;
-
-        DkMemBlockMaker mm;
-        dkMemBlockMakerDefaults(&mm, dev, sz);
-        mm.flags = DkMemBlockFlags_CpuUncached | DkMemBlockFlags_GpuCached | DkMemBlockFlags_Image;
-
-        DkMemBlock mem = dkMemBlockCreate(&mm);
-
-        if (!mem) {
+        if (s_Texture < 0) {
             return false;
         }
 
-        if (s_tex <= 2) {
-            s_tex = Gfx::TexAlloc();
-
-            if (s_tex < 0) {
-                dkMemBlockDestroy(mem);
-                return false;
-            }
+        if (!Gfx::TexLock(s_Texture, VW, VH, &px, &pitch) || !px || pitch <= 0) {
+            FreeTexture();
+            return false;
         }
 
-        dkImageInitialize(&s_img, &lay, mem, 0);
-        s_mem = mem;
-
-        DkImageView view;
-        dkImageViewDefaults(&view, &s_img);
-        Gfx::WriteImageDesc(s_tex, &view);
-
+        Gfx::TexUnlock(s_Texture);
+        s_TexturePitch = (uint32_t)pitch;
         return true;
     }
 
@@ -680,9 +642,21 @@ namespace WVideo {
 
         s_framePts = ts * av_q2d(s_fmt->streams[s_vstream]->time_base);
 
-        uint8_t *dst[4] = { (uint8_t *)dkMemBlockGetCpuAddr(s_mem), 0, 0, 0 };
-        int stride[4] = { (int)s_texPitch, 0, 0, 0 };
+        void *locked = nullptr;
+        int pitch = 0;
+        if (!Gfx::TexLock(s_Texture, VW, VH, &locked, &pitch) || !locked) {
+            if (!s_xferLogged) {
+                logging::LogLine("[video] Failed to lock frame texture");
+                s_xferLogged = true;
+            }
+
+            return false;
+        }
+
+        uint8_t *dst[4] = { (uint8_t *)locked, 0, 0, 0 };
+        int stride[4] = { pitch, 0, 0, 0 };
         sws_scale(s_sws, src->data, src->linesize, 0, src->height, dst, stride);
+        Gfx::TexUnlock(s_Texture);
         s_haveFrame = true;
 
         return true;
@@ -1014,8 +988,8 @@ namespace WVideo {
 
         Gfx::PushPanel(0.0f, 0.0f, 1920.0f, 1080.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f);
 
-        if (s_tex > 2) {
-            Gfx::PushIcon(0.0f, 0.0f, 1920.0f, 1080.0f, 0.0f, 1.0f, 1.0f, 1.0f, 0.0f, s_tex, -1.0f, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f);
+        if (s_Texture >= 0) {
+            Gfx::PushIcon(0.0f, 0.0f, 1920.0f, 1080.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 0.0f, s_Texture, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f);
         }
     }
 

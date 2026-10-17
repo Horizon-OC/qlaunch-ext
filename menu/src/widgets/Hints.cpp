@@ -132,10 +132,10 @@ namespace WHints {
                 aslot = Icons::HudSlot(HUD_BTN_PLUS);
             }
 
-            if (aslot > 0) {
+            if (Gfx::TexValid(aslot)) {
                 float mbR, mbG, mbB;
                 Theme::Color("menubar", &mbR, &mbG, &mbB);
-                Gfx::PushIcon(x - 40.0f, y - 34.0f, 40.0f, 40.0f, 0.0f, mbR, mbG, mbB, 0.0f, aslot);
+                Gfx::PushIcon(x - 40.0f, y - 34.0f, 40.0f, 40.0f, 0.0f, 0.0f, 0.0f, 0.0f, mbR, mbG, mbB, 0.0f, aslot);
                 x -= 40.0f + 40.0f;
             } else {
                 unsigned cp = ButtonGlyph(b);

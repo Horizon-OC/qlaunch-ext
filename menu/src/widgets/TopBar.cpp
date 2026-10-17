@@ -142,12 +142,12 @@ namespace WTopBar {
 
             int aslot = Avatars::Slot(i);
 
-            if (aslot <= 0) {
+            if (!Gfx::TexValid(aslot)) {
                 aslot = Icons::HudSlot(HUD_USER);
             }
 
-            if (aslot > 0) {
-                Gfx::PushIcon(ax + 9.0f, 75.0f, 74.0f, 74.0f, 30.0f, 1.0f, 1.0f, 1.0f, 0.0f, aslot);
+            if (Gfx::TexValid(aslot)) {
+                Gfx::PushIcon(ax + 9.0f, 75.0f, 74.0f, 74.0f, 30.0f, 30.0f, 30.0f, 30.0f, 1.0f, 1.0f, 1.0f, 0.0f, aslot);
             }
         }
 
@@ -177,7 +177,7 @@ namespace WTopBar {
 
             int aslot = TopArt(i, active);
 
-            if (aslot > 0) {
+            if (Gfx::TexValid(aslot)) {
                 float cr, cg, cb;
 
                 if (focused) {
@@ -192,7 +192,7 @@ namespace WTopBar {
                     cb = inkB;
                 }
 
-                Gfx::PushIcon(x, y, size, size, 0.0f, cr, cg, cb, 0.0f, aslot);
+                Gfx::PushIcon(x, y, size, size, 0.0f, 0.0f, 0.0f, 0.0f, cr, cg, cb, 0.0f, aslot);
             } else {
                 unsigned cp = TabGlyph(i);
 
@@ -235,8 +235,8 @@ namespace WTopBar {
         {
             int wslot = Icons::HudSlot(HUD_WIFI);
 
-            if (wslot > 0) {
-                Gfx::PushIcon(1717.0f, 88.0f, 51.0f, 51.0f, 0.0f, mbR, mbG, mbB, 0.0f, wslot);
+            if (Gfx::TexValid(wslot)) {
+                Gfx::PushIcon(1717.0f, 88.0f, 51.0f, 51.0f, 0.0f, 0.0f, 0.0f, 0.0f, mbR, mbG, mbB, 0.0f, wslot);
             } else {
                 char wg[4] = { 0 };
                 GlyphUTF8(GLYPH_WIFI, wg);
@@ -246,8 +246,8 @@ namespace WTopBar {
         {
             int bslot = Icons::HudSlot(HUD_BATTERY);
 
-            if (bslot > 0) {
-                Gfx::PushIcon(1790.0f, 81.0f, 64.0f, 64.0f, 0.0f, 1.0f, 1.0f, 1.0f, 0.0f, bslot);
+            if (Gfx::TexValid(bslot)) {
+                Gfx::PushIcon(1790.0f, 81.0f, 64.0f, 64.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 0.0f, bslot);
             } else {
                 unsigned batt = Clock::Batt();
 

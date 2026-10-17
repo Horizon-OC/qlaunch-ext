@@ -21,12 +21,9 @@ namespace Font {
 struct Atlas {
     int first;
     int count;
-    int slot;
+    int slot; /* engine-allocated, -1 when none */
     stbtt_bakedchar g[512];
     float px;
-    DkMemBlock mem;
-    DkImage img;
-    DkImageView view;
     bool ok;
 };
 
@@ -61,41 +58,13 @@ static bool s_ok;
     /// @brief Upload a baked atlas into GPU memory.
     /// @param a Atlas to upload.
     /// @return True on success.
-    static bool UploadOne(Atlas *a)
-{
-    DkDevice dev = Gfx::Device();
-    DkImageLayoutMaker lm;
-    dkImageLayoutMakerDefaults(&lm, dev);
-    lm.flags = DkImageFlags_PitchLinear;
-    lm.format = DkImageFormat_R8_Unorm;
-    lm.dimensions[0] = FONT_ATLAS_W;
-    lm.dimensions[1] = FONT_ATLAS_H;
-    DkImageLayout lay;
-    dkImageLayoutInitialize(&lay, &lm);
-    uint32_t sz = dkImageLayoutGetSize(&lay);
-    uint32_t al = dkImageLayoutGetAlignment(&lay);
-    sz = (sz + al - 1) & ~(al - 1);
-    sz = (sz + 0xFFFu) & ~0xFFFu; /* neko3d needs 4K-multiple blocks */
-
-    DkMemBlockMaker mm;
-    dkMemBlockMakerDefaults(&mm, dev, sz);
-    mm.flags = DkMemBlockFlags_CpuUncached | DkMemBlockFlags_GpuCached | DkMemBlockFlags_Image;
-    a->mem = dkMemBlockCreate(&mm);
-    if (!a->mem)
-        return false;
-    memcpy(dkMemBlockGetCpuAddr(a->mem), s_scratch,
-           (size_t)FONT_ATLAS_W * (size_t)FONT_ATLAS_H);
-    dkImageInitialize(&a->img, &lay, a->mem, 0);
-
-    dkImageViewDefaults(&a->view, &a->img);
-    a->view.swizzle[0] = DkImageSwizzle_One;
-    a->view.swizzle[1] = DkImageSwizzle_One;
-    a->view.swizzle[2] = DkImageSwizzle_One;
-    a->view.swizzle[3] = DkImageSwizzle_Red;
-    Gfx::WriteImageDesc(a->slot, &a->view);
-    a->ok = true;
-    return true;
-}
+    static bool UploadOne(Atlas *a) {
+        if (!Gfx::TexUpload(a->slot, s_scratch, FONT_ATLAS_W, FONT_ATLAS_H,
+                            Gfx::TexFormat::R8))
+            return false;
+        a->ok = true;
+        return true;
+    }
 
     /// @brief Shut down font rendering.
     void Shutdown()
@@ -104,33 +73,39 @@ static bool s_ok;
         return;
     s_ok = false;
     for (int i = 0; i < 3; i++) {
-        if (s_at[i].ok) {
-            s_at[i].ok = false;
-            if (s_at[i].mem)
-                dkMemBlockDestroy(s_at[i].mem);
-            s_at[i].mem = 0;
-        }
+        s_at[i].ok = false;
+        Gfx::TexFree(s_at[i].slot);
+        s_at[i].slot = -1;
     }
 }
 
     /// @brief Initialize font atlases and text buffers.
     /// @return True on success.
+    int Slot(int buf)
+{
+    if (buf < 0 || buf > 2 || !s_at[buf].ok)
+        return -1;
+    return s_at[buf].slot;
+}
+
     bool Init()
 {
     static const float big[] = { 64.0f, 56.0f, 48.0f, 40.0f };
     static const float sml[] = { 48.0f, 40.0f, 32.0f };
     s_at[0].first = 32;
     s_at[0].count = 224;
-    s_at[0].slot = FONT_SLOT_LATIN;
+    s_at[0].slot = Gfx::TexAlloc();
     s_at[0].ok = false;
     s_at[1].first = 0x3040;
     s_at[1].count = 192;
-    s_at[1].slot = FONT_SLOT_KANA;
+    s_at[1].slot = Gfx::TexAlloc();
     s_at[1].ok = false;
     s_at[2].first = 0xE000;
     s_at[2].count = 512;
-    s_at[2].slot = FONT_SLOT_ICON;
+    s_at[2].slot = Gfx::TexAlloc();
     s_at[2].ok = false;
+    if (s_at[0].slot < 0 || s_at[1].slot < 0 || s_at[2].slot < 0)
+        return false;
     if (!BakeOne(&s_at[0], font_otf, big, 4))
         return false;
     if (!UploadOne(&s_at[0]))
@@ -139,7 +114,6 @@ static bool s_ok;
         UploadOne(&s_at[1]);
     if (BakeOne(&s_at[2], switch_icons_ttf, sml, 3))
         UploadOne(&s_at[2]);
-    Gfx::WriteSamplerDesc();
     s_ok = true;
     return true;
 }
@@ -152,14 +126,12 @@ static bool s_ok;
     /// @return True on success.
     static bool RebakeOne(Atlas *a, const uint8_t *file, const float *heights,
                         int nHeights)
-{
-    if (!BakeOne(a, file, heights, nHeights))
-        return false;
-    memcpy(dkMemBlockGetCpuAddr(a->mem), s_scratch,
-           (size_t)FONT_ATLAS_W * (size_t)FONT_ATLAS_H);
-    Gfx::WriteImageDesc(a->slot, &a->view);
-    return true;
-}
+    {
+        if (!BakeOne(a, file, heights, nHeights))
+            return false;
+        return Gfx::TexUpload(a->slot, s_scratch, FONT_ATLAS_W, FONT_ATLAS_H,
+                            Gfx::TexFormat::R8);
+    }
 
     /// @brief Reload system fonts (theme/content change).
     void Refresh()
@@ -171,7 +143,6 @@ static bool s_ok;
     RebakeOne(&s_at[0], font_otf, big, 4);
     RebakeOne(&s_at[1], font_otf, big, 4);
     RebakeOne(&s_at[2], switch_icons_ttf, sml, 3);
-    Gfx::WriteSamplerDesc();
 }
 
     /// @brief Whether font rendering is usable.
@@ -263,6 +234,7 @@ static bool s_ok;
         float before = pen;
         float xpos = pen;
         float ypos = y;
+        int buf = (int)(a - s_at); /* text buffer, not texture slot */
         stbtt_aligned_quad q;
         stbtt_GetBakedQuad(a->g, FONT_ATLAS_W, FONT_ATLAS_H,
                            (int)(cp - (unsigned)a->first), &xpos, &ypos,
@@ -273,7 +245,7 @@ static bool s_ok;
         float y1 = y + (q.y1 - y) * scale;
         pen = before + (xpos - before) * scale;
         if (!dry && x1 > x0 && y1 > y0)
-            Gfx::PushText(a->slot, x0, y0, x1, y1, q.s0, q.t0, q.s1, q.t1,
+            Gfx::PushText(buf, x0, y0, x1, y1, q.s0, q.t0, q.s1, q.t1,
                           r, g, b);
     }
     return pen;

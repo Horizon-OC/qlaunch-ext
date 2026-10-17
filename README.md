@@ -16,9 +16,13 @@ path=(the path of the menu)
 
 By default sdmc:/qlaunch-ext/menus/menu.dnro is booted.
 
+Menus have neko3d or SDL3 available to them, and the stock menu uses SDL3
+So it is your choice which one to use, and you can interact with neko3d even when using SDL3 (as SDL3 uses neko3d as backend)
+
 ## Theming
 
-TODO
+You have two options: Create your own menu, or theme a existing menu
+Theming is implementation defined, but the default menu does support it to a degree.
 
 ## Plugins
 
@@ -39,6 +43,17 @@ TODO
 ## Homebrew support
 This is only officially supported on FW >16.0.0
 All homebrew should be supported.
+
+## Troubleshooting
+Ensure all DNROs in lib/ folder are present:
+json.dnro
+miniini.dnro
+neko3d.dnro
+sdl3.dnro
+xxhash.dnro 
+
+And ensure that the loader nsp is present, and your menu's dnro is present
+No support will be provided for 3rd party menus unless their developers have explicitly found a backend issue
 
 ## Credits
 

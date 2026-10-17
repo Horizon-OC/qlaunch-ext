@@ -72,13 +72,26 @@ extern const uint32_t marker_sheet_png_size;
 namespace Icons {
 static Entry entries_[ICONS_MAX];
 static u64 s_seq = 0;
-static DkMemBlock hudMem_[HUD_COUNT] = { 0 };
-static DkImage hudImg_[HUD_COUNT];
 static bool hudOk_[HUD_COUNT] = { false };
 static int hudTex_[HUD_COUNT] = { 0 };
 } /* namespace Icons */
 
 namespace {
+
+static bool s_slotsInit = false;
+
+/// @brief One-time slot init (-1 = owns nothing). Zero-init would read
+/// as slot 0, which the manager may have handed to someone else.
+static void EnsureSlots()
+{
+    if (s_slotsInit)
+        return;
+    s_slotsInit = true;
+    for (int i = 0; i < ICONS_MAX; i++)
+        Icons::entries_[i].slot = -1;
+    for (int i = 0; i < HUD_COUNT; i++)
+        Icons::hudTex_[i] = -1;
+}
 
 /* NOTE: dont make these static pointer tables otherwise there will be crashes due to relocation stuff */
 const uint8_t *HudPng(int i)
@@ -209,14 +222,11 @@ static uint8_t *Downscale(uint8_t *px, int *w, int *h)
                 uint8_t *px = stbi_load_from_memory(
                     jpg, got, &w, &h, NULL, 4);
                 if (px && w > 0 && h > 0 && w <= 1024 && h <= 1024) {
-                    if (e->slot <= 2)
+                    if (e->slot < 0)
                         e->slot = Gfx::TexAlloc();
-                    if (e->slot >= 3 && Icons::Upload(e, px, w, h)) {
+                    if (e->slot >= 0 && Icons::Upload(e, px, w, h)) {
                         e->tid = tid;
                         e->used = true;
-                        DkImageView uv;
-                        dkImageViewDefaults(&uv, &e->img);
-                        Gfx::WriteImageDesc(e->slot, &uv);
                         free(jpg);
                         if (px)
                             stbi_image_free(px);
@@ -238,6 +248,7 @@ static uint8_t *Downscale(uint8_t *px, int *w, int *h)
 
 bool Icons::InitHud()
 {
+    EnsureSlots();
     bool any = false;
     for (int i = 0; i < HUD_COUNT; i++) {
         if (hudOk_[i])
@@ -272,71 +283,29 @@ bool Icons::InitHud()
                 stbi_image_free(px);
             continue;
         }
-        DkDevice dev = Gfx::Device();
-        DkImageLayoutMaker lm;
-        dkImageLayoutMakerDefaults(&lm, dev);
-        lm.flags = DkImageFlags_PitchLinear;
-        lm.format = DkImageFormat_RGBA8_Unorm;
-        lm.dimensions[0] = (uint32_t)w;
-        lm.dimensions[1] = (uint32_t)h;
-        DkImageLayout lay;
-        dkImageLayoutInitialize(&lay, &lm);
-        uint32_t sz = dkImageLayoutGetSize(&lay);
-        uint32_t al = dkImageLayoutGetAlignment(&lay);
-        sz = (sz + al - 1) & ~(al - 1);
-        sz = (sz + 0xFFFu) & ~0xFFFu;
-        DkMemBlockMaker mm;
-        dkMemBlockMakerDefaults(&mm, dev, sz);
-        mm.flags = DkMemBlockFlags_CpuUncached | DkMemBlockFlags_GpuCached | DkMemBlockFlags_Image;
-        DkMemBlock mem = dkMemBlockCreate(&mm);
-        if (!mem) {
-            stbi_image_free(px);
-            continue;
-        }
-    {
-        uint32_t rowBytes = (uint32_t)w * 4u;
-        uint32_t imgSize = dkImageLayoutGetSize(&lay);
-        uint32_t pitch = h > 0 ? imgSize / (uint32_t)h : 0;
-        uint8_t *dst = (uint8_t *)dkMemBlockGetCpuAddr(mem);
-        if (pitch == rowBytes) {
-            memcpy(dst, px, (size_t)rowBytes * (size_t)h);
-        } else if (pitch > rowBytes && imgSize == pitch * (uint32_t)h) {
-            for (int yy = 0; yy < h; yy++)
-                memcpy(dst + (size_t)yy * pitch, px + (size_t)yy * rowBytes, rowBytes);
-        } else {
-            memcpy(dst, px, (size_t)rowBytes * (size_t)h);
-        }
-    }
-        stbi_image_free(px);
-        if (hudTex_[i] <= 2) {
+        if (hudTex_[i] < 0) {
             hudTex_[i] = Gfx::TexAlloc();
             if (hudTex_[i] < 0) {
                 stbi_image_free(px);
-                dkMemBlockDestroy(mem);
                 continue;
             }
         }
-        dkImageInitialize(&hudImg_[i], &lay, mem, 0);
-        hudMem_[i] = mem;
-        DkImageView view;
-        dkImageViewDefaults(&view, &hudImg_[i]);
-        Gfx::WriteImageDesc(hudTex_[i], &view);
+        if (!Gfx::TexUpload(hudTex_[i], px, w, h, Gfx::TexFormat::RGBA)) {
+            stbi_image_free(px);
+            continue;
+        }
+        stbi_image_free(px);
         hudOk_[i] = true;
         any = true;
     }
-    Gfx::WriteSamplerDesc();
     return any;
 }
 
 void Icons::ResetHud()
 {
+    EnsureSlots();
     for (int i = 0; i < HUD_COUNT; i++) {
-        if (hudMem_[i]) {
-            Gfx::WaitIdle();
-            dkMemBlockDestroy(hudMem_[i]);
-            hudMem_[i] = 0;
-            hudOk_[i] = false;
-        }
+        hudOk_[i] = false;
         Gfx::TexFree(hudTex_[i]);
         hudTex_[i] = -1;
     }
@@ -344,6 +313,7 @@ void Icons::ResetHud()
 
 int Icons::HudSlot(int which)
 {
+    EnsureSlots();
     if (which < 0 || which >= HUD_COUNT || !hudOk_[which])
         return -1;
     return hudTex_[which];
@@ -351,51 +321,21 @@ int Icons::HudSlot(int which)
 
 bool Icons::Upload(Icons::Entry *e, const uint8_t *rgba, int w, int h)
 {
-    DkDevice dev = Gfx::Device();
-    DkImageLayoutMaker lm;
-    dkImageLayoutMakerDefaults(&lm, dev);
-    lm.flags = DkImageFlags_PitchLinear;
-    lm.format = DkImageFormat_RGBA8_Unorm;
-    lm.dimensions[0] = (uint32_t)w;
-    lm.dimensions[1] = (uint32_t)h;
-    DkImageLayout lay;
-    dkImageLayoutInitialize(&lay, &lm);
-    uint32_t sz = dkImageLayoutGetSize(&lay);
-    uint32_t al = dkImageLayoutGetAlignment(&lay);
-    sz = (sz + al - 1) & ~(al - 1);
-    sz = (sz + 0xFFFu) & ~0xFFFu; /* neko3d needs 4K-multiple blocks */
-
-    DkMemBlockMaker mm;
-    dkMemBlockMakerDefaults(&mm, dev, sz);
-    mm.flags = DkMemBlockFlags_CpuUncached | DkMemBlockFlags_GpuCached | DkMemBlockFlags_Image;
-    DkMemBlock mem = dkMemBlockCreate(&mm);
-    if (!mem)
+    if (!rgba || w <= 0 || h <= 0 || w > 1024 || h > 1024)
         return false;
-
-    {
-        uint32_t rowBytes = (uint32_t)w * 4u;
-        uint32_t imgSize = dkImageLayoutGetSize(&lay);
-        uint32_t pitch = h > 0 ? imgSize / (uint32_t)h : 0;
-        uint8_t *dst = (uint8_t *)dkMemBlockGetCpuAddr(mem);
-        if (pitch == rowBytes) {
-            memcpy(dst, rgba, (size_t)rowBytes * (size_t)h);
-        } else if (pitch > rowBytes && imgSize == pitch * (uint32_t)h) {
-            for (int yy = 0; yy < h; yy++)
-                memcpy(dst + (size_t)yy * pitch, rgba + (size_t)yy * rowBytes, rowBytes);
-        } else {
-            memcpy(dst, rgba, (size_t)rowBytes * (size_t)h);
-        }
+    EnsureSlots();
+    if (e->slot < 0) {
+        e->slot = Gfx::TexAlloc();
+        if (e->slot < 0)
+            return false;
     }
-    dkImageInitialize(&e->img, &lay, mem, 0);
-    e->mem = mem;
-    return true;
+    return Gfx::TexUpload(e->slot, rgba, w, h, Gfx::TexFormat::RGBA);
 }
 
 void Icons::Free(Icons::Entry *e)
 {
+    EnsureSlots();
     if (e->used) {
-        Gfx::WaitIdle();
-        dkMemBlockDestroy(e->mem);
         e->used = false;
         e->tid = 0;
     }
@@ -405,14 +345,11 @@ void Icons::Free(Icons::Entry *e)
 
 void Icons::FreeAll()
 {
+    EnsureSlots();
     for (int i = 0; i < ICONS_MAX; i++)
         Free(&entries_[i]);
     for (int i = 0; i < HUD_COUNT; i++) {
-        if (hudMem_[i]) {
-            dkMemBlockDestroy(hudMem_[i]);
-            hudMem_[i] = 0;
-            hudOk_[i] = false;
-        }
+        hudOk_[i] = false;
         Gfx::TexFree(hudTex_[i]);
         hudTex_[i] = -1;
     }

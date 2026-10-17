@@ -1,8 +1,5 @@
 /* qlaunch-ext xxhash-module (C) 2026 Souldbminer */
 /* Licensed under the GPLv2                 */
-/* Shared hashing for menus and plugins. xxHash itself lives in
- * extern/xxhash (BSD-2-Clause, unmodified) and is inlined here, so
- * this module only exports the two thin wrappers below. */
 
 #define XXH_INLINE_ALL
 #include <xxhash.h>

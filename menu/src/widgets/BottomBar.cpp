@@ -90,8 +90,8 @@ namespace WBottomBar {
                 } else {
                     int slot = (i == 0) ? IconSlot(HUD_FOLDER) : IconSlot(HUD_VGCCARD);
 
-                    if (slot > 0) {
-                        Gfx::PushIcon(cx, y + 8.0f, size, size, 16.0f, 1.0f, 1.0f, 1.0f, 0.0f, slot);
+                    if (Gfx::TexValid(slot)) {
+                        Gfx::PushIcon(cx, y + 8.0f, size, size, 16.0f, 16.0f, 16.0f, 16.0f, 1.0f, 1.0f, 1.0f, 0.0f, slot);
                     }
                 }
 

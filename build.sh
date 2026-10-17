@@ -16,11 +16,29 @@ if [ -z "${DEVKITPRO:-}" ]; then
     fi
 fi
 
-# lib/neko3d-module cannot rebuild from scratch in this tree (its sources reference
-# generated headers that are not present); its binary never changes, so only
-# build it when the artifact is missing.
-if [ ! -f "$ROOT/lib/neko3d-module/neko3d.dnro" ]; then
-    make -C "$ROOT/lib/neko3d-module" -j"$(nproc)"
+NEKOMOD="$ROOT/extern/SDL-dlink/extern/neko3d/neko3d-module"
+NEKOSRC="$ROOT/extern/SDL-dlink/extern/neko3d"
+
+# newer <target> <roots...>: true when target is missing or any file under
+# roots is newer. Pure mtime vs real artifacts (no state files), so slow
+# no-op makes are skipped. Caveat shared with SDL's build.sh: after
+# *deleting* a source, force with a clean of that module's build dir.
+newer() {
+    tgt=$1; shift
+    [ -e "$tgt" ] || return 0
+    roots=""
+    for r in "$@"; do
+        [ -e "$r" ] && roots="$roots $r"
+    done
+    [ -z "$roots" ] && return 1
+    # unquoted roots: intentional word splitting into find roots
+    # shellcheck disable=SC2086
+    [ -n "$(find $roots -newer "$tgt" -print -quit 2>/dev/null)" ]
+}
+
+if newer "$NEKOMOD/neko3d.dnro" "$NEKOMOD/Makefile" "$NEKOMOD/stub" \
+        "$NEKOSRC/source" "$NEKOSRC/include"; then
+    make -C "$NEKOMOD" -j"$(nproc)"
 fi
 # Shared INI parser for plugins (tiny, always rebuilt).
 make -C "$ROOT/lib/miniini-module" -j"$(nproc)"
@@ -42,15 +60,36 @@ if [ -d "$ROOT/plugins" ]; then
 fi
 
 # NRO payload
-make -C "$ROOT/loader/nroloader" -j"$(nproc)"
+if newer "$ROOT/loader/nroloader/nroloader.nsp" "$ROOT/loader/nroloader/src" \
+        "$ROOT/loader/nroloader/Makefile" "$ROOT/loader/nroloader/nroloader.json"; then
+    make -C "$ROOT/loader/nroloader" -j"$(nproc)"
+fi
 make -C "$ROOT/loader" -j"$(nproc)"
+HOST_ELF="$ROOT/loader/loader.elf" sh "$ROOT/extern/SDL-dlink/build.sh"
 
 NM="$DEVKITPRO/devkitA64/bin/aarch64-none-elf-nm"
+# Menu ABI check: every menu import (including SDL_*) must resolve from the
+# loader, sdl3, neko3d, or the lib modules. A menu that imports what nobody
+# provides dies at dlopen with a bare dlink COULD_NOT_RESOLVE.
+"$NM" -D -u "$ROOT/menu/menu.elf" | awk "{print \$NF}" | sort -u > "$ROOT/build.menuneed"
+{ "$NM" -D --defined-only "$ROOT/loader/loader.elf" | awk "{print \$NF}"
+  cat "$ROOT/extern/SDL-dlink/dnro/sdl3.def" "$NEKOMOD/neko3d.def" \
+      "$ROOT/lib/miniini-module/miniini.def" "$ROOT/lib/json-module/json.def" \
+      "$ROOT/lib/xxhash-module/xxhash.def"
+} | tr -d '\r' | sort -u > "$ROOT/build.menuhave"
+MMISSING=$(comm -23 "$ROOT/build.menuneed" "$ROOT/build.menuhave" || true)
+rm -f "$ROOT/build.menuneed" "$ROOT/build.menuhave"
+if [ -n "$MMISSING" ]; then
+    echo "error: $ROOT/menu/menu.elf bad imports:" >&2
+    echo "$MMISSING" >&2
+    exit 1
+fi
+echo "menu import check passed"
 for p in "$ROOT"/plugins/*/*.elf; do
     [ -f "$p" ] || continue
     "$NM" -D -u "$p" | awk "{print \$NF}" | sort -u > "$ROOT/build.plugneed"
     { "$NM" -D --defined-only "$ROOT/loader/loader.elf" | awk "{print \$NF}"
-      cat "$ROOT/lib/neko3d-module/neko3d.def" "$ROOT/lib/miniini-module/miniini.def" \
+      cat "$NEKOMOD/neko3d.def" "$ROOT/lib/miniini-module/miniini.def" \
           "$ROOT/lib/json-module/json.def" "$ROOT/lib/xxhash-module/xxhash.def"
     } | sort -u > "$ROOT/build.plughave"
     PMISSING=$(comm -23 "$ROOT/build.plugneed" "$ROOT/build.plughave" || true)
@@ -70,7 +109,8 @@ rm -rf "$PKG/switch"
 rm -rf "$PKG/sdroot"
 mkdir -p "$PKG/qlaunch-ext/plugins"
 cp "$ROOT/loader/loader.nsp" "$DEST/exefs.nsp"
-cp "$ROOT/lib/neko3d-module/neko3d.dnro" "$PKG/lib/neko3d.dnro"
+cp "$NEKOMOD/neko3d.dnro" "$PKG/lib/neko3d.dnro"
+cp "$ROOT/extern/SDL-dlink/dist/lib/sdl3.dnro" "$PKG/lib/sdl3.dnro"
 cp "$ROOT/lib/miniini-module/miniini.dnro" "$PKG/lib/miniini.dnro"
 cp "$ROOT/lib/json-module/json.dnro" "$PKG/lib/json.dnro"
 cp "$ROOT/lib/xxhash-module/xxhash.dnro" "$PKG/lib/xxhash.dnro"

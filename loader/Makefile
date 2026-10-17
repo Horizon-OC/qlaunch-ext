@@ -58,8 +58,9 @@ CXXFLAGS	:= $(CFLAGS) -fno-rtti -fno-exceptions
 
 ASFLAGS	:=	-g $(ARCH)
 comma := ,
-NEKO_UNDEFS := $(shell cat $(TOPDIR)/../lib/neko3d-module/neko3d.undef 2>/dev/null)
-NEKO_DEFS := $(shell cat $(TOPDIR)/../lib/neko3d-module/neko3d.def 2>/dev/null)
+NEKOMOD := $(TOPDIR)/../extern/SDL-dlink/extern/neko3d/neko3d-module
+NEKO_UNDEFS := $(shell cat $(NEKOMOD)/neko3d.undef 2>/dev/null)
+NEKO_DEFS := $(shell cat $(NEKOMOD)/neko3d.def 2>/dev/null)
 MENU_UNDEFS := $(shell cat $(TOPDIR)/../menu/menu.undef 2>/dev/null)
 # FIXED loader ABI: every libc/libm leaf any menu build (past or future) may
 # import, independent of menu.undef. The loader never needs a relink for menu
@@ -225,12 +226,18 @@ $(OUTPUT).nso	:	$(OUTPUT).elf
 
 endif
 
-.PHONY: dlink-lib
-dlink-lib:
+# File target (not phony): rebuilds libdlink.a only when its sources are
+# newer, so the loader doesn't relink on every no-op build. Pin changes bump
+# mtimes, which the wildcard sources below catch.
+DLINK_LIB := $(TOPDIR)/../extern/libnx-dlink/lib/libdlink.a
+DLINK_SRC := $(wildcard $(TOPDIR)/../extern/libnx-dlink/lib/dlink/*) \
+	$(wildcard $(TOPDIR)/../extern/libnx-dlink/include/dlink/*) \
+	$(TOPDIR)/../extern/libnx-dlink/Makefile
+$(DLINK_LIB): $(DLINK_SRC)
 	@$(MAKE) -C $(TOPDIR)/../extern/libnx-dlink
 
 # menu.undef feeds HOST_NEEDS (-u); relink the loader whenever the menu adds imports.
-$(OUTPUT).elf	:	$(OFILES) dlink-lib $(TOPDIR)/../menu/menu.undef
+$(OUTPUT).elf	:	$(OFILES) $(DLINK_LIB) $(TOPDIR)/../menu/menu.undef
 
 $(OFILES_SRC)	: $(HFILES_BIN)
 

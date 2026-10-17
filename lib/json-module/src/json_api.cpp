@@ -1,12 +1,5 @@
 /* qlaunch-ext json-module (C) 2026 Souldbminer */
 /* Licensed under the GPLv2                 */
-/* Shared JSON reads for menus and plugins: stateless C ABI over
- * nlohmann/json (vendored in extern/json, MIT). Values are addressed
- * with RFC 6901 JSON pointers ("/tabs/0/id"); every call parses its
- * input fresh, so there are no handles, no lifetimes and no shared
- * mutable state. Never throws: syntax errors yield defaults (parse
- * runs with exceptions disabled), pointers are pre-validated, and
- * every access is type-guarded. */
 
 #include <nlohmann/json.hpp>
 #include <cstring>
