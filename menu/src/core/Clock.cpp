@@ -12,6 +12,10 @@ namespace Clock {
 static char s_clock[40] = "--:--"; static char s_time[16] = "--:--"; static char s_ampm[4] = "--";
 static char s_date[16] = "--/--";
 static unsigned s_batt = 100;
+static int s_charging = -1;
+static int s_wifi = -1;
+static int s_net = -1;
+static int s_plane = -1;
 
     /// @brief Poll system time and battery state into the cache.
     void Tick()
@@ -39,6 +43,14 @@ static unsigned s_batt = 100;
     int pct = qext_battery_percent();
     if (pct >= 0 && pct <= 100)
         s_batt = (unsigned)pct;
+    int chg = qext_battery_charging();
+    s_charging = (chg < 0) ? -1 : (chg > 0 ? 1 : 0);
+    int sig = qext_wifi_signal();
+    s_wifi = (sig < -1 || sig > 3) ? -1 : sig;
+    int net = qext_connection_type();
+    s_net = (net < 0 || net > 2) ? -1 : net;
+    int pl = qext_airplane_mode();
+    s_plane = (pl < 0) ? -1 : (pl > 0 ? 1 : 0);
 }
 
     /// @brief Give the cached date/time string.
@@ -60,6 +72,23 @@ static unsigned s_batt = 100;
     /// @brief Give the cached battery percentage.
     /// @return 0-100, or >100 when unknown.
     unsigned Batt() { return s_batt; }
+
+    /// @brief Whether the battery is charging.
+    /// @return 1 when charging, 0 when not, < 0 when unknown.
+    int Charging() { return s_charging; }
+
+    /// @brief Give the cached WiFi signal level.
+    /// @return 0 when not connected, 1-3 bars when connected,
+    /// < 0 when unknown.
+    int Wifi() { return s_wifi; }
+
+    /// @brief Give the cached connection type.
+    /// @return QEXT_NET_* code, or < 0 when unknown.
+    int NetType() { return s_net; }
+
+    /// @brief Whether airplane mode is on.
+    /// @return 1 when on, 0 when off, < 0 when unknown.
+    int Plane() { return s_plane; }
 
 } /* namespace Clock */
 

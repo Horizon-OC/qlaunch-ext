@@ -71,6 +71,7 @@ struct AppState {
     unsigned frame;
     unsigned holdFrames;
     unsigned tick;
+    float videoOsdAt; /* menu time the video OSD was last shown */
 };
 
 namespace App {
@@ -261,6 +262,13 @@ namespace App {
     /// @brief Give menu time in seconds (60Hz ticks).
     /// @return Seconds.
     float Time();
+
+    /// @brief Give the menu time the video OSD was last shown.
+    /// @return Seconds (Time base).
+    float VideoOsdAt();
+
+    /// @brief Stamp the video OSD timer to now.
+    void TouchVideoOsd();
 
     /// @brief Clamp selection by delta, clearing top focus.
     /// @param delta Signed step.

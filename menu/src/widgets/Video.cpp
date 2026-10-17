@@ -5,6 +5,7 @@
 #include "Widgets.hpp"
 #include "../core/Gfx.hpp"
 #include "../core/Font.hpp"
+#include "../core/App.hpp"
 #include "../core/Sfx.hpp"
 #include "../core/Qext.hpp"
 #include <string.h>
@@ -34,7 +35,6 @@ namespace WVideo {
     static bool s_fresh = false;
     static int s_rep = 0;
     static int s_idx = -1;
-    static u64 s_osdAt = 0;
 
     static AVFormatContext *s_fmt = 0;
     static AVCodecContext *s_vctx = 0;
@@ -976,7 +976,7 @@ namespace WVideo {
         s_open = true;
         s_fresh = true;
         s_rep = 0;
-        s_osdAt = NowTicks();
+        App::TouchVideoOsd();
 
         return true;
     }
@@ -1206,8 +1206,8 @@ namespace WVideo {
     /// @brief Draw the playback hints
     static void DrawOsd()
     {
-        double idle = (double)(NowTicks() - s_osdAt) / 1e9;
-        float a = idle < 3.0 ? 1.0f : 1.0f - (float)((idle - 3.0) / 0.5);
+        float idle = App::Time() - App::VideoOsdAt();
+        float a = idle < 3.0f ? 1.0f : 1.0f - (idle - 3.0f) / 0.5f;
 
         if (a <= 0.0f) {
             return;
@@ -1258,7 +1258,7 @@ namespace WVideo {
         }
 
         if (down) {
-            s_osdAt = NowTicks();
+            App::TouchVideoOsd();
         }
 
         if (s_fresh) {

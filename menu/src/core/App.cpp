@@ -6,6 +6,7 @@
 #include "Gfx.hpp"
 #include "Font.hpp"
 #include "Icons.hpp"
+#include "HudAssets.hpp"
 #include "Theme.hpp"
 #include "Layout.hpp"
 #include "Clock.hpp"
@@ -206,6 +207,7 @@ namespace App {
             st.home.eshopNews = false;
             st.home.friendSel = 0;
             st.launchBlack = false;
+            st.videoOsdAt = -100.0f;
             st.frame = 0;
             st.holdFrames = 0;
             WPrompt::Close();
@@ -257,7 +259,7 @@ namespace App {
         }
 
         logging::LogLine("[menu] build %s %s", __DATE__, __TIME__);
-        Icons::InitHud();
+        Icons::InitHud(HudAssets::kDefs, HudAssets::kCount);
 
         Tabs::RegisterBuiltin();
 
@@ -997,6 +999,19 @@ namespace App {
     float Time()
     {
         return (float)s_state.tick / 60.0f;
+    }
+
+    /// @brief Give the menu time the video OSD was last shown.
+    /// @return Seconds (Time base).
+    float VideoOsdAt()
+    {
+        return s_state.videoOsdAt;
+    }
+
+    /// @brief Stamp the video OSD timer to now.
+    void TouchVideoOsd()
+    {
+        s_state.videoOsdAt = Time();
     }
 
 } /* namespace App */

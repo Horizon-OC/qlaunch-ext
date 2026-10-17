@@ -501,6 +501,7 @@ extern "C" void __appInit(void)
     nssuInitialize();
     avmInitialize();
     psmInitialize();
+    nifmInitialize(NifmServiceType_System);
     lblInitialize();
     hidInitialize();
     Result mnt = fsdevMountSdmc();
@@ -540,6 +541,7 @@ extern "C" void __appExit(void)
     viExit();
     hidExit();
     lblExit();
+    nifmExit();
     psmExit();
     avmExit();
     nssuExit();

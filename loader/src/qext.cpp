@@ -159,5 +159,9 @@ extern "C" int qext_account_image(AccountUid u, void *o, unsigned c) { return sy
 extern "C" Result qext_time_now(u64 *t) { return sysinfo::TimeNow(t); }
 extern "C" Result qext_time_calendar(u64 ts, TimeCalendarTime *c, TimeCalendarAdditionalInfo *i) { return sysinfo::TimeCalendar(ts, c, i); }
 extern "C" int qext_battery_percent(void) { return sysinfo::BatteryPercent(); }
+extern "C" int qext_battery_charging(void) { return sysinfo::BatteryCharging(); }
+extern "C" int qext_wifi_signal(void) { return sysinfo::WifiSignal(); }
+extern "C" int qext_airplane_mode(void) { return sysinfo::AirplaneMode(); }
+extern "C" int qext_connection_type(void) { return sysinfo::ConnectionType(); }
 extern "C" ColorSetId qext_colorset(void) { return sysinfo::ColorSet(); }
 extern "C" int qext_account_uid_valid(AccountUid u) { return sysinfo::AccountUidValid(u); }

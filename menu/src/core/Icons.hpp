@@ -10,25 +10,29 @@
    fallback tiles until scrolling brings them near the focus. */
 constexpr int ICONS_MAX = 16;
 
-constexpr int HUD_WIFI = 0;
-constexpr int HUD_BATTERY = 1;
-constexpr int HUD_USER = 2;
-constexpr int HUD_BTN_A = 3;
-constexpr int HUD_BTN_PLUS = 4;
-constexpr int HUD_FOLDER = 5;
-constexpr int HUD_VGCCARD = 6;
-constexpr int HUD_TOPSEL_HOME = 7;
-constexpr int HUD_TOPSEL_CONNECT = 8;
-constexpr int HUD_TOPSEL_ESHOP = 9;
-constexpr int HUD_TOPSEL_ALBUM = 10;
-constexpr int HUD_TOPSEL_SETTINGS = 11;
-constexpr int HUD_TOPDES_HOME = 12;
-constexpr int HUD_TOPDES_CONNECT = 13;
-constexpr int HUD_TOPDES_ESHOP = 14;
-constexpr int HUD_TOPDES_ALBUM = 15;
-constexpr int HUD_TOPDES_SETTINGS = 16;
-constexpr int HUD_MARKER_STRIP = 17;
-constexpr int HUD_COUNT = 18;
+constexpr int HUD_USER = 0;
+constexpr int HUD_BTN_A = 1;
+constexpr int HUD_BTN_PLUS = 2;
+constexpr int HUD_FOLDER = 3;
+constexpr int HUD_VGCCARD = 4;
+constexpr int HUD_TOPSEL_HOME = 5;
+constexpr int HUD_TOPSEL_CONNECT = 6;
+constexpr int HUD_TOPSEL_ESHOP = 7;
+constexpr int HUD_TOPSEL_ALBUM = 8;
+constexpr int HUD_TOPSEL_SETTINGS = 9;
+constexpr int HUD_TOPDES_HOME = 10;
+constexpr int HUD_TOPDES_CONNECT = 11;
+constexpr int HUD_TOPDES_ESHOP = 12;
+constexpr int HUD_TOPDES_ALBUM = 13;
+constexpr int HUD_TOPDES_SETTINGS = 14;
+constexpr int HUD_MARKER_STRIP = 15;
+constexpr int HUD_WIFI_0 = 16;
+constexpr int HUD_WIFI_1 = 17;
+constexpr int HUD_WIFI_2 = 18;
+constexpr int HUD_WIFI_3 = 19;
+constexpr int HUD_WIFI_NONE = 20;
+constexpr int HUD_AIRPLANE = 21;
+constexpr int HUD_COUNT = 22;
 
 struct IconReq {
     u64 tid;
@@ -36,6 +40,14 @@ struct IconReq {
 };
 
 namespace Icons {
+    /// @brief One HUD icon asset for the engine to decode and upload.
+    /// New icons only need a row in the caller's table (index = HUD_* id).
+    struct HudDef {
+        const uint8_t *png;   ///< PNG bytes (bin2s symbol).
+        const uint32_t *size; ///< PNG byte size (bin2s symbol).
+        bool noInvert;        ///< Keep native colors on dark themes.
+    };
+
     /// @brief Sync title icon slots for the given title ids.
     /// Rows nearest the focus are preferred, so the visible window
     /// owns the fixed budget and scrolling rebalances it. Uncached
@@ -53,9 +65,11 @@ namespace Icons {
     /// @brief Drop cached HUD icons (theme change).
     void ResetHud();
 
-    /// @brief Load HUD icons for the current theme.
-    /// @return True on success.
-    bool InitHud();
+    /// @brief Load HUD icons for the current theme from a caller table.
+    /// @param defs Asset table (index = HUD_* id), or null for none.
+    /// @param count Table length (clamped to HUD_COUNT).
+    /// @return True when at least one icon loaded.
+    bool InitHud(const HudDef *defs, int count);
 
     /// @brief Look up a HUD icon slot.
     /// @param which HUD_* id.

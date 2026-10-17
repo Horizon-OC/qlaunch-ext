@@ -3,6 +3,7 @@
 /* Pain... and suffering.           */
 
 #include "sysinfo.hpp"
+#include <shared/logging.hpp>
 
 namespace sysinfo {
 
@@ -72,6 +73,72 @@ int BatteryPercent()
     if (R_FAILED(psmGetBatteryChargePercentage(&pct)) || pct > 100)
         return -1;
     return (int)pct;
+}
+
+int BatteryCharging()
+{
+    PsmChargerType type = PsmChargerType_Unconnected;
+    Result rc = psmGetChargerType(&type);
+    int chg = -1;
+
+    if(R_SUCCEEDED(rc)) {
+        chg = (type == PsmChargerType_EnoughPower || type == PsmChargerType_LowPower) ? 1 : 0;
+    }
+
+    return chg;
+}
+
+int WifiSignal()
+{
+    NifmInternetConnectionType type = (NifmInternetConnectionType)0;
+    u32 obars = 0;
+    NifmInternetConnectionStatus status = (NifmInternetConnectionStatus)0;
+    Result rc = nifmGetInternetConnectionStatus(&type, &obars, &status);
+
+    int bars = -1;
+
+    if (R_SUCCEEDED(rc)) {
+        if (status == NifmInternetConnectionStatus_Connected &&
+            type == NifmInternetConnectionType_WiFi) {
+            bars = (obars > 3) ? 3 : (int)obars;
+        } else {
+            bars = 0;
+        }
+    }
+
+    return bars;
+}
+
+int AirplaneMode()
+{
+    bool enabled = true;
+    if (R_FAILED(nifmIsWirelessCommunicationEnabled(&enabled)))
+        return -1;
+    return enabled ? 0 : 1;
+}
+
+int ConnectionType()
+{
+    NifmInternetConnectionType type = (NifmInternetConnectionType)0;
+    u32 bars = 0;
+    NifmInternetConnectionStatus status = (NifmInternetConnectionStatus)0;
+    Result rc = nifmGetInternetConnectionStatus(&type, &bars, &status);
+
+    int conn = -1;
+
+    if (R_SUCCEEDED(rc)) {
+        if (status != NifmInternetConnectionStatus_Connected)
+            conn = 0;
+        else if (type == NifmInternetConnectionType_Ethernet)
+            conn = 2;
+        else if (type == NifmInternetConnectionType_WiFi)
+            conn = 1;
+        else
+            conn = 0;
+    }
+
+
+    return conn;
 }
 
 ColorSetId ColorSet()

@@ -80,11 +80,8 @@ namespace WBottomBar {
                     char pw[4] = { 0 };
                     GlyphUTF8(GLYPH_POWER, pw);
                     float pwW = Font::Measure(pw, 52.0f);
-                    float pr = inkR, pg = inkG, pb = inkB;
-
-                    if (Theme::IsDark()) {
-                        pr = pg = pb = 1.0f;
-                    }
+                    float pr, pg, pb;
+                    Theme::Color("icon", &pr, &pg, &pb);
 
                     Font::Draw(pw, cx + (size - pwW) * 0.5f, y + size * 0.5f + 18.0f, 52.0f, pr, pg, pb);
                 } else {

@@ -27,4 +27,21 @@ namespace Clock {
     /// @brief Give the cached battery percentage.
     /// @return 0-100, or >100 when unknown.
     unsigned Batt();
+
+    /// @brief Whether the battery is charging.
+    /// @return 1 when charging, 0 when not, < 0 when unknown.
+    int Charging();
+
+    /// @brief Give the cached WiFi signal level.
+    /// @return 0 when not connected, 1-3 bars when connected,
+    /// < 0 when unknown.
+    int Wifi();
+
+    /// @brief Give the cached connection type.
+    /// @return QEXT_NET_* code, or < 0 when unknown.
+    int NetType();
+
+    /// @brief Whether airplane mode is on.
+    /// @return 1 when on, 0 when off, < 0 when unknown.
+    int Plane();
 } /* namespace Clock */

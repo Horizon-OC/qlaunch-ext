@@ -4,6 +4,7 @@
 
 #include "Theme.hpp"
 #include "Icons.hpp"
+#include "HudAssets.hpp"
 #include "Gfx.hpp"
 #include "Json.hpp"
 #include "Qext.hpp"
@@ -171,6 +172,10 @@ static int g_theme = -1;
         StoreColor("battery", 0.8157f, 0.8157f, 0.8471f);
     else
         StoreColor("battery", 0.3333f, 0.3333f, 0.3608f);
+    if (t->dark)
+        StoreColor("icon", 1.0f, 1.0f, 1.0f);
+    else
+        StoreColor("icon", t->ink[0], t->ink[1], t->ink[2]);
     size_t nl = strlen(t->name);
     if (nl > sizeof(g_name) - 1)
         nl = sizeof(g_name) - 1;
@@ -429,7 +434,7 @@ static int g_theme = -1;
     ApplyRow(i);
     if (Gfx::Ready()) {
         Icons::ResetHud();
-        Icons::InitHud();
+        Icons::InitHud(HudAssets::kDefs, HudAssets::kCount);
     }
     PersistTheme();
     return true;

@@ -8,6 +8,7 @@
 #include "../core/Theme.hpp"
 #include "../core/Clock.hpp"
 #include "../core/Icons.hpp"
+#include "../core/Qext.hpp"
 #include "../core/Layout.hpp"
 #include "../core/App.hpp"
 #include "../core/Sfx.hpp"
@@ -129,6 +130,8 @@ namespace WTopBar {
         Theme::Color("ink", &inkR, &inkG, &inkB);
         float dimR, dimG, dimB;
         Theme::Color("dim", &dimR, &dimG, &dimB);
+        float icR, icG, icB;
+        Theme::Color("icon", &icR, &icG, &icB);
 
         int nusers = Avatars::Count();
 
@@ -184,12 +187,10 @@ namespace WTopBar {
                     Recolor(s_state.recolorT, &cr, &cg, &cb);
                 } else if (active) {
                     Theme::MenuAccent(i, &cr, &cg, &cb);
-                } else if (Theme::IsDark()) {
-                    cr = cg = cb = 1.0f;
                 } else {
-                    cr = inkR;
-                    cg = inkG;
-                    cb = inkB;
+                    cr = icR;
+                    cg = icG;
+                    cb = icB;
                 }
 
                 Gfx::PushIcon(x, y, size, size, 0.0f, 0.0f, 0.0f, 0.0f, cr, cg, cb, 0.0f, aslot);
@@ -207,9 +208,9 @@ namespace WTopBar {
                 } else if (active) {
                     Theme::MenuAccent(i, &cr, &cg, &cb);
                 } else {
-                    cr = inkR;
-                    cg = inkG;
-                    cb = inkB;
+                    cr = icR;
+                    cg = icG;
+                    cb = icB;
                 }
 
                 char gb[4] = { 0 };
@@ -233,38 +234,77 @@ namespace WTopBar {
             Font::Draw(ab, tx2 + tw + 8.0f, 130.0f, 26.0f, inkR, inkG, inkB);
         }
         {
-            int wslot = Icons::HudSlot(HUD_WIFI);
+            int wslot = Icons::HudSlot(HUD_WIFI_NONE);
+            float wr = inkR * 0.5f, wg = inkG * 0.5f, wb = inkB * 0.5f;
+
+            if (Clock::Plane() > 0) {
+                wslot = Icons::HudSlot(HUD_AIRPLANE);
+                wr = icR;
+                wg = icG;
+                wb = icB;
+            } else {
+                int net = Clock::NetType();
+                int sig = Clock::Wifi();
+                bool up = (net == QEXT_NET_WIFI && sig >= 1 && sig <= 3) ||
+                          net == QEXT_NET_ETHERNET;
+
+                if (net == QEXT_NET_ETHERNET) {
+                    wslot = Icons::HudSlot(HUD_WIFI_0);
+                } else if (net == QEXT_NET_WIFI) {
+                    int s = sig;
+
+                    if (s < 0) {
+                        s = 0;
+                    }
+
+                    if (s > 3) {
+                        s = 3;
+                    }
+
+                    wslot = Icons::HudSlot(HUD_WIFI_0 + (3 - s));
+                }
+
+                if (up) {
+                    wr = icR;
+                    wg = icG;
+                    wb = icB;
+                }
+            }
 
             if (Gfx::TexValid(wslot)) {
-                Gfx::PushIcon(1717.0f, 88.0f, 51.0f, 51.0f, 0.0f, 0.0f, 0.0f, 0.0f, mbR, mbG, mbB, 0.0f, wslot);
+                Gfx::PushIcon(1717.0f, 88.0f, 51.0f, 51.0f, 0.0f, 0.0f, 0.0f, 0.0f, wr, wg, wb, 0.0f, wslot);
             } else {
-                char wg[4] = { 0 };
-                GlyphUTF8(GLYPH_WIFI, wg);
-                Font::Draw(wg, 1717.0f, 130.0f, 44.0f, inkR, inkG, inkB);
+                char wg2[4] = { 0 };
+                GlyphUTF8(GLYPH_WIFI, wg2);
+                Font::Draw(wg2, 1717.0f, 130.0f, 44.0f, wr, wg, wb);
             }
         }
         {
-            int bslot = Icons::HudSlot(HUD_BATTERY);
+            /* Level fill from the cached percentage; green while
+               charging, red at low charge. */
+            unsigned batt = Clock::Batt();
 
-            if (Gfx::TexValid(bslot)) {
-                Gfx::PushIcon(1790.0f, 81.0f, 64.0f, 64.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 0.0f, bslot);
-            } else {
-                unsigned batt = Clock::Batt();
-
-                if (batt > 100) {
-                    batt = 100;
-                }
-
-                float pct = (float)batt / 100.0f;
-                Gfx::PushPanel(1790.0f, 81.0f, 64.0f, 36.0f, 8.0f, inkR, inkG, inkB, 1.0f);
-                Gfx::PushPanel(1795.0f, 86.0f, 54.0f, 26.0f, 5.0f, mbR, mbG, mbB, 1.0f);
-
-                if (pct > 0.0f) {
-                    Gfx::PushPanel(1795.0f, 86.0f, 54.0f * pct, 26.0f, 5.0f, inkR, inkG, inkB, 1.0f);
-                }
-
-                Gfx::PushPanel(1854.0f, 90.0f, 8.0f, 18.0f, 3.0f, inkR, inkG, inkB, 1.0f);
+            if (batt > 100) {
+                batt = 100;
             }
+
+            float pct = (float)batt / 100.0f;
+            float fr, fg, fb;
+
+            if (Clock::Charging() > 0) {
+                Theme::Color("good", &fr, &fg, &fb);
+            } else {
+                fr = fg = fb = 1.0f;
+            }
+
+            Gfx::PushPanel(1790.0f, 95.0f, 64.0f, 36.0f, 8.0f, inkR, inkG, inkB, 1.0f);
+            Gfx::PushPanel(1795.0f, 100.0f, 54.0f, 26.0f, 5.0f, mbR, mbG, mbB, 1.0f);
+
+            if (pct > 0.0f) {
+                Gfx::PushPanel(1796.0f, 101.0f, 52.0f * pct, 24.0f, 4.0f, fr, fg, fb, 1.0f);
+            }
+
+            Gfx::PushPanel(1854.0f, 104.0f, 8.0f, 18.0f, 3.0f, inkR, inkG, inkB, 1.0f);
         }
     }
 

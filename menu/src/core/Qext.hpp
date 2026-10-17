@@ -199,6 +199,30 @@ extern "C" {
     /// @return 0-100, or < 0 when unknown.
     int qext_battery_percent(void);
 
+    /// @brief Whether the battery is charging.
+    /// @return 1 when charging, 0 when not, < 0 when unknown.
+    int qext_battery_charging(void);
+
+    /// @brief Give the WiFi signal level (radio only).
+    /// @return 0 when not connected, 1-3 bars when connected,
+    /// < 0 when unknown.
+    int qext_wifi_signal(void);
+
+    /* Connection type codes for qext_connection_type(). */
+    enum {
+        QEXT_NET_NONE = 0,     /* Not connected. */
+        QEXT_NET_WIFI = 1,     /* WiFi connection is active. */
+        QEXT_NET_ETHERNET = 2, /* Wired Ethernet connection is active. */
+    };
+
+    /// @brief Give the active connection type.
+    /// @return QEXT_NET_* code, or < 0 when unknown.
+    int qext_connection_type(void);
+
+    /// @brief Whether airplane mode is on (wireless disabled).
+    /// @return 1 when on, 0 when off, < 0 when unknown.
+    int qext_airplane_mode(void);
+
     /// @brief Give the system color-set id, defaulting to light.
     /// @return The active color set.
     ColorSetId qext_colorset(void);

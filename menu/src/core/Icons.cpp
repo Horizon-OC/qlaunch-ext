@@ -32,43 +32,6 @@ static void *stb_realloc_sized(void *p, size_t oldsz, size_t newsz)
 #define STB_IMAGE_IMPLEMENTATION
 #include "../third_party/stb_image.h"
 
-extern const uint8_t hud_wifi_png[];
-extern const uint32_t hud_wifi_png_size;
-extern const uint8_t hud_battery_png[];
-extern const uint32_t hud_battery_png_size;
-extern const uint8_t hud_user_png[];
-extern const uint32_t hud_user_png_size;
-extern const uint8_t hud_btn_a_png[];
-extern const uint32_t hud_btn_a_png_size;
-extern const uint8_t hud_btn_plus_png[];
-extern const uint32_t hud_btn_plus_png_size;
-extern const uint8_t hud_folder_png[];
-extern const uint32_t hud_folder_png_size;
-extern const uint8_t hud_vgccard_png[];
-extern const uint32_t hud_vgccard_png_size;
-extern const uint8_t top_sel_home_png[];
-extern const uint32_t top_sel_home_png_size;
-extern const uint8_t top_sel_connect_png[];
-extern const uint32_t top_sel_connect_png_size;
-extern const uint8_t top_sel_eshop_png[];
-extern const uint32_t top_sel_eshop_png_size;
-extern const uint8_t top_sel_album_png[];
-extern const uint32_t top_sel_album_png_size;
-extern const uint8_t top_sel_settings_png[];
-extern const uint32_t top_sel_settings_png_size;
-extern const uint8_t top_des_home_png[];
-extern const uint32_t top_des_home_png_size;
-extern const uint8_t top_des_connect_png[];
-extern const uint32_t top_des_connect_png_size;
-extern const uint8_t top_des_eshop_png[];
-extern const uint32_t top_des_eshop_png_size;
-extern const uint8_t top_des_album_png[];
-extern const uint32_t top_des_album_png_size;
-extern const uint8_t top_des_settings_png[];
-extern const uint32_t top_des_settings_png_size;
-extern const uint8_t marker_sheet_png[];
-extern const uint32_t marker_sheet_png_size;
-
 namespace Icons {
 static Entry entries_[ICONS_MAX];
 static u64 s_seq = 0;
@@ -94,54 +57,6 @@ static void EnsureSlots()
 }
 
 /* NOTE: dont make these static pointer tables otherwise there will be crashes due to relocation stuff */
-const uint8_t *HudPng(int i)
-{
-    switch (i) {
-    case 1: return hud_battery_png;
-    case 2: return hud_user_png;
-    case 3: return hud_btn_a_png;
-    case 4: return hud_btn_plus_png;
-    case 5: return hud_folder_png;
-    case 6: return hud_vgccard_png;
-    case 7: return top_sel_home_png;
-    case 8: return top_sel_connect_png;
-    case 9: return top_sel_eshop_png;
-    case 10: return top_sel_album_png;
-    case 11: return top_sel_settings_png;
-    case 12: return top_des_home_png;
-    case 13: return top_des_connect_png;
-    case 14: return top_des_eshop_png;
-    case 15: return top_des_album_png;
-    case 16: return top_des_settings_png;
-    case 17: return marker_sheet_png;
-    default: return hud_wifi_png;
-    }
-}
-
-const uint32_t *HudPngSize(int i)
-{
-    switch (i) {
-    case 1: return &hud_battery_png_size;
-    case 2: return &hud_user_png_size;
-    case 3: return &hud_btn_a_png_size;
-    case 4: return &hud_btn_plus_png_size;
-    case 5: return &hud_folder_png_size;
-    case 6: return &hud_vgccard_png_size;
-    case 7: return &top_sel_home_png_size;
-    case 8: return &top_sel_connect_png_size;
-    case 9: return &top_sel_eshop_png_size;
-    case 10: return &top_sel_album_png_size;
-    case 11: return &top_sel_settings_png_size;
-    case 12: return &top_des_home_png_size;
-    case 13: return &top_des_connect_png_size;
-    case 14: return &top_des_eshop_png_size;
-    case 15: return &top_des_album_png_size;
-    case 16: return &top_des_settings_png_size;
-    case 17: return &marker_sheet_png_size;
-    default: return &hud_wifi_png_size;
-    }
-}
-
 static uint8_t *Downscale(uint8_t *px, int *w, int *h)
 {
     int sw = *w, sh = *h;
@@ -188,14 +103,6 @@ static uint8_t *Downscale(uint8_t *px, int *w, int *h)
     *w = dw;
     *h = dh;
     return d;
-}
-
-    /// @brief Whether a HUD icon skips theme inversion.
-    /// @param i HUD_* icon id.
-    /// @return True for icons drawn with native colors.
-    static bool HudNoInvert(int i)
-{
-    return i == HUD_BATTERY;
 }
 
     /// @brief Fetch, decode and upload one title icon into an entry.
@@ -246,20 +153,35 @@ static uint8_t *Downscale(uint8_t *px, int *w, int *h)
 
 } // namespace
 
-bool Icons::InitHud()
+bool Icons::InitHud(const HudDef *defs, int count)
 {
     EnsureSlots();
+
+    if (!defs || count <= 0) {
+        return false;
+    }
+
+    if (count > HUD_COUNT) {
+        count = HUD_COUNT;
+    }
+
     bool any = false;
-    for (int i = 0; i < HUD_COUNT; i++) {
+    for (int i = 0; i < count; i++) {
         if (hudOk_[i])
             continue;
 
+        uint32_t size = (defs[i].size != nullptr) ? *defs[i].size : 0;
+
+        if (defs[i].png == nullptr || size == 0) {
+            continue;
+        }
+
         int w = 0, h = 0;
-        uint8_t *px = stbi_load_from_memory(HudPng(i), (int)*HudPngSize(i),
+        uint8_t *px = stbi_load_from_memory(defs[i].png, (int)size,
                                             &w, &h, NULL, 4);
         if (px && (w > 256 || h > 256) && i != HUD_MARKER_STRIP)
             px = Downscale(px, &w, &h);
-        if (px && Theme::IsDark() && !HudNoInvert(i)) {
+        if (px && Theme::IsDark() && !defs[i].noInvert) {
             unsigned long long lum = 0;
             unsigned cnt = 0;
             for (int pxi = 0; pxi < w * h; pxi++) {

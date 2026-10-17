@@ -125,6 +125,7 @@ qext_account_image
 qext_account_image_size
 qext_account_list
 qext_account_uid_valid
+qext_airplane_mode
 qext_album_count
 qext_album_grow
 qext_album_image
@@ -136,8 +137,10 @@ qext_album_movie_read
 qext_album_movie_size
 qext_album_refresh
 qext_album_thumb
+qext_battery_charging
 qext_battery_percent
 qext_colorset
+qext_connection_type
 qext_display_size
 qext_game_has_foreground
 qext_game_running
@@ -156,6 +159,7 @@ qext_title_icon
 qext_title_icon_size
 qext_title_id
 qext_title_name
+qext_wifi_signal
 qsort
 realloc
 scalbn

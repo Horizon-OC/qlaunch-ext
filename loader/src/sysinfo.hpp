@@ -35,6 +35,24 @@ Result TimeCalendar(u64 ts, TimeCalendarTime *cal, TimeCalendarAdditionalInfo *i
    Returns 0-100, or < 0 when unknown. */
 int BatteryPercent();
 
+/* Whether the battery is charging.
+   Returns 1 when charging, 0 when not, or < 0 when unknown. */
+int BatteryCharging();
+
+/* Gives the WiFi signal level from the OS connection state.
+   Returns 0 when not connected, 1-3 bars when connected,
+   or < 0 when unknown. */
+int WifiSignal();
+
+/* Whether airplane mode is on (wireless communication disabled).
+   Returns 1 when on, 0 when off, or < 0 when unknown. */
+int AirplaneMode();
+
+/* Gives the active connection type.
+   Returns 0 when not connected, 1 on WiFi, 2 on wired Ethernet,
+   or < 0 when unknown. */
+int ConnectionType();
+
 /* Gives the system color-set id, defaulting to light.
    Returns the active color set. */
 ColorSetId ColorSet();
