@@ -478,6 +478,9 @@ namespace App {
             RefreshTitles();
         }
 
+        /* Upload any newly-decoded video frame before drawing. */
+        WVideo::Tick();
+
         Present(st.launchBlack);
         Sfx::Tick();
     }

@@ -140,6 +140,21 @@ namespace WVideo {
     /// @brief Close the video player.
     void Close();
 
+    /// @brief Put new frames on GPU. Call each tick
+    void Tick();
+
+    /// @brief Give the playback position in seconds.
+    /// @return Seconds from the start, clamped to the duration.
+    double Position();
+
+    /// @brief Whether playback is paused.
+    /// @return True when paused.
+    bool Paused();
+
+    /// @brief Whether a non-looping clip reached its end.
+    /// @return True when ended.
+    bool Ended();
+
     /// @brief Drop pinned video textures.
     void DropPinned();
 

@@ -63,5 +63,6 @@ No support will be provided for 3rd party menus unless their developers have exp
 
 Credits, in no particular order
 - XolTroll and PoloNX for uLaunch and SwitchU. Their implementation is very helpful as reference and certan parts are adapted from them <3
+- etonedemid for his implementation of video playback
 - toxiquid for the menu mockup
 - HookedBeheamouth for their partial capsrv reimplementation (This is the only reason why videos work in the album)

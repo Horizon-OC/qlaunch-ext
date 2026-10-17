@@ -71,6 +71,8 @@ namespace Sfx {
     bool LoadAuto();
 
     /// @brief Mute UI voices and start queuing video PCM.
+    /// @note The ring is written by the video worker thread and drained by
+    /// Tick() on the main thread; all entry points are thread-safe.
     void VideoBegin();
 
     /// @brief Stop video PCM mode and drain the video buffer.
@@ -88,6 +90,14 @@ namespace Sfx {
     /// @brief Whether the video buffer wants more PCM.
     /// @return True when below the refill threshold.
     bool VideoHungry();
+
+    /// @brief Give buffered video audio in seconds.
+    /// @return Buffered seconds (0 when empty).
+    double VideoBuffered();
+
+    /// @brief Hold or release video PCM output (pause without draining).
+    /// @param paused True to output silence and keep buffered PCM.
+    void VideoSetPaused(bool paused);
 
     /// @brief Give the video clock in seconds.
     /// @return Seconds played.

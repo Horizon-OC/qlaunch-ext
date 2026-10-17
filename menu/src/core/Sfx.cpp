@@ -7,6 +7,7 @@
 #include "Json.hpp"
 #include "Qext.hpp"
 #include <SDL3/SDL.h>
+#include <pthread.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -110,8 +111,22 @@ namespace Sfx {
         /// @brief True while video PCM mode mutes UI voices.
         bool s_video = false;
 
-        /// @brief Video PCM ring buffer.
-        short s_vidBuf[48000];
+        /// @brief True while paused: Tick() outputs silence, keeps the ring.
+        bool s_vidPaused = false;
+
+        /// @brief Guards the video ring (worker pushes, main thread drains).
+        pthread_mutex_t s_vidMx = PTHREAD_MUTEX_INITIALIZER;
+
+        /// @brief Video PCM ring capacity in shorts (2s of stereo @48kHz).
+        /// Mirrors sLaunch's two-second audio ring so the demuxer can read
+        /// ~0.6s ahead without the mixer running dry (choppy audio).
+        static constexpr unsigned kVidCap = 48000u * 2u * 2u;
+
+        /// @brief Refill threshold in shorts (0.6s of stereo @48kHz).
+        static constexpr unsigned kVidHungry = 48000u * 2u * 6u / 10u;
+
+        /// @brief Video PCM ring buffer (interleaved stereo shorts).
+        short s_vidBuf[48000u * 2u * 2u];
 
         /// @brief Read head into s_vidBuf.
         unsigned s_vidHead = 0;
@@ -683,14 +698,26 @@ namespace Sfx {
         short *dst = s_mix;
 
         if (s_video) {
-            for (unsigned f = 0; f < (unsigned)kFramesPerTick * (unsigned)kOutCh; f++) {
-                if (s_vidLen > 0) {
-                    dst[f] = s_vidBuf[s_vidHead];
-                    s_vidHead = (s_vidHead + 1u) % 48000u;
-                    s_vidLen--;
-                } else {
+            pthread_mutex_lock(&s_vidMx);
+
+            if (s_vidPaused) {
+                for (unsigned f = 0; f < (unsigned)kFramesPerTick * (unsigned)kOutCh; f++) {
                     dst[f] = 0;
                 }
+
+                pthread_mutex_unlock(&s_vidMx);
+            } else {
+                for (unsigned f = 0; f < (unsigned)kFramesPerTick * (unsigned)kOutCh; f++) {
+                    if (s_vidLen > 0) {
+                        dst[f] = s_vidBuf[s_vidHead];
+                        s_vidHead = (s_vidHead + 1u) % kVidCap;
+                        s_vidLen--;
+                    } else {
+                        dst[f] = 0;
+                    }
+                }
+
+                pthread_mutex_unlock(&s_vidMx);
             }
 
             s_vidPlayed += kFramesPerTick;
@@ -774,18 +801,24 @@ namespace Sfx {
             s_voices[i].on = false;
         }
 
+        pthread_mutex_lock(&s_vidMx);
         s_video = true;
+        s_vidPaused = false;
         s_vidHead = 0;
         s_vidLen = 0;
+        pthread_mutex_unlock(&s_vidMx);
         s_vidPlayed = 0;
     }
 
     /// @brief Stop video PCM mode and drain the video buffer.
     void VideoEnd()
     {
+        pthread_mutex_lock(&s_vidMx);
         s_video = false;
+        s_vidPaused = false;
         s_vidHead = 0;
         s_vidLen = 0;
+        pthread_mutex_unlock(&s_vidMx);
     }
 
     /// @brief Push interleaved stereo PCM into the video buffer.
@@ -797,22 +830,28 @@ namespace Sfx {
             return;
         }
 
+        pthread_mutex_lock(&s_vidMx);
+
         for (unsigned i = 0; i < frames * 2u; i++) {
-            if (s_vidLen >= 48000u) {
+            if (s_vidLen >= kVidCap) {
                 break;
             }
 
-            s_vidBuf[(s_vidHead + s_vidLen) % 48000u] = pcm[i];
+            s_vidBuf[(s_vidHead + s_vidLen) % kVidCap] = pcm[i];
             s_vidLen++;
         }
+
+        pthread_mutex_unlock(&s_vidMx);
     }
 
     /// @brief Seek the video clock without pushing samples.
     /// @param secs New clock position in seconds.
     void VideoSeekTo(double secs)
     {
+        pthread_mutex_lock(&s_vidMx);
         s_vidHead = 0;
         s_vidLen = 0;
+        pthread_mutex_unlock(&s_vidMx);
         s_vidPlayed = secs > 0.0 ? (unsigned)(secs * 48000.0) : 0u;
     }
 
@@ -820,7 +859,29 @@ namespace Sfx {
     /// @return True when below the refill threshold.
     bool VideoHungry()
     {
-        return s_vidLen < 9600u;
+        pthread_mutex_lock(&s_vidMx);
+        bool hungry = s_vidLen < kVidHungry;
+        pthread_mutex_unlock(&s_vidMx);
+        return hungry;
+    }
+
+    /// @brief Give buffered video audio in seconds.
+    /// @return Buffered seconds (0 when empty).
+    double VideoBuffered()
+    {
+        pthread_mutex_lock(&s_vidMx);
+        double secs = (double)s_vidLen / (48000.0 * 2.0);
+        pthread_mutex_unlock(&s_vidMx);
+        return secs;
+    }
+
+    /// @brief Hold or release video PCM output (pause without draining).
+    /// @param paused True to output silence and keep buffered PCM.
+    void VideoSetPaused(bool paused)
+    {
+        pthread_mutex_lock(&s_vidMx);
+        s_vidPaused = paused;
+        pthread_mutex_unlock(&s_vidMx);
     }
 
     /// @brief Give the video clock in seconds.

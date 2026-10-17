@@ -9,14 +9,14 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <pthread.h>
+#include <time.h>
 
 extern "C" {
     #include <libavformat/avformat.h>
     #include <libavcodec/avcodec.h>
-    #include <libavcodec/bsf.h>
     #include <libswscale/swscale.h>
     #include <libswresample/swresample.h>
-    #include <libavutil/opt.h>
     #include <libavutil/channel_layout.h>
     #include <libavutil/hwcontext.h>
 }
@@ -27,22 +27,18 @@ namespace WVideo {
     constexpr int VH = 720;
     constexpr int AVIO_CAP = 65536;
     constexpr int PCM_CAP = 8192;
+    constexpr int VQ_CAP = 240;
 
     static bool s_open = false;
-    static bool s_paused = false;
-    static bool s_ended = false;
     static bool s_fresh = false;
     static int s_rep = 0;
     static int s_idx = -1;
-    static u64 s_size = 0;
-    static u64 s_avioPos = 0;
 
     static AVFormatContext *s_fmt = 0;
     static AVCodecContext *s_vctx = 0;
     static AVCodecContext *s_actx = 0;
     static int s_vstream = -1;
     static int s_astream = -1;
-    static AVBSFContext *s_vbsf = 0;
     static AVFrame *s_sframe = 0;
     static bool s_vhw = false;
     static bool s_xferLogged = false;
@@ -55,47 +51,175 @@ namespace WVideo {
     static AVFrame *s_aframe = 0;
     static AVPacket *s_pkt = 0;
 
-    static uint32_t s_TexturePitch = 0;
-    static int16_t *s_pcmBuf = 0;
-    static bool s_haveFrame = false;
-    static double s_framePts = 0.0;
-    static double s_fps = 30.0;
     static double s_dur = 0.0;
-    static bool s_readEos = false;
-    static bool s_vFlushed = false;
-    static bool s_aFlushed = false;
-    static bool s_eosV = false;
-    static bool s_eosA = false;
-    /// @brief Pump the decoder toward the next presentable frame.
-    /// @param force True to decode regardless of pause/end state.
-    static void Step(bool force);
+    static int64_t s_vstart = 0;
+    static double s_vtb = 0.0;
+    static int64_t s_astart = 0;
+    static double s_atb = 0.0;
+
+    /// @brief Per-reader AVIO cursor. Probe and playback each own one, so a
+    /// duration probe never clobbers the playback position/size.
+    struct AvioCtx {
+        u64 pos;
+        u64 size;
+    };
+
+    static AvioCtx s_io;
+
+    static pthread_t s_thread;
+    static bool s_threadRunning = false;
+    static pthread_mutex_t s_mx = PTHREAD_MUTEX_INITIALIZER;
+    static bool s_stop = false;
+    static bool s_seekReq = false;
+    static double s_seekTo = 0.0;
+    static double s_clkBase = 0.0;
+    static double s_pauseAt = 0.0;
+    static u64 s_clkTick = 0;
+    static bool s_paused = false;
+    static bool s_ended = false;
+
+    static AVPacket *s_vq[VQ_CAP];
+    static int s_vqHead = 0;
+    static int s_vqTail = 0;
+    static int s_vqCount = 0;
+
+    static int16_t *s_pcmBuf = 0;
+    static uint8_t *s_rgb[2] = { 0, 0 };
+    static int s_readyBuf = -1;
+    static int s_shownBuf = -1;
 
     static int s_Texture = -1;
 
+    /// @brief Monotonic time in nanoseconds.
+    static u64 NowTicks()
+    {
+        struct timespec ts;
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        return (u64)ts.tv_sec * 1000000000ull + (u64)ts.tv_nsec;
+    }
+
+    /// @brief Sleep a few milliseconds
+    static void SleepMs(int ms)
+    {
+        struct timespec ts;
+        ts.tv_sec = ms / 1000;
+        ts.tv_nsec = (long)(ms % 1000) * 1000000L;
+        nanosleep(&ts, NULL);
+    }
+
+    /// @brief Playback clock
+    static double ClockNow()
+    {
+        pthread_mutex_lock(&s_mx);
+        double t;
+
+        if (s_paused) {
+            t = s_pauseAt;
+        } else {
+            t = s_clkBase + (double)(NowTicks() - s_clkTick) / 1e9;
+        }
+
+        pthread_mutex_unlock(&s_mx);
+        return t;
+    }
+
+    /// @brief Reset the playback clock to a position.
+    /// @param secs New position in seconds.
+    static void ClockSet(double secs)
+    {
+        pthread_mutex_lock(&s_mx);
+        s_clkBase = s_pauseAt = secs;
+        s_clkTick = NowTicks();
+        pthread_mutex_unlock(&s_mx);
+    }
+
+    /// @brief Freeze or resume the playback clock (and the audio output).
+    /// @param paused True to freeze.
+    static void SetPaused(bool paused)
+    {
+        pthread_mutex_lock(&s_mx);
+
+        if (paused == s_paused) {
+            pthread_mutex_unlock(&s_mx);
+            return;
+        }
+
+        u64 now = NowTicks();
+
+        if (paused) {
+            s_pauseAt = s_clkBase + (double)(now - s_clkTick) / 1e9;
+        } else {
+            s_clkBase = s_pauseAt;
+            s_clkTick = now;
+        }
+
+        s_paused = paused;
+        pthread_mutex_unlock(&s_mx);
+        Sfx::VideoSetPaused(paused);
+    }
+
+    /// @brief Whether the worker was asked to stop.
+    /// @return True when stopping.
+    static bool Stopped()
+    {
+        pthread_mutex_lock(&s_mx);
+        bool r = s_stop;
+        pthread_mutex_unlock(&s_mx);
+        return r;
+    }
+
+    /// @brief Whether a seek is pending (worker peek, keeps the request).
+    /// @return True when a seek is pending.
+    static bool SeekPending()
+    {
+        pthread_mutex_lock(&s_mx);
+        bool r = s_seekReq;
+        pthread_mutex_unlock(&s_mx);
+        return r;
+    }
+
+    /// @brief Take a pending seek request.
+    /// @param out Target time output.
+    /// @return True when a request was pending.
+    static bool TakeSeek(double *out)
+    {
+        pthread_mutex_lock(&s_mx);
+        bool r = s_seekReq;
+
+        if (r) {
+            *out = s_seekTo;
+            s_seekReq = false;
+            s_ended = false;
+        }
+
+        pthread_mutex_unlock(&s_mx);
+        return r;
+    }
+
     /// @brief FFmpeg read callback pulling from the album movie handle.
-    /// @param opaque Unused.
+    /// @param opaque AvioCtx for this reader.
     /// @param buf Output buffer.
     /// @param size Bytes requested.
     /// @return Bytes read, or AVERROR_EOF.
     static int AvioRead(void *opaque, uint8_t *buf, int size)
     {
-        (void)opaque;
+        AvioCtx *io = (AvioCtx *)opaque;
 
-        if (!buf || size <= 0) {
+        if (!io || !buf || size <= 0) {
             return AVERROR_EOF;
         }
 
         int total = 0;
 
         while (total < size) {
-            int got = qext_album_movie_read(s_avioPos, buf + total, (unsigned)(size - total));
+            int got = qext_album_movie_read(io->pos, buf + total, (unsigned)(size - total));
 
             if (got <= 0) {
                 break;
             }
 
             total += got;
-            s_avioPos += (u64)got;
+            io->pos += (u64)got;
         }
 
         if (total == 0) {
@@ -106,27 +230,31 @@ namespace WVideo {
     }
 
     /// @brief FFmpeg seek callback over the album movie handle.
-    /// @param opaque Unused.
+    /// @param opaque AvioCtx for this reader.
     /// @param offset Byte offset.
     /// @param whence Seek mode (or AVSEEK_SIZE for size query).
     /// @return New position, or the size for AVSEEK_SIZE.
     static int64_t AvioSeek(void *opaque, int64_t offset, int whence)
     {
-        (void)opaque;
+        AvioCtx *io = (AvioCtx *)opaque;
+
+        if (!io) {
+            return AVERROR_EOF;
+        }
 
         if (whence == AVSEEK_SIZE) {
-            return (int64_t)s_size;
+            return (int64_t)io->size;
         }
 
         if (offset < 0) {
             offset = 0;
         }
 
-        if ((u64)offset > s_size) {
-            offset = (int64_t)s_size;
+        if ((u64)offset > io->size) {
+            offset = (int64_t)io->size;
         }
 
-        s_avioPos = (u64)offset;
+        io->pos = (u64)offset;
 
         return offset;
     }
@@ -161,13 +289,21 @@ namespace WVideo {
         }
 
         Gfx::TexUnlock(s_Texture);
-        s_TexturePitch = (uint32_t)pitch;
         return true;
     }
 
-    /// @brief Free all FFmpeg contexts and IO buffers.
+    /// @brief Free all FFmpeg contexts, the packet queue and IO buffers.
     static void Cleanup()
     {
+        for (int i = 0; i < VQ_CAP; i++) {
+            if (s_vq[i]) {
+                av_packet_free(&s_vq[i]);
+                s_vq[i] = 0;
+            }
+        }
+
+        s_vqHead = s_vqTail = s_vqCount = 0;
+
         if (s_swr) {
             swr_free(&s_swr);
             s_swr = 0;
@@ -191,11 +327,6 @@ namespace WVideo {
         if (s_aframe) {
             av_frame_free(&s_aframe);
             s_aframe = 0;
-        }
-
-        if (s_vbsf) {
-            av_bsf_free(&s_vbsf);
-            s_vbsf = 0;
         }
 
         if (s_vctx) {
@@ -325,6 +456,320 @@ namespace WVideo {
         return ctx;
     }
 
+    /// @brief Build sampler for audio decoder
+    /// @return True when ready.
+    static bool SetupResampler()
+    {
+        if (s_swr) {
+            swr_free(&s_swr);
+            s_swr = 0;
+        }
+
+        if (!s_actx) {
+            return false;
+        }
+
+        AVChannelLayout outL = AV_CHANNEL_LAYOUT_STEREO;
+        SwrContext *swr = 0;
+        int rc = swr_alloc_set_opts2(&swr, &outL, AV_SAMPLE_FMT_S16, 48000,
+                                     &s_actx->ch_layout, s_actx->sample_fmt,
+                                     s_actx->sample_rate, 0, NULL);
+
+        if (rc == 0) {
+            rc = swr_init(swr);
+        }
+
+        if (rc != 0) {
+            swr_free(&swr);
+            return false;
+        }
+
+        s_swr = swr;
+        return true;
+    }
+
+    /// @brief Worker side of a seek: land on the keyframe at or before the
+    /// target, then decode forward silently so the first picture and sound
+    /// are exactly at it (sLaunch DoSeek).
+    /// @param seconds Target time in seconds.
+    static void DoSeek(double seconds)
+    {
+        if (!s_fmt || s_vstream < 0) {
+            return;
+        }
+
+        if (s_dur > 0.0) {
+            if (seconds < 0.0) {
+                seconds = 0.0;
+            }
+
+            if (seconds > s_dur - 0.1) {
+                seconds = s_dur - 0.1;
+            }
+
+            if (seconds < 0.0) {
+                seconds = 0.0;
+            }
+        } else if (seconds < 0.0) {
+            seconds = 0.0;
+        }
+
+        AVStream *vs = s_fmt->streams[s_vstream];
+        int64_t ts = s_vstart + (int64_t)(seconds / (s_vtb > 0.0 ? s_vtb : 1.0 / 30.0));
+        av_seek_frame(s_fmt, s_vstream, ts, AVSEEK_FLAG_BACKWARD);
+
+        if (s_vctx) {
+            avcodec_flush_buffers(s_vctx);
+        }
+
+        if (s_actx) {
+            avcodec_flush_buffers(s_actx);
+            SetupResampler();
+        }
+
+        for (int i = 0; i < VQ_CAP; i++) {
+            if (s_vq[i]) {
+                av_packet_free(&s_vq[i]);
+                s_vq[i] = 0;
+            }
+        }
+
+        s_vqHead = s_vqTail = s_vqCount = 0;
+
+        if (s_frame) {
+            av_frame_unref(s_frame);
+        }
+
+        if (s_aframe) {
+            av_frame_unref(s_aframe);
+        }
+
+        if (s_sframe) {
+            av_frame_unref(s_sframe);
+        }
+
+        Sfx::VideoSeekTo(seconds);
+        ClockSet(seconds);
+
+        pthread_mutex_lock(&s_mx);
+        s_ended = false;
+        pthread_mutex_unlock(&s_mx);
+    }
+
+    /// @brief Decode one demuxed audio packet into the SFX ring.
+    /// @param pkt Demuxed audio packet (borrowed).
+    static void DecodeAudio(AVPacket *pkt, double skipUntil)
+    {
+        if (!s_actx || !s_swr || !pkt) {
+            return;
+        }
+
+        if (avcodec_send_packet(s_actx, pkt) < 0) {
+            return;
+        }
+
+        while (!Stopped() && !SeekPending() && avcodec_receive_frame(s_actx, s_aframe) == 0) {
+            int n = s_aframe->nb_samples;
+            int rate = s_aframe->sample_rate > 0 ? s_aframe->sample_rate : 48000;
+            int64_t ts = s_aframe->best_effort_timestamp;
+
+            double pts = skipUntil;
+
+            if (ts != AV_NOPTS_VALUE && s_atb > 0.0) {
+                pts = (double)(ts - s_astart) * s_atb;
+            }
+
+            if (n <= 0 || pts + (double)n / (double)rate < skipUntil) {
+                av_frame_unref(s_aframe);
+                continue;
+            }
+
+            uint8_t *out[1] = { (uint8_t *)s_pcmBuf };
+            int got = swr_convert(s_swr, out, PCM_CAP,
+                                  (const uint8_t **)s_aframe->extended_data, n);
+            av_frame_unref(s_aframe);
+
+            if (got > 0) {
+                Sfx::VideoPush(s_pcmBuf, (unsigned)got);
+            }
+        }
+
+        av_frame_unref(s_aframe);
+    }
+
+    /// @brief Decode worker
+    static void DecodeLoop()
+    {
+        double skipUntil = 0.0;
+        bool readEof = false;
+        bool decEof = false;
+        bool drainSent = false;
+        bool haveFrame = false;
+        double framePts = 0.0;
+        int writeBuf = 0;
+
+        while (!Stopped()) {
+            double seekTo = 0.0;
+
+            if (TakeSeek(&seekTo)) {
+                readEof = decEof = drainSent = false;
+                haveFrame = false;
+                DoSeek(seekTo);
+                skipUntil = seekTo;
+            }
+
+            /* Read ahead */
+            while (!readEof && !Stopped() && !SeekPending() && s_vqCount < VQ_CAP &&
+                   (Sfx::VideoBuffered() < 0.6 || (s_vqCount < 6 && !haveFrame))) {
+                if (av_read_frame(s_fmt, s_pkt) < 0) {
+                    readEof = true;
+                    break;
+                }
+
+                if (s_pkt->stream_index == s_astream && s_actx && s_swr) {
+                    DecodeAudio(s_pkt, skipUntil);
+                    av_packet_unref(s_pkt);
+                } else if (s_pkt->stream_index == s_vstream) {
+                    AVPacket *q = av_packet_alloc();
+
+                    if (q) {
+                        av_packet_move_ref(q, s_pkt);
+                        s_vq[s_vqTail] = q;
+                        s_vqTail = (s_vqTail + 1) % VQ_CAP;
+                        s_vqCount++;
+                    }
+
+                    av_packet_unref(s_pkt);
+                } else {
+                    av_packet_unref(s_pkt);
+                }
+            }
+
+            /* Next picture. */
+            while (!haveFrame && !decEof && !Stopped() && !SeekPending()) {
+                int r = avcodec_receive_frame(s_vctx, s_frame);
+
+                if (r == 0) {
+                    int64_t ts = s_frame->best_effort_timestamp;
+
+                    if (ts == AV_NOPTS_VALUE) {
+                        ts = s_frame->pts;
+                    }
+
+                    framePts = (ts != AV_NOPTS_VALUE && s_vtb > 0.0)
+                        ? (double)(ts - s_vstart) * s_vtb
+                        : ClockNow();
+
+                    if (framePts < skipUntil - 0.001) {
+                        av_frame_unref(s_frame);
+                        continue;
+                    }
+
+                    haveFrame = true;
+                } else if (r == AVERROR_EOF) {
+                    decEof = true;
+                } else if (s_vqCount > 0) {
+                    AVPacket *q = s_vq[s_vqHead];
+                    s_vq[s_vqHead] = 0;
+                    s_vqHead = (s_vqHead + 1) % VQ_CAP;
+                    s_vqCount--;
+                    avcodec_send_packet(s_vctx, q);
+                    av_packet_free(&q);
+                } else if (readEof && !drainSent) {
+                    avcodec_send_packet(s_vctx, NULL);
+                    drainSent = true;
+                } else {
+                    break;
+                }
+            }
+
+            if (haveFrame) {
+                if (ClockNow() < framePts) {
+                    SleepMs(2);
+                    continue;
+                }
+
+                AVFrame *src = s_frame;
+
+                if (s_frame->format == AV_PIX_FMT_NVTEGRA) {
+                    if (av_hwframe_transfer_data(s_sframe, s_frame, 0) == 0) {
+                        src = s_sframe;
+                    } else {
+                        if (!s_xferLogged) {
+                            logging::LogLine("[video] Failed to download hw frame");
+                            s_xferLogged = true;
+                        }
+
+                        av_frame_unref(s_frame);
+                        av_frame_unref(s_sframe);
+                        haveFrame = false;
+                        continue;
+                    }
+                }
+
+                s_sws = sws_getCachedContext(s_sws, src->width, src->height,
+                                             (AVPixelFormat)src->format,
+                                             VW, VH, AV_PIX_FMT_RGBA,
+                                             SWS_BILINEAR, NULL, NULL, NULL);
+
+                if (!s_sws || !s_rgb[writeBuf]) {
+                    if (!s_sws) {
+                        logging::LogLine("[video] Failed to alloc scaler");
+                    }
+
+                    av_frame_unref(s_frame);
+                    av_frame_unref(s_sframe);
+                    haveFrame = false;
+                    continue;
+                }
+
+                uint8_t *dst[4] = { s_rgb[writeBuf], 0, 0, 0 };
+                int stride[4] = { VW * 4, 0, 0, 0 };
+                sws_scale(s_sws, src->data, src->linesize, 0, src->height, dst, stride);
+                av_frame_unref(s_frame);
+                av_frame_unref(s_sframe);
+                haveFrame = false;
+
+                __atomic_store_n(&s_readyBuf, writeBuf, __ATOMIC_RELEASE);
+                writeBuf ^= 1;
+                continue;
+            }
+
+            if (readEof && s_vqCount == 0 && (decEof || drainSent)) {
+                if (ClockNow() >= s_dur - 0.05) {
+                    pthread_mutex_lock(&s_mx);
+                    s_ended = true;
+                    pthread_mutex_unlock(&s_mx);
+                    SetPaused(true);
+                }
+            }
+
+            SleepMs(5);
+        }
+
+        for (int i = 0; i < s_vqCount; i++) {
+            int at = (s_vqHead + i) % VQ_CAP;
+            av_packet_free(&s_vq[at]);
+            s_vq[at] = 0;
+        }
+
+        s_vqHead = s_vqTail = s_vqCount = 0;
+
+        if (haveFrame) {
+            av_frame_unref(s_frame);
+        }
+    }
+
+    /// @brief Worker thread entry.
+    /// @param arg Unused.
+    /// @return Null.
+    static void *DecodeEntry(void *arg)
+    {
+        (void)arg;
+        DecodeLoop();
+        return NULL;
+    }
+
     /// @brief Open a movie entry for playback.
     /// @param albumIndex Album entry index.
     /// @return True on success.
@@ -350,8 +795,8 @@ namespace WVideo {
             return false;
         }
 
-        s_size = size;
-        s_avioPos = 0;
+        s_io.pos = 0;
+        s_io.size = size;
         s_idx = albumIndex;
 
         WAlbum::DropFull();
@@ -359,6 +804,12 @@ namespace WVideo {
 
         if (!s_pcmBuf) {
             s_pcmBuf = (int16_t *)malloc((size_t)PCM_CAP * 2u * sizeof(int16_t));
+        }
+
+        for (int i = 0; i < 2; i++) {
+            if (!s_rgb[i]) {
+                s_rgb[i] = (uint8_t *)malloc((size_t)VW * (size_t)VH * 4u);
+            }
         }
 
         s_avioBuf = (uint8_t *)av_malloc(AVIO_CAP);
@@ -372,14 +823,15 @@ namespace WVideo {
 
         s_pkt = av_packet_alloc();
 
-        if (!s_pcmBuf || !s_avioBuf || !s_frame || !s_aframe || !s_sframe || !s_pkt) {
+        if (!s_pcmBuf || !s_rgb[0] || !s_rgb[1] || !s_avioBuf ||
+            !s_frame || !s_aframe || !s_sframe || !s_pkt) {
             logging::LogLine("[video] Failed to alloc buffers");
             DropHandle();
             Cleanup();
             return false;
         }
 
-        s_avio = avio_alloc_context(s_avioBuf, AVIO_CAP, 0, NULL, AvioRead, NULL, AvioSeek);
+        s_avio = avio_alloc_context(s_avioBuf, AVIO_CAP, 0, &s_io, AvioRead, NULL, AvioSeek);
 
         if (!s_avio) {
             logging::LogLine("[video] Failed to alloc avio");
@@ -438,48 +890,21 @@ namespace WVideo {
             return false;
         }
 
-        const AVBitStreamFilter *bsf = av_bsf_get_by_name("h264_mp4toannexb");
-
-        if (bsf) {
-            if (av_bsf_alloc(bsf, &s_vbsf) == 0) {
-                if (avcodec_parameters_copy(s_vbsf->par_in, s_fmt->streams[s_vstream]->codecpar) == 0) {
-                    if (av_bsf_init(s_vbsf) < 0) {
-                        av_bsf_free(&s_vbsf);
-                        s_vbsf = 0;
-                    }
-                }
-                else {
-                    av_bsf_free(&s_vbsf);
-                    s_vbsf = 0;
-                }
-            }
-        }
-
         s_astream = av_find_best_stream(s_fmt, AVMEDIA_TYPE_AUDIO, -1, -1, NULL, 0);
 
         if (s_astream >= 0) {
             s_actx = OpenDecoder(s_astream);
 
             if (s_actx) {
-                s_swr = 0;
-
-                AVChannelLayout outL = AV_CHANNEL_LAYOUT_STEREO;
-                int srrc = swr_alloc_set_opts2(&s_swr, &outL, AV_SAMPLE_FMT_S16, 48000, &s_actx->ch_layout, s_actx->sample_fmt, s_actx->sample_rate, 0, NULL);
-
-                if (srrc == 0) {
-                    srrc = swr_init(s_swr);
-                }
-
-                if (srrc != 0) {
-                    logging::LogLine("[video] Failed to init audio (rc: %d)", srrc);
+                if (!SetupResampler()) {
+                    logging::LogLine("[video] Failed to init audio");
                     swr_free(&s_swr);
                     s_swr = 0;
                     avcodec_free_context(&s_actx);
                     s_actx = 0;
                     s_astream = -1;
                 }
-            }
-            else {
+            } else {
                 s_astream = -1;
             }
         }
@@ -493,18 +918,9 @@ namespace WVideo {
             return false;
         }
 
-        if (s_sframe->width != vp->width || s_sframe->height != vp->height) {
-            av_frame_unref(s_sframe);
-        }
-
-        s_sws = sws_getContext(vp->width, vp->height, s_vhw ? AV_PIX_FMT_NV12 : (AVPixelFormat)vp->format, VW, VH, AV_PIX_FMT_RGBA, SWS_BILINEAR, NULL, NULL, NULL);
-
-        if (!s_sws) {
-            logging::LogLine("[video] Failed to alloc scaler");
-            DropHandle();
-            Cleanup();
-            return false;
-        }
+        s_sframe->format = AV_PIX_FMT_NV12;
+        s_sframe->width = vp->width;
+        s_sframe->height = vp->height;
 
         if (!AllocTexture()) {
             logging::LogLine("[video] Failed to alloc texture");
@@ -519,309 +935,50 @@ namespace WVideo {
             s_dur = s_fmt->duration / (double)AV_TIME_BASE;
         }
 
-        s_fps = 30.0;
-
         AVStream *vst = s_fmt->streams[s_vstream];
+        s_vstart = (vst->start_time != AV_NOPTS_VALUE) ? vst->start_time : 0;
+        s_vtb = av_q2d(vst->time_base);
 
-        if (vst->avg_frame_rate.den != 0) {
-            double f = av_q2d(vst->avg_frame_rate);
-
-            if (f >= 1.0 && f <= 120.0) {
-                s_fps = f;
-            }
+        if (s_astream >= 0) {
+            AVStream *ast = s_fmt->streams[s_astream];
+            s_astart = (ast->start_time != AV_NOPTS_VALUE) ? ast->start_time : 0;
+            s_atb = av_q2d(ast->time_base);
+        } else {
+            s_astart = 0;
+            s_atb = 0.0;
         }
 
         s_xferLogged = false;
         Sfx::VideoBegin();
-        s_open = true;
-        s_paused = false;
+        pthread_mutex_lock(&s_mx);
+        s_stop = false;
+        s_seekReq = false;
+        s_seekTo = 0.0;
         s_ended = false;
+        pthread_mutex_unlock(&s_mx);
+        s_readyBuf = -1;
+        s_shownBuf = -1;
+        ClockSet(0.0);
+        SetPaused(false);
+
+        if (pthread_create(&s_thread, NULL, DecodeEntry, NULL) != 0) {
+            logging::LogLine("[video] Failed to start worker");
+            DropHandle();
+            Cleanup();
+            Sfx::VideoEnd();
+            s_idx = -1;
+            return false;
+        }
+
+        s_threadRunning = true;
+        s_open = true;
         s_fresh = true;
         s_rep = 0;
-        s_haveFrame = false;
-        s_readEos = false;
-        s_vFlushed = false;
-        s_aFlushed = false;
-        s_eosV = false;
-        s_eosA = false;
-        Step(false);
 
         return true;
     }
 
-    /// @brief Send one video packet through the bitstream filter.
-    /// @param pkt Packet to send (null flushes).
-    /// @return True on success.
-    static bool SendVideoPkt(AVPacket *pkt)
-    {
-        if (!s_vctx) {
-            return false;
-        }
-
-        if (s_vbsf && pkt) {
-            if (av_bsf_send_packet(s_vbsf, pkt) < 0) {
-                return false;
-            }
-
-            for (;;) {
-                AVPacket *f = av_packet_alloc();
-
-                if (!f) {
-                    break;
-                }
-
-                int rc = av_bsf_receive_packet(s_vbsf, f);
-
-                if (rc == 0) {
-                    int s = avcodec_send_packet(s_vctx, f);
-                    av_packet_free(&f);
-
-                    if (s < 0 && s != AVERROR(EAGAIN)) {
-                        return false;
-                    }
-                }
-                else {
-                    av_packet_free(&f);
-                    break;
-                }
-            }
-
-            return true;
-        }
-
-        int rc = avcodec_send_packet(s_vctx, pkt);
-
-        return rc == 0 || rc == AVERROR(EAGAIN);
-    }
-
-    /// @brief Receive and scale one video frame into the texture.
-    /// @return True when a frame became ready.
-    static bool RecvVideo()
-    {
-        if (!s_vctx || s_haveFrame) {
-            return s_haveFrame;
-        }
-
-        av_frame_unref(s_frame);
-
-        int rc = avcodec_receive_frame(s_vctx, s_frame);
-
-        if (rc == AVERROR(EAGAIN)) {
-            return false;
-        }
-
-        if (rc == AVERROR_EOF) {
-            s_eosV = true;
-            return false;
-        }
-
-        if (rc < 0) {
-            return false;
-        }
-
-        AVFrame *src = s_frame;
-
-        if (src->format == AV_PIX_FMT_NVTEGRA) {
-            if (av_hwframe_transfer_data(s_sframe, src, 0) < 0) {
-                if (!s_xferLogged) {
-                    logging::LogLine("[video] Failed to download hw frame");
-                    s_xferLogged = true;
-                }
-
-                return false;
-            }
-
-            src = s_sframe;
-        }
-
-        int64_t ts = s_frame->best_effort_timestamp;
-
-        if (ts == AV_NOPTS_VALUE) {
-            ts = s_frame->pts;
-        }
-
-        s_framePts = ts * av_q2d(s_fmt->streams[s_vstream]->time_base);
-
-        void *locked = nullptr;
-        int pitch = 0;
-        if (!Gfx::TexLock(s_Texture, VW, VH, &locked, &pitch) || !locked) {
-            if (!s_xferLogged) {
-                logging::LogLine("[video] Failed to lock frame texture");
-                s_xferLogged = true;
-            }
-
-            return false;
-        }
-
-        uint8_t *dst[4] = { (uint8_t *)locked, 0, 0, 0 };
-        int stride[4] = { pitch, 0, 0, 0 };
-        sws_scale(s_sws, src->data, src->linesize, 0, src->height, dst, stride);
-        Gfx::TexUnlock(s_Texture);
-        s_haveFrame = true;
-
-        return true;
-    }
-
-    /// @brief Receive one audio frame and push it to the SFX queue.
-    /// @return True when samples were pushed.
-    static bool RecvAudio()
-    {
-        if (!s_actx || !s_swr) {
-            return false;
-        }
-
-        av_frame_unref(s_aframe);
-
-        int rc = avcodec_receive_frame(s_actx, s_aframe);
-
-        if (rc == AVERROR(EAGAIN)) {
-            return false;
-        }
-
-        if (rc == AVERROR_EOF) {
-            s_eosA = true;
-            return false;
-        }
-
-        if (rc < 0) {
-            return false;
-        }
-
-        uint8_t *out[1] = { (uint8_t *)s_pcmBuf };
-        int got = swr_convert(s_swr, out, PCM_CAP, (const uint8_t **)s_aframe->extended_data, s_aframe->nb_samples);
-
-        if (got > 0) {
-            Sfx::VideoPush(s_pcmBuf, (unsigned)got);
-            return true;
-        }
-
-        return false;
-    }
-
-    /// @brief Demux and feed one round of video/audio decode.
-    static void Iterate()
-    {
-        if (!s_open) {
-            return;
-        }
-
-        bool needV = !s_haveFrame && !s_eosV && s_vctx;
-        bool needA = s_actx && s_swr && !s_eosA && Sfx::VideoHungry();
-
-        if (!needV && !needA) {
-            return;
-        }
-
-        if (needV) {
-            RecvVideo();
-        }
-
-        if (needA) {
-            RecvAudio();
-        }
-
-        needV = !s_haveFrame && !s_eosV && s_vctx;
-        needA = s_actx && s_swr && !s_eosA && Sfx::VideoHungry();
-
-        if (!needV && !needA) {
-            return;
-        }
-
-        if (s_readEos) {
-            if (!s_vFlushed && s_vctx) {
-                SendVideoPkt(NULL);
-                s_vFlushed = true;
-            }
-
-            if (!s_aFlushed && s_actx) {
-                avcodec_send_packet(s_actx, NULL);
-                s_aFlushed = true;
-            }
-
-            return;
-        }
-
-        if (av_read_frame(s_fmt, s_pkt) < 0) {
-            s_readEos = true;
-            return;
-        }
-
-        if (s_pkt->stream_index == s_vstream) {
-            SendVideoPkt(s_pkt);
-        }
-        else if (s_pkt->stream_index == s_astream) {
-            avcodec_send_packet(s_actx, s_pkt);
-        }
-
-        av_packet_unref(s_pkt);
-    }
-
-    /// @brief Present the decoded frame (texture upload hook).
-    static void Upload()
-    {
-    }
-
-    /// @brief Pump the decoder toward the next presentable frame.
-    /// @param force True to decode regardless of pause/end state.
-    static void Step(bool force)
-    {
-        if (!s_open) {
-            return;
-        }
-
-        if (s_paused && !force) {
-            return;
-        }
-
-        if (s_ended && !force) {
-            return;
-        }
-
-        int guard = 0;
-
-        while (guard++ < 32) {
-            bool needV = !s_haveFrame && !s_eosV;
-            bool needA = s_actx && !s_eosA && Sfx::VideoHungry();
-
-            if (!needV && !needA) {
-                break;
-            }
-
-            Iterate();
-        }
-
-        if (force) {
-            if (s_haveFrame) {
-                Upload();
-                s_haveFrame = false;
-            }
-
-            return;
-        }
-
-        if (s_haveFrame) {
-            double clock = Sfx::VideoTime();
-
-            if (s_framePts < clock - 0.25) {
-                s_haveFrame = false;
-            }
-            else if (s_framePts <= clock + 0.001) {
-                Upload();
-                s_haveFrame = false;
-            }
-        }
-
-        if (s_readEos && s_eosV && (s_eosA || !s_actx) && !s_haveFrame) {
-            if (!s_ended && s_dur > 2.0 && Sfx::VideoTime() < s_dur - 2.0) {
-                logging::LogLine("[video] Failed to finish (t: %.1f dur: %.1f)", Sfx::VideoTime(), s_dur);
-            }
-
-            s_ended = true;
-            s_paused = true;
-        }
-    }
-
-    /// @brief Seek to an absolute timestamp and decode a fresh frame.
+    /// @brief Seek to an absolute timestamp (handled by the worker).
     /// @param t Target time in seconds.
     static void SeekAbs(double t)
     {
@@ -834,41 +991,22 @@ namespace WVideo {
                 t = 0.0;
             }
 
-            if (t > s_dur) {
-                t = s_dur;
+            if (t > s_dur - 0.1) {
+                t = s_dur - 0.1;
             }
-        }
-        else if (t < 0.0) {
+
+            if (t < 0.0) {
+                t = 0.0;
+            }
+        } else if (t < 0.0) {
             t = 0.0;
         }
 
-        int64_t ts = (int64_t)(t * AV_TIME_BASE);
-
-        if (av_seek_frame(s_fmt, -1, ts, AVSEEK_FLAG_BACKWARD) < 0) {
-            return;
-        }
-
-        if (s_vctx) {
-            avcodec_flush_buffers(s_vctx);
-        }
-
-        if (s_actx) {
-            avcodec_flush_buffers(s_actx);
-        }
-
-        if (s_vbsf) {
-            av_bsf_flush(s_vbsf);
-        }
-
-        s_readEos = false;
-        s_vFlushed = false;
-        s_aFlushed = false;
-        s_eosV = false;
-        s_eosA = false;
+        pthread_mutex_lock(&s_mx);
+        s_seekTo = t;
+        s_seekReq = true;
         s_ended = false;
-        s_haveFrame = false;
-        Sfx::VideoSeekTo(t);
-        Step(true);
+        pthread_mutex_unlock(&s_mx);
     }
 
     /// @brief Step to a neighboring album entry, keeping video or image mode.
@@ -907,6 +1045,47 @@ namespace WVideo {
         return s_open;
     }
 
+    /// @brief Whether playback is paused.
+    /// @return True when paused.
+    bool Paused()
+    {
+        pthread_mutex_lock(&s_mx);
+        bool r = s_paused;
+        pthread_mutex_unlock(&s_mx);
+        return r;
+    }
+
+    /// @brief Whether a non-looping clip reached its end.
+    /// @return True when ended.
+    bool Ended()
+    {
+        pthread_mutex_lock(&s_mx);
+        bool r = s_ended;
+        pthread_mutex_unlock(&s_mx);
+        return r;
+    }
+
+    /// @brief Give the playback position in seconds.
+    /// @return Seconds from the start, clamped to the duration.
+    double Position()
+    {
+        if (!s_open) {
+            return 0.0;
+        }
+
+        double p = ClockNow();
+
+        if (p < 0.0) {
+            p = 0.0;
+        }
+
+        if (s_dur > 0.0 && p > s_dur) {
+            p = s_dur;
+        }
+
+        return p;
+    }
+
     /// @brief Close the video player.
     void Close()
     {
@@ -916,35 +1095,20 @@ namespace WVideo {
 
         s_open = false;
 
+        pthread_mutex_lock(&s_mx);
+        s_stop = true;
+        pthread_mutex_unlock(&s_mx);
+
+        if (s_threadRunning) {
+            pthread_join(s_thread, NULL);
+            s_threadRunning = false;
+        }
+
         if (s_vctx) {
-            avcodec_send_packet(s_vctx, NULL);
-
-            for (;;) {
-                int rc = avcodec_receive_frame(s_vctx, s_frame);
-
-                if (rc != 0) {
-                    break;
-                }
-
-                av_frame_unref(s_frame);
-            }
-
             av_frame_unref(s_frame);
         }
 
         if (s_actx) {
-            avcodec_send_packet(s_actx, NULL);
-
-            for (;;) {
-                int rc = avcodec_receive_frame(s_actx, s_aframe);
-
-                if (rc != 0) {
-                    break;
-                }
-
-                av_frame_unref(s_aframe);
-            }
-
             av_frame_unref(s_aframe);
         }
 
@@ -952,6 +1116,13 @@ namespace WVideo {
         DropHandle();
         Sfx::VideoEnd();
         s_idx = -1;
+
+        pthread_mutex_lock(&s_mx);
+        s_paused = false;
+        s_ended = false;
+        pthread_mutex_unlock(&s_mx);
+        s_readyBuf = -1;
+        s_shownBuf = -1;
     }
 
     /// @brief Drop pinned video textures.
@@ -968,6 +1139,13 @@ namespace WVideo {
             s_pcmBuf = 0;
         }
 
+        for (int i = 0; i < 2; i++) {
+            if (s_rgb[i]) {
+                free(s_rgb[i]);
+                s_rgb[i] = 0;
+            }
+        }
+
         if (s_avioBuf) {
             av_free(s_avioBuf);
             s_avioBuf = 0;
@@ -977,6 +1155,38 @@ namespace WVideo {
             av_frame_free(&s_sframe);
             s_sframe = 0;
         }
+    }
+
+    /// @brief Put new frames on GPU. Call every frame.
+    void Tick()
+    {
+        if (!s_open || s_Texture < 0) {
+            return;
+        }
+
+        int ready = __atomic_load_n(&s_readyBuf, __ATOMIC_ACQUIRE);
+
+        if (ready < 0 || ready == s_shownBuf || !s_rgb[ready]) {
+            return;
+        }
+
+        void *locked = nullptr;
+        int pitch = 0;
+
+        if (!Gfx::TexLock(s_Texture, VW, VH, &locked, &pitch) || !locked || pitch <= 0) {
+            return;
+        }
+
+        const uint8_t *src = s_rgb[ready];
+        uint8_t *dst = (uint8_t *)locked;
+
+        for (int y = 0; y < VH; y++) {
+            memcpy(dst + (size_t)y * (size_t)pitch, src + (size_t)y * (size_t)VW * 4u,
+                   (size_t)VW * 4u);
+        }
+
+        Gfx::TexUnlock(s_Texture);
+        s_shownBuf = ready;
     }
 
     /// @brief Draw the current video frame and OSD.
@@ -1010,8 +1220,6 @@ namespace WVideo {
             return true;
         }
 
-        Step(false);
-
         u64 seeks = HidNpadButton_L | HidNpadButton_R;
 
         if (down & seeks) {
@@ -1035,24 +1243,24 @@ namespace WVideo {
         }
 
         if (down & HidNpadButton_A) {
-            if (s_ended) {
+            if (Ended()) {
                 SeekAbs(0.0);
-                s_paused = false;
+                SetPaused(false);
             }
             else {
-                s_paused = !s_paused;
+                SetPaused(!Paused());
             }
 
             return true;
         }
 
         if (down & HidNpadButton_L) {
-            SeekAbs(Sfx::VideoTime() - 5.0);
+            SeekAbs(Position() - 5.0);
             return true;
         }
 
         if (down & HidNpadButton_R) {
-            SeekAbs(Sfx::VideoTime() + 5.0);
+            SeekAbs(Position() + 5.0);
             return true;
         }
 
@@ -1088,6 +1296,9 @@ namespace WVideo {
     /// @return Duration in seconds, or negative on failure.
     static double ProbeDuration(int albumIndex)
     {
+        bool wasOpen = s_open;
+        int keepIdx = s_idx;
+
         if (!qext_album_movie_open(albumIndex)) {
             return -1.0;
         }
@@ -1096,20 +1307,24 @@ namespace WVideo {
 
         if (size == 0) {
             qext_album_movie_close();
+
+            if (wasOpen && keepIdx >= 0) {
+                qext_album_movie_open(keepIdx);
+            }
+
             return -1.0;
         }
 
-        u64 ss = s_size;
-        u64 sp = s_avioPos;
-        s_size = size;
-        s_avioPos = 0;
+        AvioCtx io;
+        io.pos = 0;
+        io.size = size;
 
         double dur = -1.0;
         uint8_t *buf = (uint8_t *)av_malloc(AVIO_CAP);
         AVIOContext *avio = 0;
 
         if (buf) {
-            avio = avio_alloc_context(buf, AVIO_CAP, 0, NULL, AvioRead, NULL, AvioSeek);
+            avio = avio_alloc_context(buf, AVIO_CAP, 0, &io, AvioRead, NULL, AvioSeek);
         }
 
         if (avio) {
@@ -1140,8 +1355,10 @@ namespace WVideo {
         }
 
         qext_album_movie_close();
-        s_size = ss;
-        s_avioPos = sp;
+
+        if (wasOpen && keepIdx >= 0) {
+            qext_album_movie_open(keepIdx);
+        }
 
         return dur;
     }
@@ -1153,6 +1370,10 @@ namespace WVideo {
     {
         if (albumIndex < 0 || albumIndex >= 256) {
             return -1.0;
+        }
+
+        if (s_open && albumIndex == s_idx) {
+            return s_dur;
         }
 
         if (!s_durInit) {
