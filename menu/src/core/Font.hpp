@@ -42,9 +42,10 @@ namespace Font {
     /// @param r Red 0-1.
     /// @param g Green 0-1.
     /// @param b Blue 0-1.
+    /// @param a Alpha 0-1.
     /// @return Advance width drawn.
     float Draw(const char *s, float x, float y, float px,
-               float r, float g, float b);
+               float r, float g, float b, float a = 1.0f);
 
     /// @brief Measure a string without drawing.
     /// @param s UTF-8 text.
@@ -61,8 +62,9 @@ namespace Font {
     /// @param r Red 0-1.
     /// @param g Green 0-1.
     /// @param b Blue 0-1.
+    /// @param a Alpha 0-1.
     void Centered(const char *s, float cx, float y, float px, float maxW,
-                  float r, float g, float b);
+                  float r, float g, float b, float a = 1.0f);
 
     /// @brief Decode the next codepoint and advance the cursor.
     /// @param pp Pointer to the UTF-8 cursor (updated).

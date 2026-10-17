@@ -1103,7 +1103,7 @@ void PushHighlight(float x, float y, float w, float h, float rad,
 
 void PushText(int buf, float x0, float y0, float x1, float y1,
               float s0, float t0, float s1, float t1,
-              float r, float g, float b)
+              float r, float g, float b, float a)
 {
     TQ *v;
     float X0 = X(x0), Y0 = Y(y0), X1 = X(x1), Y1 = Y(y1);
@@ -1140,7 +1140,7 @@ void PushText(int buf, float x0, float y0, float x1, float y1,
         v[i].r = r;
         v[i].g = g;
         v[i].b = b;
-        v[i].a = 1.0f;
+        v[i].a = a;
     }
     s_TexturetN[buf] += 6;
 }

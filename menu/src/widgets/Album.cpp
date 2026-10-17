@@ -52,6 +52,7 @@ namespace WAlbum {
             int firstVisible = 0; /* top-left entry of the grid window */
             int count = 0;        /* album entries from the last refresh */
             int decodeBudget = 0; /* thumbnails left to decode this frame */
+            float fullAt = -100.0f; /* menu time when the photo hints last showed */
             InputRepeat repeat = { 0 };
             Slot thumbs[kThumbSlots];
             Slot full;
@@ -346,6 +347,7 @@ namespace WAlbum {
 
             s_state.selected = next;
             ClampSelection();
+            s_state.fullAt = App::Time();
             Sfx::Play(Sfx::Hover);
         }
 
@@ -465,6 +467,37 @@ namespace WAlbum {
             DrawScrollbar(shiftX);
         }
 
+        /// @brief Draw one hint
+        /// @param label Hint text
+        /// @param right True to right-align at the screen edge.
+        /// @param a Opacity 0-1.
+        static void DrawHintPill(const char *label, bool right, float a)
+        {
+            float tw = Font::Measure(label, 30.0f) + 48.0f;
+            float x = right ? 1860.0f - tw : 60.0f;
+            float y = 976.0f;
+            Gfx::PushOverlayPanel(x, y, tw, 64.0f, 32.0f, 0.0f, 0.0f, 0.0f, 0.6f * a);
+            Font::Draw(label, x + 24.0f, y + 44.0f, 30.0f, 1.0f, 1.0f, 1.0f, a);
+        }
+
+        /// @brief Draw the fullscreen photo hints
+        static void DrawFullHints()
+        {
+            float t = App::Time() - s_state.fullAt;
+            float a = t < 1.0f ? 1.0f : 1.0f - (t - 1.0f) / 0.4f;
+
+            if (a <= 0.0f) {
+                return;
+            }
+
+            if (a > 1.0f) {
+                a = 1.0f;
+            }
+
+            DrawHintPill("L Previous", false, a);
+            DrawHintPill("R Next", true, a);
+        }
+
         /// @brief Draw the fullscreen image (or an error placeholder).
         static void DrawFull()
         {
@@ -482,6 +515,8 @@ namespace WAlbum {
                 Font::Centered("Could not load image", 960.0f, 540.0f, 40.0f, 800.0f,
                                1.0f, 1.0f, 1.0f);
             }
+
+            DrawFullHints();
         }
 
     } // namespace
@@ -550,6 +585,7 @@ namespace WAlbum {
         ClampSelection();
         EnterFull();
         s_state.fresh = false;
+        s_state.fullAt = App::Time();
         Sfx::Play(Sfx::Hover);
     }
 
@@ -661,6 +697,7 @@ namespace WAlbum {
             if (down & HidNpadButton_Plus) {
                 RefreshAlbum();
                 FreeSlot(&s_state.full);
+                s_state.fullAt = App::Time();
                 return true;
             }
 

@@ -4,6 +4,7 @@
 
 #include "Widgets.hpp"
 #include "../core/Gfx.hpp"
+#include "../core/Font.hpp"
 #include "../core/Sfx.hpp"
 #include "../core/Qext.hpp"
 #include <string.h>
@@ -33,6 +34,7 @@ namespace WVideo {
     static bool s_fresh = false;
     static int s_rep = 0;
     static int s_idx = -1;
+    static u64 s_osdAt = 0;
 
     static AVFormatContext *s_fmt = 0;
     static AVCodecContext *s_vctx = 0;
@@ -974,6 +976,7 @@ namespace WVideo {
         s_open = true;
         s_fresh = true;
         s_rep = 0;
+        s_osdAt = NowTicks();
 
         return true;
     }
@@ -1189,6 +1192,43 @@ namespace WVideo {
         s_shownBuf = ready;
     }
 
+    /// @brief Draw one hint
+    /// @param label Hint text.
+    /// @param x left X.
+    /// @param a Opacity 0-1.
+    static void DrawOsdPill(const char *label, float x, float a)
+    {
+        float tw = Font::Measure(label, 30.0f) + 48.0f;
+        Gfx::PushOverlayPanel(x, 976.0f, tw, 64.0f, 32.0f, 0.0f, 0.0f, 0.0f, 0.6f * a);
+        Font::Draw(label, x + 24.0f, 976.0f + 44.0f, 30.0f, 1.0f, 1.0f, 1.0f, a);
+    }
+
+    /// @brief Draw the playback hints
+    static void DrawOsd()
+    {
+        double idle = (double)(NowTicks() - s_osdAt) / 1e9;
+        float a = idle < 3.0 ? 1.0f : 1.0f - (float)((idle - 3.0) / 0.5);
+
+        if (a <= 0.0f) {
+            return;
+        }
+
+        if (a > 1.0f) {
+            a = 1.0f;
+        }
+
+        DrawOsdPill("ZL Previous", 60.0f, a);
+
+        char mid[64];
+        snprintf(mid, sizeof(mid), "L -5s    A %s    R +5s", Paused() ? "Play" : "Pause");
+        mid[sizeof(mid) - 1] = 0;
+        float mw = Font::Measure(mid, 30.0f) + 48.0f;
+        DrawOsdPill(mid, 960.0f - mw * 0.5f, a);
+
+        float rw = Font::Measure("ZR Next", 30.0f) + 48.0f;
+        DrawOsdPill("ZR Next", 1860.0f - rw, a);
+    }
+
     /// @brief Draw the current video frame and OSD.
     void Draw()
     {
@@ -1201,6 +1241,8 @@ namespace WVideo {
         if (s_Texture >= 0) {
             Gfx::PushIcon(0.0f, 0.0f, 1920.0f, 1080.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 0.0f, s_Texture, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f);
         }
+
+        DrawOsd();
     }
 
     /// @brief Handle video playback input.
@@ -1213,6 +1255,10 @@ namespace WVideo {
 
         if (!s_open) {
             return false;
+        }
+
+        if (down) {
+            s_osdAt = NowTicks();
         }
 
         if (s_fresh) {

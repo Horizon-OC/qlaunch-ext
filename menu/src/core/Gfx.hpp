@@ -242,9 +242,10 @@ namespace Gfx {
     /// @param r Red 0-1.
     /// @param g Green 0-1.
     /// @param b Blue 0-1.
+    /// @param a Alpha 0-1.
     void PushText(int buf, float x0, float y0, float x1, float y1,
                   float s0, float t0, float s1, float t1,
-                  float r, float g, float b);
+                  float r, float g, float b, float a = 1.0f);
 
     /// @brief Render a text buffer through a texture slot.
     /// @param texSlot Texture slot.
