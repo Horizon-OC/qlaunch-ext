@@ -17,14 +17,14 @@ namespace Sfx {
     /// data-driven clip name (see kLegacyNames in Sfx.cpp).
     enum Id { Hover, Click, Back, AlbumJ, SettingsJ, HomeJ, HomeBoot, EshopJ, ChatJ, FolderJ, VgcJ, StandbyJ, Count };
 
-    /// @brief Initialize audio output and load the clip registry.
+    /// @brief Initialize SDL audio output and load the clip registry.
     /// @return True when audio is ready (registry still loads on failure).
     bool Init();
 
-    /// @brief Shut down voices and audio output.
+    /// @brief Shut down voices and the SDL audio stream.
     void Shutdown();
 
-    /// @brief Pump one mixer tick into the audio queue. Call every frame.
+    /// @brief Mix one tick and queue it on the SDL audio stream. Call every frame.
     void Tick();
 
     /// @brief Play a legacy clip id.

@@ -2,8 +2,10 @@
 /* Licensed under the GPLv2         */
 
 #include <switch.h>
+
 #include <qlaunch/plugin.h>
 #include <qlaunch/titles.h>
+
 #include <minIni.h>
 #include <cstdio>
 #include <cstring>
@@ -11,16 +13,17 @@
 #include <dirent.h>
 #include <sys/stat.h>
 
+/* Provided by the loader */
 namespace logging {
-void LogLine(const char *fmt, ...);
+    void LogLine(const char *fmt, ...);
 }
 
 extern "C" uint64_t xxh64(const void *data, size_t len, uint64_t seed);
 
 namespace fwd {
 
-    constexpr char kPluginCfg[] = "sdmc:/qlaunch-ext/config/plugin/forwarder.ini";
-    constexpr char kForwarderDir[] = "sdmc:/qlaunch-ext/forwarders";
+    constexpr char kPluginConfigDir[] = "sdmc:/qlaunch-ext/config/plugin/forwarder.ini";
+    constexpr char kForwarderConfigDir[] = "sdmc:/qlaunch-ext/forwarders";
     constexpr u64 kVirtualBit = 0x8000000000000000ULL;
     constexpr unsigned kIconCap = 0x40000;
     constexpr int kMaxFiles = 64;
@@ -32,7 +35,7 @@ namespace fwd {
         char icon[256] = { 0 };
     };
 
-    static u64 s_donor = 0;
+    static u64 s_DonorTitle = 0;
     static Forwarder s_forwarders[kMaxForwarders];
     static int s_count = 0;
 
@@ -77,13 +80,14 @@ namespace fwd {
     /// @brief Read the shared donor from the plugin config.
     static void ReadPluginConfig()
     {
-        s_donor = 0;
+        s_DonorTitle = 0;
         mkdir("sdmc:/qlaunch-ext", 0777);
         mkdir("sdmc:/qlaunch-ext/config", 0777);
         mkdir("sdmc:/qlaunch-ext/config/plugin", 0777);
+
         char donor[32];
-        ini_gets("forwarder", "donor", "", donor, (int)sizeof(donor), kPluginCfg);
-        s_donor = ParseTid(donor);
+        ini_gets("forwarder", "donor", "", donor, (int)sizeof(donor), kPluginConfigDir);
+        s_DonorTitle = ParseTid(donor);
     }
 
     /// @brief Test whether a file name ends in .ini (any case).
@@ -119,10 +123,10 @@ namespace fwd {
     {
         ReadPluginConfig();
         s_count = 0;
-        if (s_donor == 0) {
+        if (s_DonorTitle == 0) {
             if (!s_loggedNoDonor) {
                 s_loggedNoDonor = true;
-                logging::LogLine("[fwd] No donor set (%s)", kPluginCfg);
+                logging::LogLine("[fwd] ERROR: No donor set, can't initialize");
             }
             s_loggedDonor = 0;
             s_loggedCount = -1;
@@ -130,22 +134,26 @@ namespace fwd {
         }
         s_loggedNoDonor = false;
 
-        mkdir(kForwarderDir, 0777);
+        mkdir(kForwarderConfigDir, 0777);
         static char files[kMaxFiles][256];
-        int nfiles = 0;
-        DIR *d = opendir(kForwarderDir);
-        if (d) {
-            for (struct dirent *e = readdir(d); e; e = readdir(d)) {
+
+        int cfgFileCount = 0;
+        DIR *dir = opendir(kForwarderConfigDir);
+        if (dir) {
+            for (struct dirent *e = readdir(dir); e; e = readdir(dir)) {
                 if (e->d_name[0] == '.' || !IsIni(e->d_name))
                     continue;
-                if (nfiles >= kMaxFiles)
+                
+                if (cfgFileCount >= kMaxFiles)
                     break;
-                snprintf(files[nfiles], sizeof(files[nfiles]), "%s", e->d_name);
-                nfiles++;
+                
+                snprintf(files[cfgFileCount], sizeof(files[cfgFileCount]), "%s", e->d_name);
+                cfgFileCount++;
             }
-            closedir(d);
+            closedir(dir);
         }
-        for (int i = 1; i < nfiles; i++) {
+
+        for (int i = 1; i < cfgFileCount; i++) {
             char tmp[256];
             snprintf(tmp, sizeof(tmp), "%s", files[i]);
             int j = i - 1;
@@ -157,19 +165,19 @@ namespace fwd {
         }
 
         char path[320];
-        for (int i = 0; i < nfiles && s_count < kMaxForwarders; i++) {
-            int w = snprintf(path, sizeof(path), "%s/%s", kForwarderDir, files[i]);
+        for (int i = 0; i < cfgFileCount && s_count < kMaxForwarders; i++) {
+            int w = snprintf(path, sizeof(path), "%s/%s", kForwarderConfigDir, files[i]);
             if (w <= 0 || (unsigned)w >= sizeof(path))
                 continue;
             if (ParseForwarder(path, &s_forwarders[s_count]))
                 s_count++;
         }
 
-        if (s_donor != s_loggedDonor || s_count != s_loggedCount) {
-            s_loggedDonor = s_donor;
+        if (s_DonorTitle != s_loggedDonor || s_count != s_loggedCount) {
+            s_loggedDonor = s_DonorTitle;
             s_loggedCount = s_count;
             for (int i = 0; i < s_count; i++) {
-                logging::LogLine("[fwd] TID '%s' mapped to NRO '%s'", s_forwarders[i].name,
+                logging::LogLine("[fwd] Forwarder '%s' mapped to NRO '%s'", s_forwarders[i].name,
                                  s_forwarders[i].nro);
             }
         }
@@ -184,9 +192,11 @@ namespace fwd {
     {
         if (!path || !path[0] || !out || !cap)
             return -1;
+        
         FILE *fp = fopen(path, "rb");
         if (!fp)
             return -1;
+        
         fseek(fp, 0, SEEK_END);
         long sz = ftell(fp);
         fseek(fp, 0, SEEK_SET);
@@ -194,11 +204,13 @@ namespace fwd {
             fclose(fp);
             return -1;
         }
-        size_t got = fread(out, 1, (unsigned)sz, fp);
+        
+        size_t bytesRead = fread(out, 1, (unsigned)sz, fp);
         fclose(fp);
-        if (got != (unsigned)sz)
+        if (bytesRead != (unsigned)sz)
             return -1;
-        return (int)got;
+        
+        return (int)bytesRead;
     }
 
     /// @brief Fetch the entry for a title index.
@@ -213,100 +225,101 @@ namespace fwd {
 
 } // namespace fwd
 
+/* Plugin interface */
 extern "C" {
 
-int onBoot(NWindow *win)
-{
-    (void)win;
-    fwd::ReadConfig();
-    return 0;
-}
-
-int loop(void)
-{
-    return 0;
-}
-
-void onShutdown(void)
-{
-}
-
-bool IsPersistent(void)
-{
-    return false;
-}
-
-int TitleCount(void)
-{
-    return fwd::s_count;
-}
-
-unsigned long long TitleTid(int index)
-{
-    const fwd::Forwarder *e = fwd::At(index);
-    if (!e)
+    int onBoot(NWindow *win)
+    {
+        (void)win;
+        fwd::ReadConfig();
         return 0;
-    return fwd::HashName(e->name);
-}
+    }
 
-unsigned long long TitleDonor(int index)
-{
-    if (!fwd::At(index))
+    int loop(void)
+    {
         return 0;
-    return fwd::s_donor;
-}
+    }
 
-int TitleNro(int index, char *out, unsigned cap)
-{
-    const fwd::Forwarder *e = fwd::At(index);
-    if (!e || !out || !cap)
-        return -1;
-    size_t n = strlen(e->nro);
-    if (n == 0 || n >= cap)
-        return -1;
-    memcpy(out, e->nro, n + 1);
-    return (int)n;
-}
+    void onShutdown(void)
+    {
+    }
 
-int TitleName(int index, char *out, unsigned cap)
-{
-    const fwd::Forwarder *e = fwd::At(index);
-    if (!e || !out || !cap)
-        return -1;
-    size_t n = strlen(e->name);
-    if (n == 0 || n >= cap)
-        return -1;
-    memcpy(out, e->name, n + 1);
-    return (int)n;
-}
+    bool IsPersistent(void)
+    {
+        return false;
+    }
 
-int TitleIconSize(int index)
-{
-    const fwd::Forwarder *e = fwd::At(index);
-    if (!e || !e->icon[0])
-        return -1;
-    FILE *fp = fopen(e->icon, "rb");
-    if (!fp)
-        return -1;
-    fseek(fp, 0, SEEK_END);
-    long sz = ftell(fp);
-    fclose(fp);
-    if (sz <= 2 || (unsigned)sz > fwd::kIconCap)
-        return -1;
-    return (int)sz;
-}
+    int TitleCount(void)
+    {
+        return fwd::s_count;
+    }
 
-int TitleIcon(int index, void *out, unsigned cap)
-{
-    const fwd::Forwarder *e = fwd::At(index);
-    if (!e)
-        return -1;
-    return fwd::ReadIcon(e->icon, out, cap);
-}
+    unsigned long long TitleTid(int index)
+    {
+        const fwd::Forwarder *e = fwd::At(index);
+        if (!e)
+            return 0;
+        return fwd::HashName(e->name);
+    }
 
-void TitleRefresh(void)
-{
-    fwd::ReadConfig();
-}
+    unsigned long long TitleDonor(int index)
+    {
+        if (!fwd::At(index))
+            return 0;
+        return fwd::s_DonorTitle;
+    }
+
+    int TitleNro(int index, char *out, unsigned cap)
+    {
+        const fwd::Forwarder *e = fwd::At(index);
+        if (!e || !out || !cap)
+            return -1;
+        size_t n = strlen(e->nro);
+        if (n == 0 || n >= cap)
+            return -1;
+        memcpy(out, e->nro, n + 1);
+        return (int)n;
+    }
+
+    int TitleName(int index, char *out, unsigned cap)
+    {
+        const fwd::Forwarder *e = fwd::At(index);
+        if (!e || !out || !cap)
+            return -1;
+        size_t n = strlen(e->name);
+        if (n == 0 || n >= cap)
+            return -1;
+        memcpy(out, e->name, n + 1);
+        return (int)n;
+    }
+
+    int TitleIconSize(int index)
+    {
+        const fwd::Forwarder *e = fwd::At(index);
+        if (!e || !e->icon[0])
+            return -1;
+        FILE *fp = fopen(e->icon, "rb");
+        if (!fp)
+            return -1;
+        fseek(fp, 0, SEEK_END);
+        long sz = ftell(fp);
+        fclose(fp);
+        if (sz <= 2 || (unsigned)sz > fwd::kIconCap)
+            return -1;
+        return (int)sz;
+    }
+
+    int TitleIcon(int index, void *out, unsigned cap)
+    {
+        const fwd::Forwarder *e = fwd::At(index);
+        if (!e)
+            return -1;
+        return fwd::ReadIcon(e->icon, out, cap);
+    }
+
+    void TitleRefresh(void)
+    {
+        fwd::ReadConfig();
+    }
 
 } /* extern C */

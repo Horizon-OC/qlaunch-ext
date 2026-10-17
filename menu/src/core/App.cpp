@@ -22,7 +22,7 @@ namespace App {
 
     namespace {
 
-        /// @brief Consolidated runtime state. Replaces ~20 loose globals.
+        /// @brief State
         AppState s_state;
 
         /// @brief True once Boot() has initialized static storage.
@@ -136,7 +136,6 @@ namespace App {
         /// @param black When true, push a fullscreen black quad.
         void Present(bool black)
         {
-            Gfx::WaitIdle();
             Gfx::ResetCounts();
 
             if (black) {

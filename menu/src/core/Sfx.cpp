@@ -6,6 +6,7 @@
 #include "Assets.hpp"
 #include "Json.hpp"
 #include "Qext.hpp"
+#include <SDL3/SDL.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -30,8 +31,8 @@ namespace Sfx {
         /// @brief Mixer frames rendered per Tick().
         constexpr int kFramesPerTick = 800;
 
-        /// @brief Audio queue pool depth.
-        constexpr int kPoolN = 4;
+        /// @brief Ticks of PCM allowed to sit in the SDL audio queue.
+        constexpr int kQueueTicks = 4;
 
         /// @brief Simultaneous UI voice count.
         constexpr int kVoices = 8;
@@ -85,22 +86,19 @@ namespace Sfx {
         /// @brief True once audio output is open.
         bool s_ready = false;
 
-        /// @brief Audio queue pool and bookkeeping.
-        short s_pool[kPoolN][2048] __attribute__((aligned(0x1000)));
+        /// @brief Device-bound SDL audio stream (null when closed).
+        SDL_AudioStream *s_stream = 0;
 
-        /// @brief Audio queue descriptors.
-        AudioOutBuffer s_buf[kPoolN];
-
-        /// @brief Round-robin cursor into s_pool/s_buf.
-        unsigned s_qi = 0;
+        /// @brief Scratch buffer holding one mixed tick.
+        short s_mix[kFramesPerTick * kOutCh];
 
         /// @brief Ticks elapsed (seeds hover jitter).
         unsigned s_ticks = 0;
 
-        /// @brief Successful buffer appends.
+        /// @brief Successful stream pushes.
         unsigned s_appends = 0;
 
-        /// @brief Failed buffer appends.
+        /// @brief Dropped or rejected stream pushes.
         unsigned s_appFails = 0;
 
         /// @brief Total Play() calls accepted.
@@ -108,9 +106,6 @@ namespace Sfx {
 
         /// @brief RNG state for hover pitch jitter.
         unsigned s_rng = 0x12345678;
-
-        /// @brief Released buffers reclaimed.
-        unsigned s_rels = 0;
 
         /// @brief True while video PCM mode mutes UI voices.
         bool s_video = false;
@@ -457,7 +452,7 @@ namespace Sfx {
 
     } // namespace
 
-    /// @brief Initialize audio output and load the clip registry.
+    /// @brief Initialize SDL audio output and load the clip registry.
     /// @return True when audio is ready (registry still loads on failure).
     bool Init()
     {
@@ -466,47 +461,37 @@ namespace Sfx {
         }
 
         memset(s_voices, 0, sizeof(s_voices));
-        memset(s_buf, 0, sizeof(s_buf));
+        memset(s_mix, 0, sizeof(s_mix));
 
         if (!LoadAuto()) {
             LoadLegacy();
         }
 
-        Result rc = audoutInitialize();
-
-        if (R_FAILED(rc)) {
-            logging::LogLine("[sfx] audout rc=0x%X", (unsigned)rc);
+        if (!SDL_InitSubSystem(SDL_INIT_AUDIO)) {
+            logging::LogLine("[sfx] SDL audio init failed: %s", SDL_GetError());
             return false;
         }
 
-        {
-            static char devnames[4][256];
-            u32 got = 0;
-            Result lr = audoutListAudioOuts(&devnames[0][0], 4, &got);
-            logging::LogLine("[sfx] list rc=0x%X got=%u", (unsigned)lr, got);
-            char devout[256];
-            memset(devout, 0, sizeof(devout));
-            u32 rateOut = 0;
-            u32 chOut = 0;
-            PcmFormat fmtOut = PcmFormat_Invalid;
-            AudioOutState stOut = AudioOutState_Stopped;
-            const char *want = (R_SUCCEEDED(lr) && got > 0) ? devnames[0] : "";
-            Result orc = audoutOpenAudioOut(want, devout, kOutRate, kOutCh, &rateOut, &chOut, &fmtOut, &stOut);
-            logging::LogLine("[sfx] open rc=0x%X rate=%u ch=%u fmt=%d state=%d", (unsigned)orc, rateOut, chOut, (int)fmtOut, (int)stOut);
-        }
+        SDL_AudioSpec spec;
+        spec.format = SDL_AUDIO_S16;
+        spec.channels = kOutCh;
+        spec.freq = kOutRate;
+        s_stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, NULL, NULL);
 
-        rc = audoutStartAudioOut();
-
-        if (R_FAILED(rc)) {
-            logging::LogLine("[sfx] start rc=0x%X", (unsigned)rc);
-            audoutExit();
+        if (!s_stream) {
+            logging::LogLine("[sfx] Can't open stream, error: %s", SDL_GetError());
+            SDL_QuitSubSystem(SDL_INIT_AUDIO);
             return false;
         }
 
-        audoutSetAudioOutVolume(1.0f);
-        AudioOutState curSt = AudioOutState_Stopped;
-        audoutGetAudioOutState(&curSt);
-        logging::LogLine("[sfx] ready rate=%u ch=%u state=%d", audoutGetSampleRate(), audoutGetChannelCount(), (int)curSt);
+        if (!SDL_ResumeAudioStreamDevice(s_stream)) {
+            logging::LogLine("[sfx] Can't resume stream, error: %s", SDL_GetError());
+            SDL_DestroyAudioStream(s_stream);
+            s_stream = 0;
+            SDL_QuitSubSystem(SDL_INIT_AUDIO);
+            return false;
+        }
+
         s_ready = true;
         return true;
     }
@@ -518,9 +503,14 @@ namespace Sfx {
             s_voices[i].on = false;
         }
 
+        if (s_stream) {
+            SDL_DestroyAudioStream(s_stream);
+            s_stream = 0;
+        }
+
         if (s_ready) {
             s_ready = false;
-            audoutExit();
+            SDL_QuitSubSystem(SDL_INIT_AUDIO);
         }
     }
 
@@ -683,17 +673,17 @@ namespace Sfx {
         return LoadBuiltin();
     }
 
-    /// @brief Pump one mixer tick into the audio queue. Call every frame.
+    /// @brief Mix one tick and queue it on the SDL audio stream. Call every frame.
     void Tick()
     {
-        if (!s_ready) {
+        if (!s_ready || !s_stream) {
             return;
         }
 
-        short *dst = s_pool[s_qi];
+        short *dst = s_mix;
 
         if (s_video) {
-            for (unsigned f = 0; f < (unsigned)kFramesPerTick * 2u; f++) {
+            for (unsigned f = 0; f < (unsigned)kFramesPerTick * (unsigned)kOutCh; f++) {
                 if (s_vidLen > 0) {
                     dst[f] = s_vidBuf[s_vidHead];
                     s_vidHead = (s_vidHead + 1u) % 48000u;
@@ -764,33 +754,16 @@ namespace Sfx {
             }
         }
 
-        AudioOutBuffer *ab = &s_buf[s_qi];
-        s_qi = (s_qi + 1u) % kPoolN;
-        ab->next = 0;
-        ab->buffer = dst;
-        ab->buffer_size = sizeof(s_pool[0]);
-        ab->data_size = (u64)kFramesPerTick * 2u * 2u;
-        ab->data_offset = 0;
+        const int tickBytes = kFramesPerTick * kOutCh * (int)sizeof(short);
 
-        if (R_SUCCEEDED(audoutAppendAudioOutBuffer(ab))) {
-            s_appends++;
-        } else {
-            for (unsigned k = 0; k < 64; k++) {
-                AudioOutBuffer *rel = 0;
-                u32 nrel = 0;
-
-                if (R_FAILED(audoutGetReleasedAudioOutBuffer(&rel, &nrel)) || !nrel) {
-                    break;
-                }
-
-                s_rels++;
-            }
-
-            if (R_SUCCEEDED(audoutAppendAudioOutBuffer(ab))) {
+        if (SDL_GetAudioStreamQueued(s_stream) < kQueueTicks * tickBytes) {
+            if (SDL_PutAudioStreamData(s_stream, dst, tickBytes)) {
                 s_appends++;
             } else {
                 s_appFails++;
             }
+        } else {
+            s_appFails++;
         }
     }
 

@@ -1,9 +1,6 @@
 /* qlaunch-ext (C) 2026 Souldbminer */
 /* Licensed under the GPLv2         */
-/* SDL3 renderer backend. Widgets keep pushing quads/panels/icons/text as
-   before; rounded shapes are tessellated on the CPU into SDL geometry
-   (the old SDF shaders cannot run on SDL_Renderer). Textures live behind
-   the int-slot table and upload through SDL textures. */
+/* Pain... and suffering...         */
 
 #include "Gfx.hpp"
 #include "Log.hpp"
@@ -74,92 +71,90 @@ namespace {
 
     static void Submit(SDL_Texture *tex, SDL_Vertex *v, int n);
 
-    /* Run batching: consecutive geometry on one texture submits as a single
-       SDL_RenderGeometry call (one backend command list entry instead of one
-       per quad). FlushRun also bounds every submission for the backend. */
+    /* Batching */
     static SDL_Vertex s_run[4096];
     static int s_runN;
     static SDL_Texture *s_runTex;
 
-    static void FlushRun()
-{
-    if (s_runN > 0) {
-        Submit(s_runTex, s_run, s_runN);
-        s_runN = 0;
-    }
-}
-
-    static void EmitRun(SDL_Texture *tex, SDL_Vertex *v, int n)
-{
-    int done = 0;
-    if (n <= 0)
-        return;
-    if (tex != s_runTex)
-        FlushRun();
-    s_runTex = tex;
-    while (done < n) {
-        int room = 4096 - s_runN;
-        int take = n - done;
-        if (take > room)
-            take = room;
-        if (take <= 0) {
-            FlushRun();
-            continue;
+    static void FlushRun() {
+        if (s_runN > 0) {
+            Submit(s_runTex, s_run, s_runN);
+            s_runN = 0;
         }
-        memcpy(&s_run[s_runN], &v[done], (size_t)take * sizeof(SDL_Vertex));
-        s_runN += take;
-        done += take;
     }
-}
+
+    static void EmitRun(SDL_Texture *tex, SDL_Vertex *v, int n) {
+        int done = 0;
+        if (n <= 0)
+            return;
+        if (tex != s_runTex)
+            FlushRun();
+        s_runTex = tex;
+        while (done < n) {
+            int room = 4096 - s_runN;
+            int take = n - done;
+            if (take > room)
+                take = room;
+            if (take <= 0) {
+                FlushRun();
+                continue;
+            }
+            memcpy(&s_run[s_runN], &v[done], (size_t)take * sizeof(SDL_Vertex));
+            s_runN += take;
+            done += take;
+        }
+    }
 
     /// @brief Fit the 1920x1080 design into the framebuffer, letterboxed.
-    static void FitTransform()
-{
-    s_s = (float)s_fbW / 1920.0f;
-    float sy = (float)s_fbH / 1080.0f;
-    if (sy < s_s)
-        s_s = sy;
-    s_ox = ((float)s_fbW - 1920.0f * s_s) * 0.5f;
-    s_oy = ((float)s_fbH - 1080.0f * s_s) * 0.5f;
-}
+    static void FitTransform() {
+        s_s = (float)s_fbW / 1920.0f;
+        float sy = (float)s_fbH / 1080.0f;
+        if (sy < s_s)
+            s_s = sy;
+        s_ox = ((float)s_fbW - 1920.0f * s_s) * 0.5f;
+        s_oy = ((float)s_fbH - 1080.0f * s_s) * 0.5f;
+    }
 
     /// @brief Push one triangle of flat color into a vertex buffer.
     /// @return False when the buffer is full.
     static bool EmitTri(SDL_Vertex *out, int *n, int cap,
                         float x0, float y0, float x1, float y1, float x2, float y2,
-                        float r, float g, float b, float a)
-{
-    if (*n + 3 > cap)
-        return false;
-    out[*n].position.x = x0;
-    out[*n].position.y = y0;
-    out[*n].tex_coord.x = 0.0f;
-    out[*n].tex_coord.y = 0.0f;
-    out[*n].color.r = r;
-    out[*n].color.g = g;
-    out[*n].color.b = b;
-    out[*n].color.a = a;
-    (*n)++;
-    out[*n].position.x = x1;
-    out[*n].position.y = y1;
-    out[*n].tex_coord.x = 0.0f;
-    out[*n].tex_coord.y = 0.0f;
-    out[*n].color.r = r;
-    out[*n].color.g = g;
-    out[*n].color.b = b;
-    out[*n].color.a = a;
-    (*n)++;
-    out[*n].position.x = x2;
-    out[*n].position.y = y2;
-    out[*n].tex_coord.x = 0.0f;
-    out[*n].tex_coord.y = 0.0f;
-    out[*n].color.r = r;
-    out[*n].color.g = g;
-    out[*n].color.b = b;
-    out[*n].color.a = a;
-    (*n)++;
-    return true;
-}
+                        float r, float g, float b, float a) {
+        if (*n + 3 > cap)
+            return false;
+        
+        out[*n].position.x = x0;
+        out[*n].position.y = y0;
+        out[*n].tex_coord.x = 0.0f;
+        out[*n].tex_coord.y = 0.0f;
+        out[*n].color.r = r;
+        out[*n].color.g = g;
+        out[*n].color.b = b;
+        out[*n].color.a = a;
+        (*n)++;
+        
+        out[*n].position.x = x1;
+        out[*n].position.y = y1;
+        out[*n].tex_coord.x = 0.0f;
+        out[*n].tex_coord.y = 0.0f;
+        out[*n].color.r = r;
+        out[*n].color.g = g;
+        out[*n].color.b = b;
+        out[*n].color.a = a;
+        (*n)++;
+
+        out[*n].position.x = x2;
+        out[*n].position.y = y2;
+        out[*n].tex_coord.x = 0.0f;
+        out[*n].tex_coord.y = 0.0f;
+        out[*n].color.r = r;
+        out[*n].color.g = g;
+        out[*n].color.b = b;
+        out[*n].color.a = a;
+        (*n)++;
+
+        return true;
+    }
 
     /// @brief Push one textured triangle into a vertex buffer.
     /// @return False when the buffer is full.
@@ -745,11 +740,6 @@ void EndFrame()
 {
     if (s_live)
         SDL_RenderPresent(s_ren);
-}
-
-void WaitIdle()
-{
-    /* No-op: SDL textures synchronize on destroy internally. */
 }
 
 float X(float x)

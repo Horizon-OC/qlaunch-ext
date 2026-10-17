@@ -1,10 +1,6 @@
 /* qlaunch-ext (C) 2026 Souldbminer */
 /* Licensed under the GPLv2         */
-/* SDL3 renderer backend. Push and Draw signatures are unchanged so widgets
-   never touch SDL directly; textures live behind the historic int-slot
-   table (0-2 reserved for font atlases, like before). Rounded shapes are
-   tessellated on the CPU (see Gfx.cpp); icon border/edge blending from the
-   old SDF shaders is intentionally not reproduced. */
+/* Pain... and suffering...         */
 
 #pragma once
 #include <switch.h>
@@ -61,9 +57,6 @@ namespace Gfx {
 
     /// @brief Submit the frame and present it.
     void EndFrame();
-
-    /// @brief No-op under SDL (texture destroy syncs internally).
-    void WaitIdle();
 
     /// @brief Scale an X coordinate to framebuffer space.
     /// @param x Design X (1920-wide).
