@@ -12,6 +12,10 @@ constexpr int GFX_PANEL_MAX = 2048;
 constexpr int GFX_ICONQ_MAX = 2048;
 constexpr int GFX_HL_MAX = 64;
 
+constexpr int GFX_OVCOLOR_MAX = 144;
+constexpr int GFX_OVPANEL_MAX = 32;
+constexpr int GFX_OVHL_MAX = 16;
+
 constexpr int GFX_MAX_TEX = 256;
 
 namespace Gfx {
@@ -54,6 +58,9 @@ namespace Gfx {
 
     /// @brief Render queued icon quads.
     void DrawIcons();
+
+    /// @brief Render queued overlay quads, panels, and rings above icons.
+    void DrawOverlay();
 
     /// @brief Submit the frame and present it.
     void EndFrame();
@@ -171,6 +178,40 @@ namespace Gfx {
     /// @param rad Corner radius.
     /// @param thick Ring thickness.
     void PushSelectRing(float x, float y, float w, float h, float rad, float thick);
+
+    /// @brief Queue a solid-color quad in the overlay layer (modal dim).
+    /// @param x X position.
+    /// @param y Y position.
+    /// @param w Width.
+    /// @param h Height.
+    /// @param r Red 0-1.
+    /// @param g Green 0-1.
+    /// @param b Blue 0-1.
+    /// @param a Alpha 0-1.
+    void PushOverlayQuad(float x, float y, float w, float h,
+                         float r, float g, float b, float a);
+
+    /// @brief Queue a rounded panel in the overlay layer (modal chrome).
+    /// @param x X position.
+    /// @param y Y position.
+    /// @param w Width.
+    /// @param h Height.
+    /// @param rad Corner radius.
+    /// @param r Red 0-1.
+    /// @param g Green 0-1.
+    /// @param b Blue 0-1.
+    /// @param a Alpha 0-1.
+    void PushOverlayPanel(float x, float y, float w, float h, float rad,
+                          float r, float g, float b, float a);
+
+    /// @brief Queue a selection ring in the overlay layer (modal focus).
+    /// @param x X position.
+    /// @param y Y position.
+    /// @param w Width.
+    /// @param h Height.
+    /// @param rad Corner radius.
+    /// @param thick Ring thickness.
+    void PushOverlayRing(float x, float y, float w, float h, float rad, float thick);
 
     /// @brief Queue a four-color highlight ring.
     /// @param x X position.

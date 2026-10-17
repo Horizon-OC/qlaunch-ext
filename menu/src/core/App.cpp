@@ -153,6 +153,7 @@ namespace App {
             Gfx::DrawPanels();
             Gfx::DrawHighlights();
             Gfx::DrawIcons();
+            Gfx::DrawOverlay();
             Gfx::DrawTextBuf(Font::Slot(FONT_BUF_LATIN), FONT_BUF_LATIN);
             Gfx::DrawTextBuf(Font::Slot(FONT_BUF_KANA), FONT_BUF_KANA);
             Gfx::DrawTextBuf(Font::Slot(FONT_BUF_ICON), FONT_BUF_ICON);
@@ -207,6 +208,7 @@ namespace App {
             st.launchBlack = false;
             st.frame = 0;
             st.holdFrames = 0;
+            WPrompt::Close();
         }
 
     } // namespace
@@ -330,9 +332,26 @@ namespace App {
         Present(true);
     }
 
+    /// @brief Launch a game title with blackout and jingles.
+    /// @param tid Title id to launch.
+    void LaunchGame(u64 tid)
+    {
+        AppState &st = s_state;
+        st.launchBlack = true;
+        Blackout();
+
+        if (R_FAILED(qext_launch_title(tid))) {
+            st.launchBlack = false;
+            Sfx::Play(Sfx::Back);
+        } else {
+            Sfx::Play(Sfx::Click);
+        }
+    }
+
     /// @brief Activate whatever is focused (top bar, bottom bar, title).
+    /// @param held Buttons currently held (forwarded to prompts).
     /// @return True when the A press was consumed.
-    bool Activate()
+    bool Activate(u64 held)
     {
         AppState &st = s_state;
 
@@ -386,16 +405,12 @@ namespace App {
 
                 return true;
             } else if (!qext_game_has_foreground()) {
-                st.launchBlack = true;
-                Blackout();
-
-                if (R_FAILED(qext_launch_title(r->tid))) {
-                    st.launchBlack = false;
-                    Sfx::Play(Sfx::Back);
-                } else {
-                    Sfx::Play(Sfx::Click);
+                if (qext_game_running() && susp != r->tid) {
+                    WPrompt::OpenCloseGame(held, r->tid);
+                    return true;
                 }
 
+                LaunchGame(r->tid);
                 return true;
             }
 
@@ -428,7 +443,9 @@ namespace App {
             st.focus.topDebounce--;
         }
 
-        if (WAlbum::IsOpen() && st.menu.t >= 1.0f) {
+        if (WPrompt::IsOpen()) {
+            WPrompt::Input(down, held);
+        } else if (WAlbum::IsOpen() && st.menu.t >= 1.0f) {
             Layout::Input(down, held);
         } else if (st.menu.t < 1.0f) {
             /* Lock input during transitions. */
@@ -441,7 +458,11 @@ namespace App {
 
             if (st.menu.cur == homeIdx && !st.focus.top) {
                 if (down & HidNpadButton_X) {
-                    qext_terminate_game();
+                    if (qext_game_running()) {
+                        WPrompt::OpenCloseGame(held, 0);
+                    } else {
+                        Sfx::Play(Sfx::Back);
+                    }
                 }
 
                 if (down & HidNpadButton_Plus) {
@@ -450,7 +471,7 @@ namespace App {
             }
 
             if (down & HidNpadButton_A) {
-                if (Activate()) {
+                if (Activate(held)) {
                     down &= ~HidNpadButton_A;
                 }
             }
@@ -509,6 +530,8 @@ namespace App {
     void OnHome()
     {
         AppState &st = s_state;
+
+        WPrompt::Close();
 
         if (WAlbum::IsOpen()) {
             WAlbum::Close();

@@ -101,8 +101,13 @@ namespace App {
     void RefreshTitles();
 
     /// @brief Activate whatever is focused (top bar, bottom bar, title).
+    /// @param held Buttons currently held (forwarded to prompts).
     /// @return True when the A press was consumed.
-    bool Activate();
+    bool Activate(u64 held);
+
+    /// @brief Launch a game title with blackout and jingles.
+    /// @param tid Title id to launch.
+    void LaunchGame(u64 tid);
 
     /// @brief Present two black frames (used when launching).
     void Blackout();

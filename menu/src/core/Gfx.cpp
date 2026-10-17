@@ -67,6 +67,13 @@ namespace {
     static HQ s_hlQ[GFX_HL_MAX];
     static int s_hlN;
 
+    static CQ s_ovColorQ[GFX_OVCOLOR_MAX];
+    static int s_ovColorN;
+    static PQ s_ovPanelQ[GFX_OVPANEL_MAX];
+    static int s_ovPanelN;
+    static HQ s_ovHlQ[GFX_OVHL_MAX];
+    static int s_ovHlN;
+
     static SDL_Vertex s_tmp[kTempMax];
 
     static void Submit(SDL_Texture *tex, SDL_Vertex *v, int n);
@@ -708,6 +715,46 @@ void DrawIcons()
     FlushRun();
 }
 
+void DrawOverlay()
+{
+    int n = 0;
+    for (int i = 0; i + 6 <= s_ovColorN; i += 6) {
+        if (n + 6 > kTempMax) {
+            EmitRun(NULL, s_tmp, n);
+            n = 0;
+        }
+        for (int k = 0; k < 6; k++) {
+            s_tmp[n].position.x = s_ovColorQ[i + k].x;
+            s_tmp[n].position.y = s_ovColorQ[i + k].y;
+            s_tmp[n].tex_coord.x = 0.0f;
+            s_tmp[n].tex_coord.y = 0.0f;
+            s_tmp[n].color.r = s_ovColorQ[i + k].r;
+            s_tmp[n].color.g = s_ovColorQ[i + k].g;
+            s_tmp[n].color.b = s_ovColorQ[i + k].b;
+            s_tmp[n].color.a = s_ovColorQ[i + k].a;
+            n++;
+        }
+    }
+    EmitRun(NULL, s_tmp, n);
+
+    for (int i = 0; i < s_ovPanelN; i++) {
+        n = TessRRect(s_tmp, kTempMax, s_ovPanelQ[i].x, s_ovPanelQ[i].y,
+                      s_ovPanelQ[i].w, s_ovPanelQ[i].h, s_ovPanelQ[i].rad,
+                      s_ovPanelQ[i].r, s_ovPanelQ[i].g, s_ovPanelQ[i].b,
+                      s_ovPanelQ[i].a);
+        EmitRun(NULL, s_tmp, n);
+    }
+
+    for (int i = 0; i < s_ovHlN; i++) {
+        HQ *q = &s_ovHlQ[i];
+        n = TessRing(s_tmp, kTempMax, q->x, q->y, q->w, q->h, q->rad,
+                     q->thick, q->c0, q->c1, q->c2, q->c3, q->rot);
+        EmitRun(NULL, s_tmp, n);
+    }
+
+    FlushRun();
+}
+
 void DrawTextBuf(int texSlot, int buf)
 {
     int n = 0;
@@ -950,6 +997,84 @@ void PushSelectRing(float x, float y, float w, float h, float rad, float thick)
     PushHighlight(x, y, w, h, rad, thick, c0, c1, c2, c3, s_ringRot);
 }
 
+void PushOverlayQuad(float x, float y, float w, float h,
+                     float r, float g, float b, float a)
+{
+    float X0 = X(x), Y0 = Y(y), X1 = X(x + w), Y1 = Y(y + h);
+    CQ *v;
+    if (s_ovColorN + 6 > GFX_OVCOLOR_MAX)
+        return;
+    v = &s_ovColorQ[s_ovColorN];
+    v[0].x = X0;
+    v[0].y = Y0;
+    v[1].x = X0;
+    v[1].y = Y1;
+    v[2].x = X1;
+    v[2].y = Y0;
+    v[3].x = X1;
+    v[3].y = Y0;
+    v[4].x = X0;
+    v[4].y = Y1;
+    v[5].x = X1;
+    v[5].y = Y1;
+    for (int i = 0; i < 6; i++) {
+        v[i].r = r;
+        v[i].g = g;
+        v[i].b = b;
+        v[i].a = a;
+    }
+    s_ovColorN += 6;
+}
+
+void PushOverlayPanel(float x, float y, float w, float h, float rad,
+                      float r, float g, float b, float a)
+{
+    PQ *q;
+    if (s_ovPanelN + 1 > GFX_OVPANEL_MAX)
+        return;
+    if (w <= 0.0f || h <= 0.0f)
+        return;
+    q = &s_ovPanelQ[s_ovPanelN];
+    q->x = X(x);
+    q->y = Y(y);
+    q->w = SC(w);
+    q->h = SC(h);
+    q->rad = SC(rad);
+    q->r = r;
+    q->g = g;
+    q->b = b;
+    q->a = a;
+    s_ovPanelN++;
+}
+
+void PushOverlayRing(float x, float y, float w, float h, float rad, float thick)
+{
+    static const float c0[4] = { 0.537f, 0.584f, 0.945f, 1.0f };
+    static const float c1[4] = { 0.384f, 0.588f, 0.949f, 1.0f };
+    static const float c2[4] = { 0.863f, 0.722f, 0.875f, 1.0f };
+    static const float c3[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+    HQ *q;
+    if (s_ovHlN + 1 > GFX_OVHL_MAX)
+        return;
+    if (w <= 0.0f || h <= 0.0f || thick <= 0.0f)
+        return;
+    q = &s_ovHlQ[s_ovHlN];
+    q->x = X(x);
+    q->y = Y(y);
+    q->w = SC(w);
+    q->h = SC(h);
+    q->rad = SC(rad);
+    q->thick = SC(thick);
+    q->rot = s_ringRot;
+    for (int i = 0; i < 4; i++) {
+        q->c0[i] = c0[i];
+        q->c1[i] = c1[i];
+        q->c2[i] = c2[i];
+        q->c3[i] = c3[i];
+    }
+    s_ovHlN++;
+}
+
 void PushHighlight(float x, float y, float w, float h, float rad,
                    float thick, const float *c0, const float *c1,
                    const float *c2, const float *c3, float rot)
@@ -1034,6 +1159,9 @@ void ResetCounts()
     s_panelN = 0;
     s_iconN = 0;
     s_hlN = 0;
+    s_ovColorN = 0;
+    s_ovPanelN = 0;
+    s_ovHlN = 0;
 }
 
 unsigned IconQuads()

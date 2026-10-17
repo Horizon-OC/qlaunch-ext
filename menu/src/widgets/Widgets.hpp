@@ -176,6 +176,42 @@ namespace WVideo {
     void DurReset();
 } // namespace WVideo
 
+namespace WPrompt {
+    /// @brief Whether a modal prompt covers the screen.
+    /// @return True when open.
+    bool IsOpen();
+
+    /// @brief Open a generic two-button prompt.
+    /// @param title Title line (copied).
+    /// @param message Subtitle line (copied).
+    /// @param held Buttons currently held; disarmed until released so
+    /// the opening press can never confirm or dismiss.
+    void Open(const char *title, const char *message, u64 held);
+
+    /// @brief Open the close-game confirm for the running title.
+    /// Confirming Close terminates the game; when launchTid is set the
+    /// title is launched right after. Cancelling does nothing.
+    /// @param held Buttons currently held (see Open).
+    /// @param launchTid Title to launch when Close is confirmed, 0 for close only.
+    void OpenCloseGame(u64 held, u64 launchTid);
+
+    /// @brief Dismiss the prompt without acting.
+    void Close();
+
+    /// @brief Give the selected button (0 = left/confirm, 1 = right/cancel).
+    /// @return Selection index.
+    int Sel();
+
+    /// @brief Draw the dim + centered dialog.
+    void Draw();
+
+    /// @brief Handle prompt navigation input.
+    /// @param down Buttons pressed.
+    /// @param held Buttons held.
+    /// @return True when the input was consumed.
+    bool Input(u64 down, u64 held);
+} /* namespace WPrompt */
+
 enum : unsigned {
     GLYPH_A = 0xE0A0,
     GLYPH_B = 0xE0A1,

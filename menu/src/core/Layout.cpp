@@ -412,6 +412,9 @@ namespace Layout {
         if (WAlbum::IsFull()) {
             Gfx::PushPanel(0.0f, 0.0f, 1920.0f, 1080.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f);
             WAlbum::Draw();
+            if (WPrompt::IsOpen()) {
+                WPrompt::Draw();
+            }
             return;
         }
 
@@ -443,6 +446,10 @@ namespace Layout {
         }
 
         WBottomBar::Draw();
+
+        if (WPrompt::IsOpen()) {
+            WPrompt::Draw();
+        }
     }
 
     /// @brief Route input to the focused layer, else the active tab.
@@ -450,6 +457,11 @@ namespace Layout {
     /// @param held Buttons held.
     void Input(u64 down, u64 held)
     {
+        if (WPrompt::IsOpen()) {
+            WPrompt::Input(down, held);
+            return;
+        }
+
         if (WAlbum::IsOpen() && App::MenuT() >= 1.0f) {
             WAlbum::Input(down, held);
             return;
