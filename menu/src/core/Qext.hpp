@@ -43,6 +43,20 @@ extern "C" {
     /// @return Bytes written, or < 0 on failure.
     int qext_title_icon(int index, void *out, unsigned cap);
 
+    /// @brief Read a title display version into a buffer.
+    /// @param index Title index.
+    /// @param out Output buffer.
+    /// @param cap Buffer capacity.
+    /// @return Bytes written, or < 0 when unknown.
+    int qext_title_version(int index, char *out, unsigned cap);
+
+    /// @brief Read a title publisher into a buffer.
+    /// @param index Title index.
+    /// @param out Output buffer.
+    /// @param cap Buffer capacity.
+    /// @return Bytes written, or < 0 when unknown.
+    int qext_title_publisher(int index, char *out, unsigned cap);
+
     /// @brief Whether a title's game card is ejected.
     /// @param index Title index.
     /// @return > 0 when ejected.
@@ -144,6 +158,94 @@ extern "C" {
     /// @param kind Applet kind id.
     /// @return Libnx result code.
     Result qext_launch_applet(int kind);
+
+    /* Software keyboard options for qext_swkbd_show_ex(). */
+    typedef struct SwkbdOptions {
+        const char *initialText; /* May be null or empty for blank. */
+        const char *headerText;  /* May be null for no header. */
+        unsigned minLength;      /* Minimum input length (0 = none). */
+        unsigned maxLength;      /* Maximum input length (0 = internal cap). */
+        int blurBackground;      /* Non-zero blurs the background behind the keyboard. */
+    } SwkbdOptions;
+
+    /// @brief Show the system keyboard; writes UTF-8 into the output buffer.
+    /// @param options Keyboard options (may be null for blank defaults).
+    /// @param outputBuffer Output UTF-8 buffer.
+    /// @param outputCapacity Buffer capacity.
+    /// @return Bytes written, or negative on cancel/failure.
+    int qext_swkbd_show_ex(const SwkbdOptions *options, char *outputBuffer, unsigned outputCapacity);
+
+    /// @brief Give the folder count.
+    /// @return Folder count.
+    int qext_folder_count(void);
+
+    /// @brief Give a folder id by index.
+    /// @param index Folder index.
+    /// @return Folder id, or 0 when out of range.
+    u64 qext_folder_id(int index);
+
+    /// @brief Read a folder name into a buffer.
+    /// @param index Folder index.
+    /// @param out Output buffer.
+    /// @param out_cap Buffer capacity.
+    /// @return Bytes written, or negative on failure.
+    int qext_folder_name(int index, char *out, unsigned out_cap);
+
+    /// @brief Give a folder's game count.
+    /// @param index Folder index.
+    /// @return Game count, or negative on failure.
+    int qext_folder_game_count(int index);
+
+    /// @brief Give a member title id.
+    /// @param index Folder index.
+    /// @param game Member position.
+    /// @return Title id, or 0 when out of range.
+    u64 qext_folder_game(int index, int game);
+
+    /// @brief Find the folder holding a game.
+    /// @param tid Game title id.
+    /// @return Folder index, or negative when in no folder.
+    int qext_folder_of_game(u64 tid);
+
+    /// @brief Create a folder holding one game.
+    /// @param name Folder name.
+    /// @param tid First game.
+    /// @return Folder id, or 0 on failure.
+    u64 qext_folder_create(const char *name, u64 tid);
+
+    /// @brief Rename a folder.
+    /// @param id Folder id.
+    /// @param name New name.
+    /// @return 0 on success, negative on failure.
+    int qext_folder_rename(u64 id, const char *name);
+
+    /// @brief Delete a folder, returning its games to the strip.
+    /// @param id Folder id.
+    /// @return 0 on success, negative on failure.
+    int qext_folder_delete(u64 id);
+
+    /// @brief Add a game to a folder.
+    /// @param id Folder id.
+    /// @param tid Game title id.
+    /// @return 0 on success, negative on failure.
+    int qext_folder_add(u64 id, u64 tid);
+
+    /// @brief Remove a game from a folder.
+    /// @param id Folder id.
+    /// @param tid Game title id.
+    /// @return 0 on success, negative on failure.
+    int qext_folder_remove(u64 id, u64 tid);
+
+    /// @brief Give a folder's palette index.
+    /// @param index Folder index.
+    /// @return Palette index, or negative on failure.
+    int qext_folder_color(int index);
+
+    /// @brief Set a folder's palette index.
+    /// @param id Folder id.
+    /// @param color Palette index.
+    /// @return 0 on success, negative on failure.
+    int qext_folder_set_color(u64 id, int color);
 
     /// @brief Give the display size in pixels.
     /// @param w Width output.

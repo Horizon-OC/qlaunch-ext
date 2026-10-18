@@ -170,7 +170,9 @@ static Result gfx_layer_init(void)
         viSetLayerSize(&g_layer, (s32)g_fbW, (s32)g_fbH);
 
         /* Use a low priority to avoid overwriting other system UI */
-        viSetLayerZ(&g_layer, 1);
+        /* 0 is probably used for the Quick Settings/notifications */
+        /* And 1 is likely used for swkbd */
+        viSetLayerZ(&g_layer, 2);
 
         /* Default scaling mode */
         viSetLayerScalingMode(&g_layer, ViScalingMode_FitToLayer);

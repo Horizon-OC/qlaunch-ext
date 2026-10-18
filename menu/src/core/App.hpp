@@ -8,6 +8,9 @@
 constexpr int kAppMaxTitles = 256;
 constexpr int kAppNameMax = 192;
 constexpr int kAppAppletCount = 2;
+constexpr int kFolderStripMax = 8;
+constexpr int kFolderStripGames = 24;
+constexpr int kFolderColorCount = 10;
 
 constexpr int kHomeSubGames = 0;
 constexpr int kHomeSubFolders = 1;
@@ -16,7 +19,10 @@ constexpr int kHomeSubVgc = 2;
 /// @brief One row in the home game strip.
 struct AppRow {
     bool isGame;
+    bool isFolder;
     u64 tid;
+    u64 folderId;
+    int folderColor;
     int applet; /* 0 album, 1 controllers */
     int iconSlot;
     bool ejected;
@@ -51,6 +57,8 @@ struct FocusState {
 struct HomeState {
     int sub;
     float shiftY;
+    u64 openFolder;  /* folder id shown in the folders view, 0 when none */
+    int folderSel;   /* selection inside the open folder */
 };
 
 /// @brief Whole menu runtime state. Single global instead of ~20 loose ones.
@@ -105,6 +113,13 @@ namespace App {
     /// @brief Launch a game title with blackout and jingles.
     /// @param tid Title id to launch.
     void LaunchGame(u64 tid);
+
+    /// @brief Launch a game row with suspend/resume handling.
+    /// @param tid Title id to launch.
+    /// @param ejected True when the gamecard is ejected.
+    /// @param heldButtons Buttons currently held (forwarded to prompts).
+    /// @return True when the A press was consumed.
+    bool LaunchGameRow(u64 tid, bool ejected, u64 heldButtons);
 
     /// @brief Present two black frames (used when launching).
     void Blackout();
@@ -193,6 +208,33 @@ namespace App {
     /// @param s New sub-screen.
     void SetHomeSub(int s);
 
+    /// @brief Give the open folder id.
+    /// @return Folder id, or 0 when no folder view is open.
+    u64 OpenFolder();
+
+    /// @brief Set the open folder id.
+    /// @param folderId Folder id, or 0 to close the view.
+    void SetOpenFolder(u64 folderId);
+
+    /// @brief Give the selection inside the open folder.
+    /// @return Member index.
+    int FolderSel();
+
+    /// @brief Set the selection inside the open folder.
+    /// @param s New member index.
+    void SetFolderSel(int s);
+
+    /// @brief Open a folder view on the strip.
+    /// @param folderId Folder id to show.
+    void OpenFolderView(u64 folderId);
+
+    /// @brief Leave the folder view for the strip.
+    void CloseFolderView();
+
+    /// @brief Select the strip row holding a folder.
+    /// @param folderId Folder id to select.
+    void SelectFolderRow(u64 folderId);
+
     /// @brief Whether the bottom bar has focus.
     /// @return True when focused.
     bool BottomFocus();
@@ -202,10 +244,10 @@ namespace App {
     void SetBottomFocus(bool f);
 
     /// @brief Give the bottom-bar selection.
-    /// @return Index 0-2.
+    /// @return Index 0-1.
     int BottomSel();
 
-    /// @brief Set the bottom-bar selection, clamped 0-2.
+    /// @brief Set the bottom-bar selection, clamped 0-1.
     /// @param s New selection.
     void SetBottomSel(int s);
 

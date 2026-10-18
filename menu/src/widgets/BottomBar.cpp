@@ -18,12 +18,12 @@ namespace WBottomBar {
 
     namespace {
 
-        constexpr int kBottomButtonCount = 3;
+        constexpr int kBottomButtonCount = 2;
         constexpr float kBottomBarY = 924.0f;
         constexpr float kBottomBarHeight = 156.0f;
         constexpr float kBottomButtonSize = 72.0f;
         constexpr float kBottomButtonGap = 24.0f;
-        constexpr float kBottomRowStartX = 1578.0f;
+        constexpr float kBottomRowStartX = 1710.0f;
         constexpr float kBottomRowY = 958.0f;
 
         /// @brief Focus phase for the bottom bar action state machine.
@@ -96,7 +96,7 @@ namespace WBottomBar {
 
         /* Only on the home tab. */
         if (App::Menu() == homeTabIndex) {
-            /* M-FOLDER 1614, M-VGC 1710, sleep 1806. */
+            /* M-VGC 1710, sleep 1806. */
             float buttonRed = 1.0f;
             float buttonGreen = 1.0f;
             float buttonBlue = 1.0f;
@@ -113,7 +113,7 @@ namespace WBottomBar {
                 float buttonDiameter = kBottomButtonSize + 16.0f;
                 Gfx::PushPanel(buttonCenterX - 8.0f, kBottomRowY - 8.0f, buttonDiameter, buttonDiameter, buttonDiameter * 0.5f, buttonRed, buttonGreen, buttonBlue, 1.0f);
 
-                if (buttonIndex == 2) {
+                if (buttonIndex == 1) {
                     char powerText[4] = { 0 };
                     GlyphUTF8(GLYPH_POWER, powerText);
                     float powerWidth = Font::Measure(powerText, 52.0f);
@@ -125,7 +125,7 @@ namespace WBottomBar {
 
                     Font::Draw(powerText, buttonCenterX + (kBottomButtonSize - powerWidth) * 0.5f, kBottomRowY + kBottomButtonSize * 0.5f + 18.0f, 52.0f, iconRed, iconGreen, iconBlue);
                 } else {
-                    int iconSlot = (buttonIndex == 0) ? ResolveHudSlot(kHudFolder) : ResolveHudSlot(kHudVgcCard);
+                    int iconSlot = ResolveHudSlot(kHudVgcCard);
 
                     if (Gfx::TexValid(iconSlot)) {
                         Gfx::PushIcon(buttonCenterX, kBottomRowY + 8.0f, kBottomButtonSize, kBottomButtonSize, 16.0f, 16.0f, 16.0f, 16.0f, 1.0f, 1.0f, 1.0f, 0.0f, iconSlot);
@@ -166,7 +166,7 @@ namespace WBottomBar {
         if (buttonsDown & HidNpadButton_AnyRight) {
             int currentSelection = App::BottomSel();
 
-            if (currentSelection < 2) {
+            if (currentSelection < 1) {
                 App::SetBottomSel(currentSelection + 1);
                 Sfx::Play(Sfx::Hover);
             }

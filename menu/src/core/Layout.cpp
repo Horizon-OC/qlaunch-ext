@@ -437,8 +437,8 @@ namespace Layout {
         if (fullTab >= 0) {
             Gfx::PushPanel(0.0f, 0.0f, 1920.0f, 1080.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f);
             Submenus::DrawDynamicTab(fullTab);
-            if (WPrompt::IsOpen()) {
-                WPrompt::Draw();
+            if (WPopup::IsOpen()) {
+                WPopup::Draw();
             }
             return;
         }
@@ -481,8 +481,8 @@ namespace Layout {
 
         WBottomBar::Draw();
 
-        if (WPrompt::IsOpen()) {
-            WPrompt::Draw();
+        if (WPopup::IsOpen()) {
+            WPopup::Draw();
         }
     }
 

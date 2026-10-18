@@ -34,6 +34,12 @@ extern "C" {
     * (<0 on error). Optional. */
     QLAUNCH_HOOK int TitleIcon(int index, void *out, unsigned cap);
 
+    /* Display version string into out (<0 on error/unknown). Optional. */
+    QLAUNCH_HOOK int TitleVersion(int index, char *out, unsigned cap);
+
+    /* Publisher string into out (<0 on error/unknown). Optional. */
+    QLAUNCH_HOOK int TitlePublisher(int index, char *out, unsigned cap);
+
     /* Called on launch of any title. */
     QLAUNCH_HOOK int TitleLaunch(int index);
 

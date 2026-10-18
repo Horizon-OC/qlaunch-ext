@@ -33,6 +33,8 @@ namespace fwd {
         char name[192] = { 0 };
         char nro[512] = { 0 };
         char icon[256] = { 0 };
+        char version[32] = { 0 };
+        char publisher[192] = { 0 };
     };
 
     static u64 s_DonorTitle = 0;
@@ -115,6 +117,10 @@ namespace fwd {
         ini_gets("forwarder", "name", "", out->name, (int)sizeof(out->name), path);
         ini_gets("forwarder", "nro", "", out->nro, (int)sizeof(out->nro), path);
         ini_gets("forwarder", "icon", "", out->icon, (int)sizeof(out->icon), path);
+        ini_gets("forwarder", "version", "", out->version, (int)sizeof(out->version), path);
+        ini_gets("forwarder", "publisher", "", out->publisher, (int)sizeof(out->publisher), path);
+        if (out->publisher[0] == 0)
+            ini_gets("forwarder", "author", "", out->publisher, (int)sizeof(out->publisher), path);
         return out->name[0] != 0 && out->nro[0] != 0;
     }
 
@@ -315,6 +321,30 @@ extern "C" {
         if (!e)
             return -1;
         return fwd::ReadIcon(e->icon, out, cap);
+    }
+
+    int TitleVersion(int index, char *out, unsigned cap)
+    {
+        const fwd::Forwarder *e = fwd::At(index);
+        if (!e || !out || !cap)
+            return -1;
+        size_t n = strlen(e->version);
+        if (n == 0 || n >= cap)
+            return -1;
+        memcpy(out, e->version, n + 1);
+        return (int)n;
+    }
+
+    int TitlePublisher(int index, char *out, unsigned cap)
+    {
+        const fwd::Forwarder *e = fwd::At(index);
+        if (!e || !out || !cap)
+            return -1;
+        size_t n = strlen(e->publisher);
+        if (n == 0 || n >= cap)
+            return -1;
+        memcpy(out, e->publisher, n + 1);
+        return (int)n;
     }
 
     void TitleRefresh(void)

@@ -77,10 +77,18 @@ namespace WHints {
                 outputHints[hintCount++] = { "A", "OK" };
                 outputHints[hintCount++] = { "B", "Back" };
             } else if (App::Menu() == homeTabIndex && App::HomeSub() != kHomeSubGames) {
-                outputHints[hintCount++] = { "B", "Back" };
-            } else {
-                outputHints[hintCount++] = { "+", "Options" };
                 outputHints[hintCount++] = { "A", "Start" };
+                outputHints[hintCount++] = { "Y", "Options" };
+                outputHints[hintCount++] = { "B", "Back" };
+            } else if (WStrip::OptionsOpen()) {
+                outputHints[hintCount++] = { "A", "OK" };
+                outputHints[hintCount++] = { "B", "Back" };
+            } else if (App::Sel() >= 0 && App::Sel() < App::RowCount() && App::Row(App::Sel()).isFolder) {
+                outputHints[hintCount++] = { "A", "Open" };
+                outputHints[hintCount++] = { "Y", "Rename" };
+            } else {
+                outputHints[hintCount++] = { "A", "Start" };
+                outputHints[hintCount++] = { "Y", "Folder" };
             }
 
             return hintCount;

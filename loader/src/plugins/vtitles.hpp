@@ -16,6 +16,8 @@
  *   int TitleName(int index, char *out, unsigned cap);
  *   int TitleIconSize(int index);                       (optional)
  *   int TitleIcon(int index, void *out, unsigned cap);  (optional)
+ *   int TitleVersion(int index, char *out, unsigned cap);   (optional)
+ *   int TitlePublisher(int index, char *out, unsigned cap); (optional)
  *   int TitleLaunch(int index);             (optional with TitleNro)
  *   void TitleRefresh(void);                            (optional)
  *
@@ -37,6 +39,8 @@
  * TitleIconSize/TitleIcon: JPEG bytes for the menu tile. JPEG only
  *   (the menu checks for SOI magic); <0 or missing means the menu
  *   draws its fallback tile. Max 256KB per icon.
+ * TitleVersion/TitlePublisher: display version and publisher strings
+ *   for the info popup (<0 or missing hides that line).
  * TitleLaunch: called when the user launches a plain (NRO-less)
  *   title. 0 = handled. The loader terminates any running game
  *   first (same as real titles), then dispatches here. The loader
@@ -105,6 +109,20 @@ namespace vtitles {
     /// @param cap Buffer capacity.
     /// @return Bytes written (<0 on error).
     int Icon(int vi, void *out, unsigned cap);
+
+    /// @brief Read a virtual title's display version.
+    /// @param vi Flat virtual index.
+    /// @param out Output buffer.
+    /// @param cap Buffer capacity.
+    /// @return Version length (<0 when unknown).
+    int Version(int vi, char *out, unsigned cap);
+
+    /// @brief Read a virtual title's publisher string.
+    /// @param vi Flat virtual index.
+    /// @param out Output buffer.
+    /// @param cap Buffer capacity.
+    /// @return Publisher length (<0 when unknown).
+    int Publisher(int vi, char *out, unsigned cap);
 
     /// @brief Test whether a tid addresses a virtual title.
     /// @param tid Title id to test.

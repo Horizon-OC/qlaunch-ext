@@ -26,6 +26,8 @@ namespace vtitles {
             int (*name)(int, char *, unsigned) = nullptr;
             int (*iconSize)(int) = nullptr;
             int (*icon)(int, void *, unsigned) = nullptr;
+            int (*version)(int, char *, unsigned) = nullptr;
+            int (*publisher)(int, char *, unsigned) = nullptr;
             int (*launch)(int) = nullptr;
             void (*refresh)(void) = nullptr;
             int cached = 0;
@@ -213,6 +215,8 @@ namespace vtitles {
             provider.name = name;
             provider.iconSize = (int (*)(int))FindSymbol(handle, "TitleIconSize");
             provider.icon = (int (*)(int, void *, unsigned))FindSymbol(handle, "TitleIcon");
+            provider.version = (int (*)(int, char *, unsigned))FindSymbol(handle, "TitleVersion");
+            provider.publisher = (int (*)(int, char *, unsigned))FindSymbol(handle, "TitlePublisher");
             provider.launch = launch;
             provider.refresh = (void (*)(void))FindSymbol(handle, "TitleRefresh");
             s_providers[slot] = provider;
@@ -333,6 +337,52 @@ namespace vtitles {
         if (got <= 2 || got > want)
             return -1;
         return got;
+    }
+
+    /// @brief Read a virtual title's display version.
+    /// @param vi Flat virtual index.
+    /// @param out Output buffer.
+    /// @param cap Buffer capacity.
+    /// @return Version length (<0 when unknown).
+    int Version(int vi, char *out, unsigned cap) {
+        if (vi < 0 || vi >= s_count || !out || !cap)
+            return -1;
+
+        int slot = s_entries[vi].provider;
+        int index = s_entries[vi].index;
+
+        if (!s_providers[slot].used || !s_providers[slot].version)
+            return -1;
+
+        int len = s_providers[slot].version(index, out, cap);
+        if (len < 0 || out[0] == 0)
+            return -1;
+
+        out[cap - 1] = 0;
+        return (int)strlen(out);
+    }
+
+    /// @brief Read a virtual title's publisher string.
+    /// @param vi Flat virtual index.
+    /// @param out Output buffer.
+    /// @param cap Buffer capacity.
+    /// @return Publisher length (<0 when unknown).
+    int Publisher(int vi, char *out, unsigned cap) {
+        if (vi < 0 || vi >= s_count || !out || !cap)
+            return -1;
+
+        int slot = s_entries[vi].provider;
+        int index = s_entries[vi].index;
+
+        if (!s_providers[slot].used || !s_providers[slot].publisher)
+            return -1;
+
+        int len = s_providers[slot].publisher(index, out, cap);
+        if (len < 0 || out[0] == 0)
+            return -1;
+
+        out[cap - 1] = 0;
+        return (int)strlen(out);
     }
 
     /// @brief Reverse-lookup a virtual tid to its flat index.

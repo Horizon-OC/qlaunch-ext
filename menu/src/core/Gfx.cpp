@@ -53,7 +53,7 @@ namespace Gfx {
             float x, y, u, v, r, g, b, a;
         };
         struct PQ {
-            float x, y, w, h, rad, r, g, b, a;
+            float x, y, w, h, rTL, rTR, rBR, rBL, r, g, b, a;
         };
         struct IQ {
             float x, y, w, h, rTL, rTR, rBR, rBL, u0, v0, u1, v1, r, g, b, a;
@@ -70,6 +70,8 @@ namespace Gfx {
             int colorCount;
             TQ textQueue[3][kGfxTextMax];
             int textCount[3];
+            TQ textQueueBack[3][kGfxTextMax];
+            int textCountBack[3];
             PQ panelQueue[kGfxPanelMax];
             int panelCount;
             IQ iconQueue[kGfxIconQueueMax];
@@ -237,58 +239,84 @@ namespace Gfx {
 
         /// @brief Tessellate a (possibly rounded) rect into flat triangles.
         /// @return Emitted vertex count.
-        static int TessRRect(SDL_Vertex *out, int cap,
-                             float x, float y, float w, float h, float cornerRadius,
-                             float r, float g, float b, float a)
+        /// @brief Tessellate a flat rounded rect with four corner radii.
+        /// Same perimeter walk as TessRRectTex, emitting untextured
+        /// triangles fanned from the rect center. Zero-radius corners
+        /// yield harmless degenerate triangles.
+        /// @return Emitted vertex count.
+        static int TessRRectCorners(SDL_Vertex *out, int cap,
+                                    float x, float y, float w, float h,
+                                    float cornerTopLeft, float cornerTopRight, float cornerBottomRight, float cornerBottomLeft,
+                                    float r, float g, float b, float a)
     {
         int n = 0;
-        float rr = cornerRadius;
-        float cx0, cy0, cx1, cy1;
+        float cx, cy;
+        struct PP { float x, y; };
+        PP pts[64];
+        int np = 0;
         if (w <= 0.0f || h <= 0.0f)
             return 0;
-        if (rr <= 0.0f) {
+        if (cornerTopLeft < 0.0f)
+            cornerTopLeft = 0.0f;
+        if (cornerTopRight < 0.0f)
+            cornerTopRight = 0.0f;
+        if (cornerBottomRight < 0.0f)
+            cornerBottomRight = 0.0f;
+        if (cornerBottomLeft < 0.0f)
+            cornerBottomLeft = 0.0f;
+        if (cornerTopLeft > w * 0.5f)
+            cornerTopLeft = w * 0.5f;
+        if (cornerTopRight > w * 0.5f)
+            cornerTopRight = w * 0.5f;
+        if (cornerBottomRight > w * 0.5f)
+            cornerBottomRight = w * 0.5f;
+        if (cornerBottomLeft > w * 0.5f)
+            cornerBottomLeft = w * 0.5f;
+        if (cornerTopLeft + cornerBottomLeft > h) {
+            float k = h / (cornerTopLeft + cornerBottomLeft);
+            cornerTopLeft *= k;
+            cornerBottomLeft *= k;
+        }
+        if (cornerTopRight + cornerBottomRight > h) {
+            float k = h / (cornerTopRight + cornerBottomRight);
+            cornerTopRight *= k;
+            cornerBottomRight *= k;
+        }
+        if (cornerTopLeft <= 0.0f && cornerTopRight <= 0.0f && cornerBottomRight <= 0.0f && cornerBottomLeft <= 0.0f) {
             EmitTri(out, &n, cap, x, y, x, y + h, x + w, y, r, g, b, a);
             EmitTri(out, &n, cap, x + w, y, x, y + h, x + w, y + h, r, g, b, a);
             return n;
         }
-        if (rr > w * 0.5f)
-            rr = w * 0.5f;
-        if (rr > h * 0.5f)
-            rr = h * 0.5f;
-        cx0 = x + rr;
-        cx1 = x + w - rr;
-        cy0 = y + rr;
-        cy1 = y + h - rr;
-        EmitTri(out, &n, cap, cx0, cy0, cx0, cy1, cx1, cy0, r, g, b, a);
-        EmitTri(out, &n, cap, cx1, cy0, cx0, cy1, cx1, cy1, r, g, b, a);
-        EmitTri(out, &n, cap, x, cy0, x, cy1, cx0, cy0, r, g, b, a);
-        EmitTri(out, &n, cap, cx0, cy0, x, cy1, cx0, cy1, r, g, b, a);
-        EmitTri(out, &n, cap, cx1, cy0, cx1, cy1, x + w, cy0, r, g, b, a);
-        EmitTri(out, &n, cap, x + w, cy0, cx1, cy1, x + w, cy1, r, g, b, a);
-        EmitTri(out, &n, cap, cx0, y, cx0, cy0, cx1, y, r, g, b, a);
-        EmitTri(out, &n, cap, cx1, y, cx0, cy0, cx1, cy0, r, g, b, a);
-        EmitTri(out, &n, cap, cx0, cy1, cx0, y + h, cx1, cy1, r, g, b, a);
-        EmitTri(out, &n, cap, cx1, cy1, cx0, y + h, cx1, y + h, r, g, b, a);
+        cx = x + w * 0.5f;
+        cy = y + h * 0.5f;
         {
-            const float px[4] = { cx1, cx1, cx0, cx0 };
-            const float py[4] = { cy0, cy1, cy1, cy0 };
-            const float a0[4] = { -1.5707963f, 0.0f, 1.5707963f, 3.14159265f };
-            for (int c = 0; c < 4; c++) {
-                float px0 = px[c];
-                float py0 = py[c];
-                for (int s = 0; s < kGfxCornerSegments; s++) {
-                    float t0 = a0[c] + 1.5707963f * (float)s / (float)kGfxCornerSegments;
-                    float t1 = a0[c] + 1.5707963f * (float)(s + 1) / (float)kGfxCornerSegments;
-                    float c0 = cosf(t0), s0 = sinf(t0);
-                    float c1 = cosf(t1), s1 = sinf(t1);
-                    /* Pixel coords (y down): P = center + R*(cos, sin). */
-                    EmitTri(out, &n, cap, px0, py0,
-                            px0 + c0 * rr, py0 + s0 * rr,
-                            px0 + c1 * rr, py0 + s1 * rr, r, g, b, a);
-                    if (n + 3 > cap)
-                        return n;
+            auto push = [&](float px, float py) {
+                if (np < 64) {
+                    pts[np].x = px;
+                    pts[np].y = py;
+                    np++;
                 }
-            }
+            };
+            auto arc = [&](float ccx, float ccy, float rr, float a0) {
+                for (int s = 1; s <= kGfxCornerSegments; s++) {
+                    float t = a0 + 1.5707963f * (float)s / (float)kGfxCornerSegments;
+                    push(ccx + cosf(t) * rr, ccy + sinf(t) * rr);
+                }
+            };
+            push(x + cornerTopLeft, y);
+            push(x + w - cornerTopRight, y);
+            arc(x + w - cornerTopRight, y + cornerTopRight, cornerTopRight, -1.5707963f);
+            push(x + w, y + h - cornerBottomRight);
+            arc(x + w - cornerBottomRight, y + h - cornerBottomRight, cornerBottomRight, 0.0f);
+            push(x + cornerBottomLeft, y + h);
+            arc(x + cornerBottomLeft, y + h - cornerBottomLeft, cornerBottomLeft, 1.5707963f);
+            push(x, y + cornerTopLeft);
+            arc(x + cornerTopLeft, y + cornerTopLeft, cornerTopLeft, 3.14159265f);
+        }
+        for (int i = 0; i < np; i++) {
+            int j = (i + 1) % np;
+            if (!EmitTri(out, &n, cap, cx, cy, pts[i].x, pts[i].y, pts[j].x, pts[j].y, r, g, b, a))
+                return n;
         }
         return n;
     }
@@ -703,8 +731,10 @@ namespace Gfx {
         int n = 0;
         if (s_queues.panelCount <= 0)
             return;
-        n = TessRRect(s_batch.scratch, kGfxTempVertices, s_queues.panelQueue[0].x, s_queues.panelQueue[0].y,
-                      s_queues.panelQueue[0].w, s_queues.panelQueue[0].h, s_queues.panelQueue[0].rad,
+        n = TessRRectCorners(s_batch.scratch, kGfxTempVertices, s_queues.panelQueue[0].x, s_queues.panelQueue[0].y,
+                      s_queues.panelQueue[0].w, s_queues.panelQueue[0].h,
+                      s_queues.panelQueue[0].rTL, s_queues.panelQueue[0].rTR,
+                      s_queues.panelQueue[0].rBR, s_queues.panelQueue[0].rBL,
                       s_queues.panelQueue[0].r, s_queues.panelQueue[0].g, s_queues.panelQueue[0].b, s_queues.panelQueue[0].a);
         EmitRun(NULL, s_batch.scratch, n);
         FlushRun();
@@ -713,8 +743,10 @@ namespace Gfx {
     void DrawPanels()
     {
         for (int i = 1; i < s_queues.panelCount; i++) {
-            int n = TessRRect(s_batch.scratch, kGfxTempVertices, s_queues.panelQueue[i].x, s_queues.panelQueue[i].y,
-                              s_queues.panelQueue[i].w, s_queues.panelQueue[i].h, s_queues.panelQueue[i].rad,
+            int n = TessRRectCorners(s_batch.scratch, kGfxTempVertices, s_queues.panelQueue[i].x, s_queues.panelQueue[i].y,
+                              s_queues.panelQueue[i].w, s_queues.panelQueue[i].h,
+                              s_queues.panelQueue[i].rTL, s_queues.panelQueue[i].rTR,
+                              s_queues.panelQueue[i].rBR, s_queues.panelQueue[i].rBL,
                               s_queues.panelQueue[i].r, s_queues.panelQueue[i].g, s_queues.panelQueue[i].b, s_queues.panelQueue[i].a);
             EmitRun(NULL, s_batch.scratch, n);
         }
@@ -770,8 +802,10 @@ namespace Gfx {
         EmitRun(NULL, s_batch.scratch, n);
 
         for (int i = 0; i < s_queues.overlayPanelCount; i++) {
-            n = TessRRect(s_batch.scratch, kGfxTempVertices, s_queues.overlayPanelQueue[i].x, s_queues.overlayPanelQueue[i].y,
-                          s_queues.overlayPanelQueue[i].w, s_queues.overlayPanelQueue[i].h, s_queues.overlayPanelQueue[i].rad,
+            n = TessRRectCorners(s_batch.scratch, kGfxTempVertices, s_queues.overlayPanelQueue[i].x, s_queues.overlayPanelQueue[i].y,
+                          s_queues.overlayPanelQueue[i].w, s_queues.overlayPanelQueue[i].h,
+                          s_queues.overlayPanelQueue[i].rTL, s_queues.overlayPanelQueue[i].rTR,
+                          s_queues.overlayPanelQueue[i].rBR, s_queues.overlayPanelQueue[i].rBL,
                           s_queues.overlayPanelQueue[i].r, s_queues.overlayPanelQueue[i].g, s_queues.overlayPanelQueue[i].b,
                           s_queues.overlayPanelQueue[i].a);
             EmitRun(NULL, s_batch.scratch, n);
@@ -787,32 +821,48 @@ namespace Gfx {
         FlushRun();
     }
 
-    void DrawTextBuf(int texSlot, int buf)
+    /// @brief Emit one text layer through a texture slot.
+    /// @param texSlot Texture slot.
+    /// @param queue Quad queue.
+    /// @param count Queued vertex count.
+    static void EmitTextBuf(int texSlot, const TQ *queue, int count)
     {
         int n = 0;
         if (texSlot < 0 || texSlot >= kGfxTextureSlotMax || !s_textureStore.handles[texSlot])
             return;
-        if (buf < 0 || buf > 2)
-            return;
-        for (int i = 0; i + 6 <= s_queues.textCount[buf]; i += 6) {
+        for (int i = 0; i + 6 <= count; i += 6) {
             if (n + 6 > kGfxTempVertices) {
                 EmitRun(s_textureStore.handles[texSlot], s_batch.scratch, n);
                 n = 0;
             }
             for (int k = 0; k < 6; k++) {
-                s_batch.scratch[n].position.x = s_queues.textQueue[buf][i + k].x;
-                s_batch.scratch[n].position.y = s_queues.textQueue[buf][i + k].y;
-                s_batch.scratch[n].tex_coord.x = s_queues.textQueue[buf][i + k].u;
-                s_batch.scratch[n].tex_coord.y = s_queues.textQueue[buf][i + k].v;
-                s_batch.scratch[n].color.r = s_queues.textQueue[buf][i + k].r;
-                s_batch.scratch[n].color.g = s_queues.textQueue[buf][i + k].g;
-                s_batch.scratch[n].color.b = s_queues.textQueue[buf][i + k].b;
-                s_batch.scratch[n].color.a = s_queues.textQueue[buf][i + k].a;
+                s_batch.scratch[n].position.x = queue[i + k].x;
+                s_batch.scratch[n].position.y = queue[i + k].y;
+                s_batch.scratch[n].tex_coord.x = queue[i + k].u;
+                s_batch.scratch[n].tex_coord.y = queue[i + k].v;
+                s_batch.scratch[n].color.r = queue[i + k].r;
+                s_batch.scratch[n].color.g = queue[i + k].g;
+                s_batch.scratch[n].color.b = queue[i + k].b;
+                s_batch.scratch[n].color.a = queue[i + k].a;
                 n++;
             }
         }
         EmitRun(s_textureStore.handles[texSlot], s_batch.scratch, n);
         FlushRun();
+    }
+
+    void DrawTextBuf(int texSlot, int buf)
+    {
+        if (buf < 0 || buf > 2)
+            return;
+        EmitTextBuf(texSlot, s_queues.textQueue[buf], s_queues.textCount[buf]);
+    }
+
+    void DrawTextBufBack(int texSlot, int buf)
+    {
+        if (buf < 0 || buf > 2)
+            return;
+        EmitTextBuf(texSlot, s_queues.textQueueBack[buf], s_queues.textCountBack[buf]);
     }
 
     void EndFrame()
@@ -989,7 +1039,40 @@ namespace Gfx {
         panelQuad->y = Y(positionY);
         panelQuad->w = SC(width);
         panelQuad->h = SC(height);
-        panelQuad->rad = SC(cornerRadius);
+        panelQuad->rTL = SC(cornerRadius);
+        panelQuad->rTR = SC(cornerRadius);
+        panelQuad->rBR = SC(cornerRadius);
+        panelQuad->rBL = SC(cornerRadius);
+        panelQuad->r = red;
+        panelQuad->g = green;
+        panelQuad->b = blue;
+        panelQuad->a = alpha;
+        s_queues.panelCount++;
+    }
+
+    void PushPanelCorners(float positionX, float positionY, float width, float height,
+                          float cornerTopLeft, float cornerTopRight, float cornerBottomRight, float cornerBottomLeft,
+                          float red, float green, float blue, float alpha)
+    {
+        PQ *panelQuad;
+
+        if (s_queues.panelCount + 1 > kGfxPanelMax) {
+            return;
+        }
+
+        if (width <= 0.0f || height <= 0.0f) {
+            return;
+        }
+
+        panelQuad = &s_queues.panelQueue[s_queues.panelCount];
+        panelQuad->x = X(positionX);
+        panelQuad->y = Y(positionY);
+        panelQuad->w = SC(width);
+        panelQuad->h = SC(height);
+        panelQuad->rTL = SC(cornerTopLeft);
+        panelQuad->rTR = SC(cornerTopRight);
+        panelQuad->rBR = SC(cornerBottomRight);
+        panelQuad->rBL = SC(cornerBottomLeft);
         panelQuad->r = red;
         panelQuad->g = green;
         panelQuad->b = blue;
@@ -1089,7 +1172,10 @@ namespace Gfx {
         q->y = Y(y);
         q->w = SC(w);
         q->h = SC(h);
-        q->rad = SC(cornerRadius);
+        q->rTL = SC(cornerRadius);
+        q->rTR = SC(cornerRadius);
+        q->rBR = SC(cornerRadius);
+        q->rBL = SC(cornerRadius);
         q->r = r;
         q->g = g;
         q->b = b;
@@ -1153,15 +1239,19 @@ namespace Gfx {
 
     void PushText(int buf, float x0, float y0, float x1, float y1,
                   float s0, float t0, float s1, float t1,
-                  float r, float g, float b, float a)
+                  float r, float g, float b, float a, bool behindOverlay)
     {
         TQ *v;
         float X0 = X(x0), Y0 = Y(y0), X1 = X(x1), Y1 = Y(y1);
-        if (buf < 0 || buf > 2 || s_queues.textCount[buf] + 6 > kGfxTextMax)
+        if (buf < 0 || buf > 2)
+            return;
+        TQ *queue = behindOverlay ? s_queues.textQueueBack[buf] : s_queues.textQueue[buf];
+        int queueCount = behindOverlay ? s_queues.textCountBack[buf] : s_queues.textCount[buf];
+        if (queueCount + 6 > kGfxTextMax)
             return;
         if (x1 <= x0 || y1 <= y0)
             return;
-        v = &s_queues.textQueue[buf][s_queues.textCount[buf]];
+        v = &queue[queueCount];
         v[0].x = X0;
         v[0].y = Y0;
         v[0].u = s0;
@@ -1192,7 +1282,10 @@ namespace Gfx {
             v[i].b = b;
             v[i].a = a;
         }
-        s_queues.textCount[buf] += 6;
+        if (behindOverlay)
+            s_queues.textCountBack[buf] += 6;
+        else
+            s_queues.textCount[buf] += 6;
     }
 
     void ResetCounts()
@@ -1206,6 +1299,9 @@ namespace Gfx {
         s_queues.textCount[0] = 0;
         s_queues.textCount[1] = 0;
         s_queues.textCount[2] = 0;
+        s_queues.textCountBack[0] = 0;
+        s_queues.textCountBack[1] = 0;
+        s_queues.textCountBack[2] = 0;
         s_queues.panelCount = 0;
         s_queues.iconCount = 0;
         s_queues.highlightCount = 0;

@@ -3,20 +3,24 @@
 /* Pain... and suffering.           */
 
 #include "titles.hpp"
+#include "folders.hpp"
 #include "plugins/vtitles.hpp"
 #include <switch.h>
 #include <cstring>
 #include <shared/logging.hpp>
 #include <stdio.h>
+#include <stdlib.h>
 #include <zlib.h>
 
 namespace titles {
+
+const char kOrderPath[] = "sdmc:/qlaunch-ext/order.json";
 
 namespace {
 
 constexpr int kMaxTitles = 256;
 constexpr int kChunkCount = 30;
-constexpr char kOrderPath[] = "sdmc:/qlaunch-ext/order.json";
+constexpr int kOrderFileCap = 65536;
 
 struct Entry {
     u64 tid = 0;
@@ -119,6 +123,61 @@ bool ResolveName(u64 tid, char *out, unsigned cap) {
     return out[0] != 0;
 }
 
+/// @brief Resolve a title's display version from its control NACP.
+/// @param tid Title id.
+/// @param out Output buffer.
+/// @param cap Buffer capacity.
+/// @return True when a non-empty version was written.
+bool ResolveVersion(u64 tid, char *out, unsigned cap) {
+    if (cap == 0)
+        return false;
+    out[0] = 0;
+    u64 actual = 0;
+    Result rc = nsGetApplicationControlData(NsApplicationControlSource_Storage, tid,
+                                            &s_ctrl, sizeof(s_ctrl), &actual);
+    if (R_FAILED(rc) || actual < sizeof(NacpStruct))
+        return false;
+
+    char version[0x10];
+    memcpy(version, s_ctrl.nacp.display_version, sizeof(version));
+    version[sizeof(version) - 1] = 0;
+    if (version[0] == 0)
+        return false;
+    snprintf(out, cap, "%s", version);
+    out[cap - 1] = 0;
+    return out[0] != 0;
+}
+
+/// @brief Resolve a title's publisher from its control NACP author.
+/// @param tid Title id.
+/// @param out Output buffer.
+/// @param cap Buffer capacity.
+/// @return True when a non-empty publisher was written.
+bool ResolvePublisher(u64 tid, char *out, unsigned cap) {
+    if (cap == 0)
+        return false;
+    out[0] = 0;
+    u64 actual = 0;
+    Result rc = nsGetApplicationControlData(NsApplicationControlSource_Storage, tid,
+                                            &s_ctrl, sizeof(s_ctrl), &actual);
+    if (R_FAILED(rc) || actual < sizeof(NacpStruct))
+        return false;
+
+    NacpConvertTitleData(&s_ctrl.nacp);
+
+    NacpLanguageEntry *lang = nullptr;
+    if (R_SUCCEEDED(nacpGetLanguageEntry(&s_ctrl.nacp, &lang)) && lang && lang->author[0])
+        snprintf(out, cap, "%s", lang->author);
+    else {
+        for (int i = 0; i < 16 && !out[0]; i++) {
+            if (s_ctrl.nacp.lang_data.lang[i].author[0])
+                snprintf(out, cap, "%s", s_ctrl.nacp.lang_data.lang[i].author);
+        }
+    }
+    out[cap - 1] = 0;
+    return out[0] != 0;
+}
+
 int FetchIcon(u64 tid, unsigned *out_size) {
     u64 actual = 0;
     Result rc = nsGetApplicationControlData(NsApplicationControlSource_Storage, tid,
@@ -209,58 +268,171 @@ static void WriteU64(FILE *f, u64 v) {
         fputc(b[--n], f);
 }
 
+static bool IsSpaceByte(char c) {
+    return c == ' ' || c == '\t' || c == '\n' || c == '\r';
+}
+
+/// @brief Locate a top-level "folders" object span so game scanning skips it.
+/// Folder names are free user text and may contain game-like patterns.
+/// @param text File text.
+/// @param len Text length.
+/// @param spanStartOut Span start output (key quote).
+/// @param spanEndOut Span end output (past closing brace).
+/// @return True when a folders object was found.
+static bool FindFoldersSpan(const char *text, size_t len, size_t *spanStartOut, size_t *spanEndOut) {
+    static const char keyText[] = "folders";
+    size_t i = 0;
+    int depth = 0;
+    while (i < len) {
+        char c = text[i];
+        if (c == '"') {
+            size_t keyStart = i++;
+            size_t k = 0;
+            while (k < 7 && i < len && text[i] == keyText[k]) {
+                i++;
+                k++;
+            }
+            if (k == 7 && i < len && text[i] == '"' && depth == 1) {
+                i++;
+                while (i < len && IsSpaceByte(text[i]))
+                    i++;
+                if (i < len && text[i] == ':') {
+                    i++;
+                    while (i < len && IsSpaceByte(text[i]))
+                        i++;
+                    if (i < len && text[i] == '{') {
+                        int inner = 0;
+                        while (i < len) {
+                            char d = text[i];
+                            if (d == '"') {
+                                i++;
+                                while (i < len) {
+                                    if (text[i] == '\\')
+                                        i += 2;
+                                    else if (text[i] == '"') {
+                                        i++;
+                                        break;
+                                    } else {
+                                        i++;
+                                    }
+                                }
+                                continue;
+                            }
+                            if (d == '{')
+                                inner++;
+                            else if (d == '}') {
+                                inner--;
+                                i++;
+                                if (inner == 0)
+                                    break;
+                                continue;
+                            }
+                            i++;
+                        }
+                        if (inner == 0) {
+                            *spanStartOut = keyStart;
+                            *spanEndOut = i;
+                            return true;
+                        }
+                        return false;
+                    }
+                }
+            }
+            continue;
+        }
+        if (c == '{')
+            depth++;
+        else if (c == '}')
+            depth--;
+        i++;
+    }
+    return false;
+}
+
+/// @brief Scan a buffer range for game entries (original stream semantics).
+/// @param p Range start.
+/// @param end Range end.
+/// @param tids Output tids.
+/// @param n Output count (updated).
+/// @param cap Output capacity.
+static void ScanGames(const char *p, const char *end, u64 *tids, int &n, int cap) {
+    size_t i = 0;
+    size_t len = (size_t)(end - p);
+    while (i < len && n < cap) {
+        if (p[i] != 'g') {
+            i++;
+            continue;
+        }
+        if (i + 3 >= len || p[i + 1] != 'a' || p[i + 2] != 'm' || p[i + 3] != 'e') {
+            i++;
+            continue;
+        }
+        i += 4;
+        while (i < len && p[i] >= '0' && p[i] <= '9')
+            i++;
+        while (i < len && !(p[i] >= '0' && p[i] <= '9'))
+            i++;
+        u64 tid = 0;
+        bool any = false;
+        while (i < len && p[i] >= '0' && p[i] <= '9') {
+            any = true;
+            tid = tid * 10 + (u64)(p[i] - '0');
+            i++;
+        }
+        if (any && tid != 0)
+            tids[n++] = tid;
+    }
+}
+
 static int ParseOrderFile(u64 *tids, int cap) {
     int n = 0;
     FILE *f = fopen(kOrderPath, s_rb);
     if (!f)
         return 0;
-
-    int c;
-    while ((c = fgetc(f)) != -1 && n < cap) {
-        if (c != 'g')
-            continue;
-
-        if (fgetc(f) != 'a' || fgetc(f) != 'm' || fgetc(f) != 'e')
-            continue;
-
-        while ((c = fgetc(f)) != -1 && c >= '0' && c <= '9')
-            ;
-
-        while (c != -1 && !(c >= '0' && c <= '9'))
-            c = fgetc(f);
-
-        u64 tid = 0;
-        bool any = false;
-        while (c != -1 && c >= '0' && c <= '9') {
-            any = true;
-            tid = tid * 10 + (u64)(c - '0');
-            c = fgetc(f);
-        }
-
-        if (any && tid != 0)
-            tids[n++] = tid;
+    char *text = (char *)malloc(kOrderFileCap);
+    if (!text) {
+        fclose(f);
+        return 0;
     }
+    size_t got = fread(text, 1, kOrderFileCap - 1, f);
     fclose(f);
+    size_t spanStart = 0;
+    size_t spanEnd = 0;
+    if (FindFoldersSpan(text, got, &spanStart, &spanEnd)) {
+        ScanGames(text, text + spanStart, tids, n, cap);
+        ScanGames(text + spanEnd, text + got, tids, n, cap);
+    } else {
+        ScanGames(text, text + got, tids, n, cap);
+    }
+    free(text);
     return n;
 }
 
-static void SaveOrder() {
+/// @brief Persist game order plus the folders section.
+/// Single writer for order.json; folders mutators funnel through here.
+void Save() {
     FILE *f = fopen(kOrderPath, s_wb);
     if (!f)
         return;
 
     fputc('{', f);
     fputc('\n', f);
+    bool first = true;
     for (int i = 0; i < s_count; i++) {
+        if (!first)
+            fputc(',', f);
+        first = false;
         fputs("\"game", f);
         WriteU64(f, (u64)(i + 1));
         fputs("\": ", f);
         WriteU64(f, s_list[i].tid);
-        if (i + 1 < s_count)
-            fputc(',', f);
         fputc('\n', f);
     }
-
+    if (!first)
+        fputc(',', f);
+    fputc('\n', f);
+    folders::WriteSection(f);
+    fputc('\n', f);
     fputc('}', f);
     fputc('\n', f);
     fclose(f);
@@ -402,6 +574,15 @@ int Refresh() {
         memcpy(next[nnext].name, vname, sizeof(vname));
         nnext++;
     }
+    /* Drop folder members that no longer exist (deleted titles, ejected
+       cards already handled above, uninstalled forwarders). */
+    {
+        u64 liveTids[kMaxTitles];
+        int liveCount = 0;
+        for (int i = 0; i < nnext && liveCount < kMaxTitles; i++)
+            liveTids[liveCount++] = next[i].tid;
+        folders::Prune(liveTids, liveCount);
+    }
     if (nnext != prevTotal)
         changed = true;
     if (s_fileN < 0) {
@@ -482,7 +663,7 @@ int Refresh() {
         changed = true;
     }
     if (changed || s_orderDirty) {
-        SaveOrder();
+        Save();
         s_orderDirty = false;
         /* Memory mirrors the rebuilt file, so gutted tids refire once. */
         s_fileN = 0;
@@ -527,7 +708,7 @@ void NoteLaunched(u64 tid) {
     }
     s_list[0] = e;
 
-    SaveOrder();
+    Save();
     s_orderDirty = false;
 }
 
@@ -555,6 +736,30 @@ int Name(int index, char *out, unsigned out_cap) {
         return vtitles::Name(vi, out, out_cap);
     snprintf(out, out_cap, "%s", s_list[index].name);
     out[out_cap - 1] = 0;
+    return (int)strlen(out);
+}
+
+int Version(int index, char *out, unsigned out_cap) {
+    if (index < 0 || index >= s_count || !out || !out_cap)
+        return -1;
+    u64 tid = s_list[index].tid;
+    int vi = vtitles::IndexOf(tid);
+    if (vi >= 0)
+        return vtitles::Version(vi, out, out_cap);
+    if (!ResolveVersion(tid, out, out_cap))
+        return -1;
+    return (int)strlen(out);
+}
+
+int Publisher(int index, char *out, unsigned out_cap) {
+    if (index < 0 || index >= s_count || !out || !out_cap)
+        return -1;
+    u64 tid = s_list[index].tid;
+    int vi = vtitles::IndexOf(tid);
+    if (vi >= 0)
+        return vtitles::Publisher(vi, out, out_cap);
+    if (!ResolvePublisher(tid, out, out_cap))
+        return -1;
     return (int)strlen(out);
 }
 

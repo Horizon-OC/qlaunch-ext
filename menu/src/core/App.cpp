@@ -71,15 +71,21 @@ namespace App {
         }
 
         /// @brief Reload the title list from qext, preserving selection.
+        /// Folders come from the loader folder store; foldered games stay
+        /// off the strip. Strip order merges loader order (games) with
+        /// folder rank (best member position), so playing a game inside a
+        /// folder moves the whole folder forward instead.
         void Reload()
         {
             static const char fallback[] = "Unknown title";
             AppState &appState = s_state;
 
-            u64 keepTid = 0;
+            bool keepIsFolder = false;
+            u64 keepKey = 0;
 
             if (appState.sel >= 0 && appState.sel < appState.rowCount) {
-                keepTid = appState.rows[appState.sel].tid;
+                keepIsFolder = appState.rows[appState.sel].isFolder;
+                keepKey = keepIsFolder ? appState.rows[appState.sel].folderId : appState.rows[appState.sel].tid;
             }
 
             int n = qext_title_count();
@@ -92,12 +98,152 @@ namespace App {
                 n = kAppMaxTitles;
             }
 
-            appState.rowCount = 0;
+            int folderCount = qext_folder_count();
 
-            for (int i = 0; i < n; i++) {
+            if (folderCount < 0) {
+                folderCount = 0;
+            }
+
+            if (folderCount > kFolderStripMax) {
+                folderCount = kFolderStripMax;
+            }
+
+            /* Folder rank = best loader index among members. */
+            int folderRank[kFolderStripMax];
+
+            for (int folderIndex = 0; folderIndex < folderCount; folderIndex++) {
+                int bestIndex = 0x7FFFFFFF;
+                int memberCount = qext_folder_game_count(folderIndex);
+
+                if (memberCount < 0) {
+                    memberCount = 0;
+                }
+
+                if (memberCount > kFolderStripGames) {
+                    memberCount = kFolderStripGames;
+                }
+
+                for (int memberIndex = 0; memberIndex < memberCount; memberIndex++) {
+                    u64 memberTid = qext_folder_game(folderIndex, memberIndex);
+
+                    if (memberTid == 0) {
+                        continue;
+                    }
+
+                    for (int titleIndex = 0; titleIndex < n; titleIndex++) {
+                        if (qext_title_id(titleIndex) == memberTid) {
+                            if (titleIndex < bestIndex) {
+                                bestIndex = titleIndex;
+                            }
+
+                            break;
+                        }
+                    }
+                }
+
+                folderRank[folderIndex] = bestIndex;
+            }
+
+            /* Insertion order: folders first, then games merged by rank. */
+            appState.rowCount = 0;
+            int folderOrder[kFolderStripMax];
+
+            for (int folderIndex = 0; folderIndex < folderCount; folderIndex++) {
+                folderOrder[folderIndex] = folderIndex;
+            }
+
+            for (int a = 1; a < folderCount; a++) {
+                int key = folderOrder[a];
+                int b = a - 1;
+
+                while (b >= 0 && folderRank[folderOrder[b]] > folderRank[key]) {
+                    folderOrder[b + 1] = folderOrder[b];
+                    b--;
+                }
+
+                folderOrder[b + 1] = key;
+            }
+
+            int rowCap = kAppMaxTitles + kAppAppletCount;
+            int folderCursor = 0;
+
+            for (int i = 0; i <= n && appState.rowCount < rowCap; i++) {
+                while (folderCursor < folderCount && folderRank[folderOrder[folderCursor]] == i) {
+                    int folderIndex = folderOrder[folderCursor++];
+                    AppRow *r = &appState.rows[appState.rowCount++];
+                    r->isGame = false;
+                    r->isFolder = true;
+                    r->tid = 0;
+                    r->folderId = qext_folder_id(folderIndex);
+                    int folderColor = qext_folder_color(folderIndex);
+
+                    if (folderColor < 0 || folderColor >= kFolderColorCount) {
+                        folderColor = 0;
+                    }
+
+                    r->folderColor = folderColor;
+                    r->applet = -1;
+                    r->ejected = false;
+                    r->iconSlot = -1;
+                    r->name[0] = 0;
+
+                    int nameLen = qext_folder_name(folderIndex, r->name, kAppNameMax);
+
+                    if (nameLen < 0 || r->name[0] == 0) {
+                        unsigned k = 0;
+                        const char *folderFallback = "Folder";
+
+                        while (folderFallback[k] && k + 1 < kAppNameMax) {
+                            r->name[k] = folderFallback[k];
+                            k++;
+                        }
+
+                        r->name[k] = 0;
+                    } else {
+                        r->name[kAppNameMax - 1] = 0;
+                    }
+                }
+
+                if (i >= n) {
+                    break;
+                }
+
+                u64 titleTid = qext_title_id(i);
+                bool inFolder = false;
+
+                for (int folderIndex = 0; folderIndex < folderCount; folderIndex++) {
+                    int memberCount = qext_folder_game_count(folderIndex);
+
+                    if (memberCount < 0) {
+                        continue;
+                    }
+
+                    if (memberCount > kFolderStripGames) {
+                        memberCount = kFolderStripGames;
+                    }
+
+                    for (int memberIndex = 0; memberIndex < memberCount; memberIndex++) {
+                        if (qext_folder_game(folderIndex, memberIndex) == titleTid) {
+                            inFolder = true;
+                            break;
+                        }
+                    }
+
+                    if (inFolder) {
+                        break;
+                    }
+                }
+
+                if (inFolder) {
+                    continue;
+                }
+
                 AppRow *r = &appState.rows[appState.rowCount++];
                 r->isGame = true;
-                r->tid = qext_title_id(i);
+                r->isFolder = false;
+                r->tid = titleTid;
+                r->folderId = 0;
+                r->folderColor = 0;
                 r->ejected = qext_title_ejected(i) > 0;
                 r->applet = -1;
                 r->iconSlot = -1;
@@ -122,7 +268,10 @@ namespace App {
             int want = -1;
 
             for (int i = 0; i < appState.rowCount; i++) {
-                if (appState.rows[i].tid == keepTid) {
+                bool sameKind = appState.rows[i].isFolder == keepIsFolder;
+                u64 rowKey = appState.rows[i].isFolder ? appState.rows[i].folderId : appState.rows[i].tid;
+
+                if (sameKind && rowKey == keepKey && keepKey != 0) {
                     want = i;
                     break;
                 }
@@ -168,6 +317,9 @@ namespace App {
             Gfx::DrawPanels();
             Gfx::DrawHighlights();
             Gfx::DrawIcons();
+            Gfx::DrawTextBufBack(Font::Slot(kFontBufLatin), kFontBufLatin);
+            Gfx::DrawTextBufBack(Font::Slot(kFontBufKana), kFontBufKana);
+            Gfx::DrawTextBufBack(Font::Slot(kFontBufIcon), kFontBufIcon);
             Gfx::DrawOverlay();
             Gfx::DrawTextBuf(Font::Slot(kFontBufLatin), kFontBufLatin);
             Gfx::DrawTextBuf(Font::Slot(kFontBufKana), kFontBufKana);
@@ -214,6 +366,8 @@ namespace App {
             appState.focus.topDebounce = 0;
             appState.home.sub = kHomeSubGames;
             appState.home.shiftY = 0.0f;
+            appState.home.openFolder = 0;
+            appState.home.folderSel = 0;
             appState.focus.bottom = false;
             appState.focus.bottomSel = 0;
             appState.launchBlack = false;
@@ -399,44 +553,60 @@ namespace App {
 
         AppRow *selectedRow = &appState.rows[appState.sel];
 
-        if (selectedRow->isGame) {
-            if (selectedRow->ejected) {
-                Sfx::Play(Sfx::Back);
-                return true;
-            }
-
-            u64 suspendedTitleId = qext_suspended_title();
-
-            if (suspendedTitleId != 0 && suspendedTitleId == selectedRow->tid && qext_game_running() &&
-                !qext_game_has_foreground()) {
-                appState.launchBlack = true;
-                Blackout();
-
-                if (R_FAILED(qext_resume_game())) {
-                    appState.launchBlack = false;
-                    qext_terminate_game();
-                    Sfx::Play(Sfx::Back);
-                } else {
-                    Sfx::Play(Sfx::Click);
-                }
-
-                return true;
-            } else if (!qext_game_has_foreground()) {
-                if (qext_game_running() && suspendedTitleId != selectedRow->tid) {
-                    WPrompt::OpenCloseGame(heldButtons, selectedRow->tid);
-                    return true;
-                }
-
-                LaunchGame(selectedRow->tid);
-                return true;
-            }
-
-            return false;
+        if (selectedRow->isFolder) {
+            OpenFolderView(selectedRow->folderId);
+            return true;
         }
 
-        qext_launch_applet(selectedRow->applet);
-        Sfx::Play(Sfx::Click);
-        return true;
+        if (!selectedRow->isGame) {
+            Sfx::Play(Sfx::Back);
+            return true;
+        }
+
+        return LaunchGameRow(selectedRow->tid, selectedRow->ejected, heldButtons);
+    }
+
+    /// @brief Launch a game row with suspend/resume handling.
+    /// @param tid Title id to launch.
+    /// @param ejected True when the gamecard is ejected.
+    /// @param heldButtons Buttons currently held (forwarded to prompts).
+    /// @return True when the A press was consumed.
+    bool LaunchGameRow(u64 tid, bool ejected, u64 heldButtons)
+    {
+        AppState &appState = s_state;
+
+        if (ejected) {
+            Sfx::Play(Sfx::Back);
+            return true;
+        }
+
+        u64 suspendedTitleId = qext_suspended_title();
+
+        if (suspendedTitleId != 0 && suspendedTitleId == tid && qext_game_running() &&
+            !qext_game_has_foreground()) {
+            appState.launchBlack = true;
+            Blackout();
+
+            if (R_FAILED(qext_resume_game())) {
+                appState.launchBlack = false;
+                qext_terminate_game();
+                Sfx::Play(Sfx::Back);
+            } else {
+                Sfx::Play(Sfx::Click);
+            }
+
+            return true;
+        } else if (!qext_game_has_foreground()) {
+            if (qext_game_running() && suspendedTitleId != tid) {
+                WPrompt::OpenCloseGame(heldButtons, tid);
+                return true;
+            }
+
+            LaunchGame(tid);
+            return true;
+        }
+
+        return false;
     }
 
     /// @brief Main per-frame pump: input, anim, present, audio.
@@ -467,13 +637,17 @@ namespace App {
         } else if (appState.menu.t < 1.0f) {
             /* Lock input during transitions. */
         } else if (buttonsDown & HidNpadButton_L) {
-            TopSwitch(-1);
+            if (!WStrip::OptionsOpen()) {
+                TopSwitch(-1);
+            }
         } else if (buttonsDown & HidNpadButton_R) {
-            TopSwitch(1);
+            if (!WStrip::OptionsOpen()) {
+                TopSwitch(1);
+            }
         } else {
             int homeTabIndex = Tabs::FindById("home");
 
-            if (appState.menu.cur == homeTabIndex && !appState.focus.top) {
+            if (appState.menu.cur == homeTabIndex && !appState.focus.top && !WStrip::OptionsOpen()) {
                 if (buttonsDown & HidNpadButton_X) {
                     if (qext_game_running()) {
                         WPrompt::OpenCloseGame(buttonsHeld, 0);
@@ -487,7 +661,7 @@ namespace App {
                 }
             }
 
-            if (buttonsDown & HidNpadButton_A) {
+            if ((buttonsDown & HidNpadButton_A) && !WStrip::OptionsOpen()) {
                 if (Activate(buttonsHeld)) {
                     buttonsDown &= ~HidNpadButton_A;
                 }
@@ -550,6 +724,7 @@ namespace App {
         AppState &appState = s_state;
 
         WPrompt::Close();
+        WStrip::CloseOptions();
         Submenus::CloseFullTabs();
 
         int homeTabIndex = Tabs::FindById("home");
@@ -566,6 +741,8 @@ namespace App {
         appState.sel = 0;
         appState.focus.top = false;
         appState.home.sub = kHomeSubGames;
+        appState.home.openFolder = 0;
+        appState.home.folderSel = 0;
     }
 
     /// @brief Handle power button (currently a no-op hook).
@@ -831,6 +1008,72 @@ namespace App {
         s_state.home.sub = s;
     }
 
+    /// @brief Give the open folder id.
+    /// @return Folder id, or 0 when no folder view is open.
+    u64 OpenFolder()
+    {
+        return s_state.home.openFolder;
+    }
+
+    /// @brief Set the open folder id.
+    /// @param folderId Folder id, or 0 to close the view.
+    void SetOpenFolder(u64 folderId)
+    {
+        s_state.home.openFolder = folderId;
+    }
+
+    /// @brief Give the selection inside the open folder.
+    /// @return Member index.
+    int FolderSel()
+    {
+        return s_state.home.folderSel;
+    }
+
+    /// @brief Set the selection inside the open folder.
+    /// @param s New member index.
+    void SetFolderSel(int s)
+    {
+        s_state.home.folderSel = s < 0 ? 0 : s;
+    }
+
+    /// @brief Open a folder view on the strip.
+    /// @param folderId Folder id to show.
+    void OpenFolderView(u64 folderId)
+    {
+        if (folderId == 0) {
+            return;
+        }
+
+        s_state.home.openFolder = folderId;
+        s_state.home.folderSel = 0;
+        SetHomeSub(kHomeSubFolders);
+        Sfx::Play(Sfx::Click);
+    }
+
+    /// @brief Leave the folder view for the strip.
+    void CloseFolderView()
+    {
+        s_state.home.openFolder = 0;
+        s_state.home.folderSel = 0;
+        SetHomeSub(kHomeSubGames);
+    }
+
+    /// @brief Select the strip row holding a folder.
+    /// @param folderId Folder id to select.
+    void SelectFolderRow(u64 folderId)
+    {
+        if (folderId == 0) {
+            return;
+        }
+
+        for (int rowIndex = 0; rowIndex < s_state.rowCount; rowIndex++) {
+            if (s_state.rows[rowIndex].isFolder && s_state.rows[rowIndex].folderId == folderId) {
+                s_state.sel = rowIndex;
+                return;
+            }
+        }
+    }
+
     /// @brief Give the vertical shift for home sub-screens.
     /// @return Shift in pixels.
     float HomeShiftY()
@@ -889,13 +1132,13 @@ namespace App {
     }
 
     /// @brief Give the bottom-bar selection.
-    /// @return Index 0-2.
+    /// @return Index 0-1.
     int BottomSel()
     {
         return s_state.focus.bottomSel;
     }
 
-    /// @brief Set the bottom-bar selection, clamped 0-2.
+    /// @brief Set the bottom-bar selection, clamped 0-1.
     /// @param s New selection.
     void SetBottomSel(int s)
     {
@@ -903,8 +1146,8 @@ namespace App {
             s = 0;
         }
 
-        if (s > 2) {
-            s = 2;
+        if (s > 1) {
+            s = 1;
         }
 
         s_state.focus.bottomSel = s;
@@ -913,28 +1156,19 @@ namespace App {
     /// @brief Activate the focused bottom-bar icon.
     void ActivateBottom()
     {
-        AppState &appState = s_state;
-
         if (HomeShiftBusy()) {
             return;
         }
 
-        /* Bottom-middle icons: folders / game cards toggle their Home
-           sub-screen, sleep sleeps the console. */
-        if (BottomSel() == 2) {
+        /* Bottom-middle icons: game cards toggle their Home sub-screen,
+           sleep sleeps the console. */
+        if (BottomSel() == 1) {
             qext_sleep();
             return;
         }
 
-        int want = BottomSel() == 0 ? kHomeSubFolders : kHomeSubVgc;
-
-        if (BottomSel() == 0) {
-            Sfx::PlayByName("folder_jingle");
-        } else {
-            Sfx::PlayByName("vgc_jingle");
-        }
-
-        SetHomeSub(want == HomeSub() ? kHomeSubGames : want);
+        Sfx::PlayByName("vgc_jingle");
+        SetHomeSub(kHomeSubVgc == HomeSub() ? kHomeSubGames : kHomeSubVgc);
         SetBottomFocus(false);
     }
 

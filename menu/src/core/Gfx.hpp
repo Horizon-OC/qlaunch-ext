@@ -144,6 +144,23 @@ namespace Gfx {
     void PushPanel(float positionX, float positionY, float width, float height, float rad,
                    float red, float green, float blue, float alpha);
 
+    /// @brief Queue a rounded panel with four corner radii.
+    /// @param positionX X position.
+    /// @param positionY Y position.
+    /// @param width Width.
+    /// @param height Height.
+    /// @param cornerTopLeft Top-left corner radius.
+    /// @param cornerTopRight Top-right corner radius.
+    /// @param cornerBottomRight Bottom-right corner radius.
+    /// @param cornerBottomLeft Bottom-left corner radius.
+    /// @param red Red 0-1.
+    /// @param green Green 0-1.
+    /// @param blue Blue 0-1.
+    /// @param alpha Alpha 0-1.
+    void PushPanelCorners(float positionX, float positionY, float width, float height,
+                          float cornerTopLeft, float cornerTopRight, float cornerBottomRight, float cornerBottomLeft,
+                          float red, float green, float blue, float alpha = 1.0f);
+
     /// @brief Queue an icon quad bound to a texture slot.
     /// @param positionX X position.
     /// @param positionY Y position.
@@ -243,14 +260,20 @@ namespace Gfx {
     /// @param green Green 0-1.
     /// @param blue Blue 0-1.
     /// @param alpha Alpha 0-1.
+    /// @param behindOverlay True for the pre-overlay layer.
     void PushText(int buf, float x0, float y0, float x1, float y1,
                   float s0, float t0, float s1, float t1,
-                  float r, float g, float b, float a = 1.0f);
+                  float r, float g, float b, float a = 1.0f, bool behindOverlay = true);
 
     /// @brief Render a text buffer through a texture slot.
     /// @param texSlot Texture slot.
     /// @param buf Text buffer id.
     void DrawTextBuf(int texSlot, int buf);
+
+    /// @brief Render the behind-overlay text layer through a slot.
+    /// @param texSlot Texture slot.
+    /// @param buf Text buffer id.
+    void DrawTextBufBack(int texSlot, int buf);
 
     /// @brief Reset per-frame queue counts.
     void ResetCounts();

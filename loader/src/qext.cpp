@@ -4,6 +4,7 @@
 
 #include "qext.hpp"
 #include "app.hpp"
+#include "folders.hpp"
 #include "la.hpp"
 #include "titles.hpp"
 #include "plugins/vtitles.hpp"
@@ -41,6 +42,8 @@ extern "C" u64 qext_title_id(int i) { return titles::Id(i); }
 extern "C" int qext_title_name(int i, char *o, unsigned c) { return titles::Name(i, o, c); }
 extern "C" int qext_title_icon_size(int i) { return titles::IconSize(i); }
 extern "C" int qext_title_icon(int i, void *o, unsigned c) { return titles::Icon(i, o, c); }
+extern "C" int qext_title_version(int i, char *o, unsigned c) { return titles::Version(i, o, c); }
+extern "C" int qext_title_publisher(int i, char *o, unsigned c) { return titles::Publisher(i, o, c); }
 extern "C" int qext_title_ejected(int i) { return titles::Ejected(i); }
 int qext_titles_changed(void) { return titles::TitlesChanged(); }
 
@@ -124,12 +127,80 @@ extern "C" Result qext_launch_applet(int kind)
     return la::OpenHomeApplet((la::HomeApplet)kind);
 }
 
+extern "C" int qext_swkbd_show_ex(const SwkbdOptions *options, char *out, unsigned cap)
+{
+    if (!out || cap < 2)
+        return -1;
+    out[0] = 0;
+
+    const char *initial = options ? options->initialText : 0;
+    const char *header = options ? options->headerText : 0;
+    unsigned minLength = options ? options->minLength : 0;
+    unsigned maxLength = options ? options->maxLength : 0;
+    int blur = options ? options->blurBackground : 0;
+    char result[128] = {};
+
+    if (maxLength == 0 || maxLength > sizeof(result) - 1)
+        maxLength = sizeof(result) - 1;
+    if (minLength > maxLength)
+        return -1;
+
+    SwkbdConfig config{};
+    Result rc = swkbdCreate(&config, 0);
+    if (R_FAILED(rc)) {
+        logging::LogLine("[swkbd] Can't create swkbd (rc=0x%X)", rc);
+        return -1;
+    }
+
+    swkbdConfigMakePresetDefault(&config);
+    if (header && header[0])
+        swkbdConfigSetHeaderText(&config, header);
+    if (initial && initial[0])
+        swkbdConfigSetInitialText(&config, initial);
+    swkbdConfigSetStringLenMax(&config, maxLength);
+    swkbdConfigSetStringLenMin(&config, minLength);
+    swkbdConfigSetBlurBackground(&config, blur);
+
+    rc = swkbdShow(&config, result, sizeof(result));
+    swkbdClose(&config);
+
+    if (R_FAILED(rc)) {
+        logging::LogLine("[swkbd] Can't show swkbd (rc=0x%X)", rc);
+        return -1;
+    }
+
+    if (result[0] == 0)
+        return -1;
+
+    size_t n = 0;
+    while (n + 1 < cap && result[n]) {
+        out[n] = result[n];
+        n++;
+    }
+    out[n] = 0;
+    return (int)n;
+}
+
 extern "C" Result qext_terminate_game(void)
 {
     if (!app::IsActive())
         return 0;
     return app::Terminate();
 }
+
+extern "C" int qext_folder_count(void) { return folders::Count(); }
+extern "C" u64 qext_folder_id(int i) { return folders::Id(i); }
+extern "C" int qext_folder_name(int i, char *o, unsigned c) { return folders::Name(i, o, c); }
+extern "C" int qext_folder_game_count(int i) { return folders::GameCount(i); }
+extern "C" u64 qext_folder_game(int i, int g) { return folders::Game(i, g); }
+extern "C" int qext_folder_of_game(u64 tid) { return folders::IndexOfGame(tid); }
+extern "C" u64 qext_folder_create(const char *n, u64 tid) { return folders::Create(n, tid); }
+extern "C" int qext_folder_rename(u64 id, const char *n) { return folders::Rename(id, n); }
+extern "C" int qext_folder_delete(u64 id) { return folders::Delete(id); }
+extern "C" int qext_folder_add(u64 id, u64 tid) { return folders::Add(id, tid); }
+extern "C" int qext_folder_remove(u64 id, u64 tid) { return folders::Remove(id, tid); }
+extern "C" int qext_folder_color(int i) { return folders::Color(i); }
+extern "C" int qext_folder_set_color(u64 id, int color) { return folders::SetColor(id, color); }
 
 extern "C" Result qext_sleep(void)
 {

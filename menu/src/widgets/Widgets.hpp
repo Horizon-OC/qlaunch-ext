@@ -55,6 +55,13 @@ namespace WStrip {
     /// @brief Describe the Home tab for the transplantable tab registry.
     /// @return MenuTab descriptor for Home.
     struct MenuTab DescribeTab();
+
+    /// @brief Whether the title options menu is open.
+    /// @return True while the popup captures input.
+    bool OptionsOpen();
+
+    /// @brief Close the title options menu without acting.
+    void CloseOptions();
 } /* namespace WStrip */
 
 namespace WHints {
@@ -64,33 +71,20 @@ namespace WHints {
 } /* namespace WHints */
 
 namespace WPrompt {
-    /// @brief Whether a modal prompt covers the screen.
+    /// @brief Whether the close-game confirm covers the screen.
     /// @return True when open.
     bool IsOpen();
-
-    /// @brief Open a generic two-button prompt.
-    /// @param title Title line (copied).
-    /// @param message Subtitle line (copied).
-    /// @param buttonsHeld Buttons currently buttonsHeld; disarmed until released so
-    /// the opening press can never confirm or dismiss.
-    void Open(const char *title, const char *message, u64 buttonsHeld);
 
     /// @brief Open the close-game confirm for the running title.
     /// Confirming Close terminates the game; when launchTid is set the
     /// title is launched right after. Cancelling does nothing.
-    /// @param buttonsHeld Buttons currently buttonsHeld (see Open).
+    /// @param buttonsHeld Buttons currently held (disarmed until released so
+    /// the opening press can never confirm or dismiss).
     /// @param launchTid Title to launch when Close is confirmed, 0 for close only.
     void OpenCloseGame(u64 buttonsHeld, u64 launchTid);
 
     /// @brief Dismiss the prompt without acting.
     void Close();
-
-    /// @brief Give the selected button (0 = left/confirm, 1 = right/cancel).
-    /// @return Selection index.
-    int Sel();
-
-    /// @brief Draw the dim + centered dialog.
-    void Draw();
 
     /// @brief Handle prompt navigation input.
     /// @param buttonsDown Buttons pressed.
@@ -98,6 +92,64 @@ namespace WPrompt {
     /// @return True when the input was consumed.
     bool Input(u64 buttonsDown, u64 buttonsHeld);
 } /* namespace WPrompt */
+
+namespace WPopup {
+    constexpr int kPopupMaxItems = 12;
+    constexpr int kPopupTextMax = 192;
+
+    /// @brief Popup arrangement.
+    enum class PopupLayout : int {
+        List,
+        Row,
+    };
+
+    /// @brief Single-frame popup input outcome.
+    enum class PopupResult : int {
+        None,
+        Confirmed,
+        Cancelled,
+    };
+
+    /// @brief Open a modal popup, replacing any current one.
+    /// Labels are copied, so caller buffers may be transient.
+    /// @param layout List (vertical rows) or Row (side-by-side buttons).
+    /// @param titleText Title line ("Are you sure?" when null/empty).
+    /// @param messageText Subtitle line (may be null).
+    /// @param labels Item labels (capped at kPopupMaxItems).
+    /// @param swatchColors Per-item swatch RGB triples, or null for text only.
+    /// @param labelCount Item count.
+    /// @param initialSelection Initially highlighted item.
+    /// @param buttonsHeld Buttons currently held; disarmed until released so
+    /// the opening press can never confirm or dismiss.
+    void Open(PopupLayout layout, const char *titleText, const char *messageText,
+              const char * const *labels, const float *swatchColors, int labelCount,
+              int initialSelection, u64 buttonsHeld);
+
+    /// @brief Dismiss the popup without acting.
+    void Close();
+
+    /// @brief Arrange List items in columns (1 keeps the single column).
+    /// Open resets this to 1, so set it after opening a grid popup.
+    /// @param columns Column count (below 1 reads as 1).
+    void SetGridColumns(int columns);
+
+    /// @brief Whether a modal popup covers the screen.
+    /// @return True when open.
+    bool IsOpen();
+
+    /// @brief Give the highlighted item.
+    /// @return Selection index.
+    int Selection();
+
+    /// @brief Draw the dim + outlined dialog.
+    void Draw();
+
+    /// @brief Handle popup navigation input.
+    /// @param buttonsDown Proven pressed mask.
+    /// @param buttonsHeld Held mask.
+    /// @return Confirmed on A, Cancelled on B/X, else None.
+    PopupResult Input(u64 buttonsDown, u64 buttonsHeld);
+} /* namespace WPopup */
 
 enum : unsigned {
     GLYPH_A = 0xE0A0,
