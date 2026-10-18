@@ -5,14 +5,14 @@
 #pragma once
 #include <switch.h>
 
-constexpr int FONT_ATLAS_W = 1024;
-constexpr int FONT_ATLAS_H = 1024;
+constexpr int kFontAtlasWidth = 1024;
+constexpr int kFontAtlasHeight = 1024;
 
 /* Text buffers: 0 latin, 1 kana, 2 icons. Atlas texture slots are
    engine-allocated at init (see Slot()). */
-constexpr int FONT_BUF_LATIN = 0;
-constexpr int FONT_BUF_KANA = 1;
-constexpr int FONT_BUF_ICON = 2;
+constexpr int kFontBufLatin = 0;
+constexpr int kFontBufKana = 1;
+constexpr int kFontBufIcon = 2;
 
 namespace Font {
 

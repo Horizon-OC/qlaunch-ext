@@ -13,6 +13,9 @@
 #include "Sfx.hpp"
 #include "PadIcon.hpp"
 #include "Tabs.hpp"
+#include "Submenus.hpp"
+#include "DynamicWidgets.hpp"
+#include "HostApi.hpp"
 #include "../widgets/Widgets.hpp"
 #include "Avatars.hpp"
 #include "Qext.hpp"
@@ -23,49 +26,60 @@ namespace App {
 
     namespace {
 
-        /// @brief State
+        /// @brief Whole menu state, single global.
         AppState s_state;
 
         /// @brief True once Boot() has initialized static storage.
         bool s_booted = false;
 
-        /// @brief Selection and row count the icon slots were last synced for.
-        int s_iconSel = -1;
-        int s_iconRows = -1;
+        /// @brief Icon sync cache to avoid re-syncing every frame.
+        struct IconSyncCache {
+            int selection;
+            int rowCount;
+        };
+
+        static IconSyncCache s_iconSync = { -1, -1 };
+
+        /// @brief Menu slide action state machine.
+        enum class MenuSlideAction {
+            Idle,
+            StartLeft,
+            StartRight,
+        };
 
         /// @brief (Re)assign icon slots for all rows, focus first.
         void AssignIconSlots()
         {
-            AppState &st = s_state;
-            u64 tids[APP_MAX_TITLES + APP_APPLETS];
-            int slots[APP_MAX_TITLES + APP_APPLETS];
+            AppState &appState = s_state;
+            u64 titleIds[kAppMaxTitles + kAppAppletCount];
+            int iconSlots[kAppMaxTitles + kAppAppletCount];
 
-            for (int i = 0; i < st.rowCount; i++) {
-                st.rows[i].iconSlot = -1;
-                tids[i] = st.rows[i].isGame ? st.rows[i].tid : 0;
-                slots[i] = -1;
+            for (int rowIndex = 0; rowIndex < appState.rowCount; rowIndex++) {
+                appState.rows[rowIndex].iconSlot = -1;
+                titleIds[rowIndex] = appState.rows[rowIndex].isGame ? appState.rows[rowIndex].tid : 0;
+                iconSlots[rowIndex] = -1;
             }
 
-            Icons::Sync(tids, slots, st.rowCount, st.sel);
+            Icons::Sync(titleIds, iconSlots, appState.rowCount, appState.sel);
 
-            for (int i = 0; i < st.rowCount; i++) {
-                st.rows[i].iconSlot = slots[i];
+            for (int rowIndex = 0; rowIndex < appState.rowCount; rowIndex++) {
+                appState.rows[rowIndex].iconSlot = iconSlots[rowIndex];
             }
 
-            s_iconSel = st.sel;
-            s_iconRows = st.rowCount;
+            s_iconSync.selection = appState.sel;
+            s_iconSync.rowCount = appState.rowCount;
         }
 
         /// @brief Reload the title list from qext, preserving selection.
         void Reload()
         {
             static const char fallback[] = "Unknown title";
-            AppState &st = s_state;
+            AppState &appState = s_state;
 
             u64 keepTid = 0;
 
-            if (st.sel >= 0 && st.sel < st.rowCount) {
-                keepTid = st.rows[st.sel].tid;
+            if (appState.sel >= 0 && appState.sel < appState.rowCount) {
+                keepTid = appState.rows[appState.sel].tid;
             }
 
             int n = qext_title_count();
@@ -74,14 +88,14 @@ namespace App {
                 n = 0;
             }
 
-            if (n > APP_MAX_TITLES) {
-                n = APP_MAX_TITLES;
+            if (n > kAppMaxTitles) {
+                n = kAppMaxTitles;
             }
 
-            st.rowCount = 0;
+            appState.rowCount = 0;
 
             for (int i = 0; i < n; i++) {
-                AppRow *r = &st.rows[st.rowCount++];
+                AppRow *r = &appState.rows[appState.rowCount++];
                 r->isGame = true;
                 r->tid = qext_title_id(i);
                 r->ejected = qext_title_ejected(i) > 0;
@@ -89,47 +103,47 @@ namespace App {
                 r->iconSlot = -1;
                 r->name[0] = 0;
 
-                int len = qext_title_name(i, r->name, APP_NAME_MAX);
+                int len = qext_title_name(i, r->name, kAppNameMax);
 
                 if (len < 0 || r->name[0] == 0) {
                     unsigned k = 0;
 
-                    while (fallback[k] && k + 1 < APP_NAME_MAX) {
+                    while (fallback[k] && k + 1 < kAppNameMax) {
                         r->name[k] = fallback[k];
                         k++;
                     }
 
                     r->name[k] = 0;
                 } else {
-                    r->name[APP_NAME_MAX - 1] = 0;
+                    r->name[kAppNameMax - 1] = 0;
                 }
             }
 
             int want = -1;
 
-            for (int i = 0; i < st.rowCount; i++) {
-                if (st.rows[i].tid == keepTid) {
+            for (int i = 0; i < appState.rowCount; i++) {
+                if (appState.rows[i].tid == keepTid) {
                     want = i;
                     break;
                 }
             }
 
             if (want >= 0) {
-                st.sel = want;
-            } else if (st.sel >= st.rowCount) {
-                st.sel = st.rowCount > 0 ? st.rowCount - 1 : 0;
+                appState.sel = want;
+            } else if (appState.sel >= appState.rowCount) {
+                appState.sel = appState.rowCount > 0 ? appState.rowCount - 1 : 0;
             }
 
-            if (st.sel < 0) {
-                st.sel = 0;
+            if (appState.sel < 0) {
+                appState.sel = 0;
             }
 
-            if (st.focus.topSel < 0) {
-                st.focus.topSel = 0;
+            if (appState.focus.topSel < 0) {
+                appState.focus.topSel = 0;
             }
 
-            if (st.focus.topSel >= Tabs::Count() && Tabs::Count() > 0) {
-                st.focus.topSel = Tabs::Count() - 1;
+            if (appState.focus.topSel >= Tabs::Count() && Tabs::Count() > 0) {
+                appState.focus.topSel = Tabs::Count() - 1;
             }
         }
 
@@ -155,9 +169,9 @@ namespace App {
             Gfx::DrawHighlights();
             Gfx::DrawIcons();
             Gfx::DrawOverlay();
-            Gfx::DrawTextBuf(Font::Slot(FONT_BUF_LATIN), FONT_BUF_LATIN);
-            Gfx::DrawTextBuf(Font::Slot(FONT_BUF_KANA), FONT_BUF_KANA);
-            Gfx::DrawTextBuf(Font::Slot(FONT_BUF_ICON), FONT_BUF_ICON);
+            Gfx::DrawTextBuf(Font::Slot(kFontBufLatin), kFontBufLatin);
+            Gfx::DrawTextBuf(Font::Slot(kFontBufKana), kFontBufKana);
+            Gfx::DrawTextBuf(Font::Slot(kFontBufIcon), kFontBufIcon);
             Gfx::EndFrame();
         }
 
@@ -165,13 +179,13 @@ namespace App {
         /// @param delta -1 for left, +1 for right.
         void TopSwitch(int delta)
         {
-            AppState &st = s_state;
+            AppState &appState = s_state;
 
-            if (st.focus.topDebounce > 0) {
+            if (appState.focus.topDebounce > 0) {
                 return;
             }
 
-            st.focus.topDebounce = 39;
+            appState.focus.topDebounce = 39;
 
             int count = Tabs::Count();
 
@@ -179,8 +193,8 @@ namespace App {
                 return;
             }
 
-            int m = (st.menu.cur + delta + count) % count;
-            st.focus.topSel = m;
+            int m = (appState.menu.cur + delta + count) % count;
+            appState.focus.topSel = m;
             SwitchMenu(m);
             MenuJingle(m);
         }
@@ -188,28 +202,24 @@ namespace App {
         /// @brief Reset volatile selection state to home defaults.
         void ResetSelection()
         {
-            AppState &st = s_state;
-            st.sel = 0;
-            st.focus.top = false;
-            st.focus.topSel = 0;
-            st.menu.cur = 0;
-            st.menu.from = 0;
-            st.menu.t = 1.0f;
-            st.menu.dir = 1;
-            st.menu.phase = MenuPhase_Idle;
-            st.focus.topDebounce = 0;
-            st.home.sub = HOMESUB_GAMES;
-            st.home.shiftY = 0.0f;
-            st.focus.bottom = false;
-            st.focus.bottomSel = 0;
-            st.home.settingsPage = -1;
-            st.home.settingsRow = 0;
-            st.home.eshopNews = false;
-            st.home.friendSel = 0;
-            st.launchBlack = false;
-            st.videoOsdAt = -100.0f;
-            st.frame = 0;
-            st.holdFrames = 0;
+            AppState &appState = s_state;
+            appState.sel = 0;
+            appState.focus.top = false;
+            appState.focus.topSel = 0;
+            appState.menu.cur = 0;
+            appState.menu.from = 0;
+            appState.menu.t = 1.0f;
+            appState.menu.dir = 1;
+            appState.menu.phase = MenuPhase_Idle;
+            appState.focus.topDebounce = 0;
+            appState.home.sub = kHomeSubGames;
+            appState.home.shiftY = 0.0f;
+            appState.focus.bottom = false;
+            appState.focus.bottomSel = 0;
+            appState.launchBlack = false;
+            appState.videoOsdAt = -100.0f;
+            appState.frame = 0;
+            appState.holdFrames = 0;
             WPrompt::Close();
         }
 
@@ -262,6 +272,8 @@ namespace App {
         Icons::InitHud(HudAssets::kDefs, HudAssets::kCount);
 
         Tabs::RegisterBuiltin();
+        Submenus::Boot(HostApi::GetHostApi());
+        DynamicWidgets::Boot(HostApi::GetHostApi());
 
         if (!Layout::LoadAuto()) {
             Shutdown();
@@ -271,11 +283,11 @@ namespace App {
         Sfx::Init();
         Sfx::PlayByName("home_boot");
 
-        AppState &st = s_state;
+        AppState &appState = s_state;
         padConfigureInput(1, HidNpadStyleSet_NpadStandard);
-        padInitializeDefault(&st.pad);
-        st.padReady = true;
-        st.tick = 0;
+        padInitializeDefault(&appState.pad);
+        appState.padReady = true;
+        appState.tick = 0;
 
         Clock::Tick();
         Avatars::Refresh();
@@ -289,9 +301,12 @@ namespace App {
     void Shutdown()
     {
         s_state.padReady = false;
+        Submenus::Shutdown();
+        DynamicWidgets::Shutdown();
         Sfx::Shutdown();
         Icons::FreeAll();
         Font::Shutdown();
+        Theme::Shutdown();
         Gfx::Destroy();
         s_booted = false;
     }
@@ -308,23 +323,23 @@ namespace App {
     /// @param delta Signed step.
     void MoveSel(int delta)
     {
-        AppState &st = s_state;
+        AppState &appState = s_state;
 
-        if (st.rowCount <= 0) {
+        if (appState.rowCount <= 0) {
             return;
         }
 
-        st.sel += delta;
+        appState.sel += delta;
 
-        if (st.sel < 0) {
-            st.sel = 0;
+        if (appState.sel < 0) {
+            appState.sel = 0;
         }
 
-        if (st.sel >= st.rowCount) {
-            st.sel = st.rowCount - 1;
+        if (appState.sel >= appState.rowCount) {
+            appState.sel = appState.rowCount - 1;
         }
 
-        st.focus.top = false;
+        appState.focus.top = false;
     }
 
     /// @brief Present two black frames (used when launching).
@@ -338,12 +353,12 @@ namespace App {
     /// @param tid Title id to launch.
     void LaunchGame(u64 tid)
     {
-        AppState &st = s_state;
-        st.launchBlack = true;
+        AppState &appState = s_state;
+        appState.launchBlack = true;
         Blackout();
 
         if (R_FAILED(qext_launch_title(tid))) {
-            st.launchBlack = false;
+            appState.launchBlack = false;
             Sfx::Play(Sfx::Back);
         } else {
             Sfx::Play(Sfx::Click);
@@ -351,54 +366,54 @@ namespace App {
     }
 
     /// @brief Activate whatever is focused (top bar, bottom bar, title).
-    /// @param held Buttons currently held (forwarded to prompts).
+    /// @param heldButtons Buttons currently held (forwarded to prompts).
     /// @return True when the A press was consumed.
-    bool Activate(u64 held)
+    bool Activate(u64 heldButtons)
     {
-        AppState &st = s_state;
+        AppState &appState = s_state;
 
-        if (WAlbum::IsOpen()) {
+        if (Submenus::InputLockedTabIndex() >= 0) {
             return false;
         }
 
-        if (st.focus.top) {
+        if (appState.focus.top) {
             Layout::ActivateTop();
             return true;
         }
 
-        if (st.focus.bottom) {
+        if (appState.focus.bottom) {
             ActivateBottom();
             return true;
         }
 
-        int homeIdx = Tabs::FindById("home");
+        int homeTabIndex = Tabs::FindById("home");
 
-        if (st.menu.cur != homeIdx || st.focus.bottom || st.focus.top ||
-            (st.home.sub != HOMESUB_GAMES && st.home.sub != HOMESUB_VGC)) {
+        if (appState.menu.cur != homeTabIndex || appState.focus.bottom || appState.focus.top ||
+            (appState.home.sub != kHomeSubGames && appState.home.sub != kHomeSubVgc)) {
             return false;
         }
 
-        if (st.sel < 0 || st.sel >= st.rowCount) {
+        if (appState.sel < 0 || appState.sel >= appState.rowCount) {
             return false;
         }
 
-        AppRow *r = &st.rows[st.sel];
+        AppRow *selectedRow = &appState.rows[appState.sel];
 
-        if (r->isGame) {
-            if (r->ejected) {
+        if (selectedRow->isGame) {
+            if (selectedRow->ejected) {
                 Sfx::Play(Sfx::Back);
                 return true;
             }
 
-            u64 susp = qext_suspended_title();
+            u64 suspendedTitleId = qext_suspended_title();
 
-            if (susp != 0 && susp == r->tid && qext_game_running() &&
+            if (suspendedTitleId != 0 && suspendedTitleId == selectedRow->tid && qext_game_running() &&
                 !qext_game_has_foreground()) {
-                st.launchBlack = true;
+                appState.launchBlack = true;
                 Blackout();
 
                 if (R_FAILED(qext_resume_game())) {
-                    st.launchBlack = false;
+                    appState.launchBlack = false;
                     qext_terminate_game();
                     Sfx::Play(Sfx::Back);
                 } else {
@@ -407,19 +422,19 @@ namespace App {
 
                 return true;
             } else if (!qext_game_has_foreground()) {
-                if (qext_game_running() && susp != r->tid) {
-                    WPrompt::OpenCloseGame(held, r->tid);
+                if (qext_game_running() && suspendedTitleId != selectedRow->tid) {
+                    WPrompt::OpenCloseGame(heldButtons, selectedRow->tid);
                     return true;
                 }
 
-                LaunchGame(r->tid);
+                LaunchGame(selectedRow->tid);
                 return true;
             }
 
             return false;
         }
 
-        qext_launch_applet(r->applet);
+        qext_launch_applet(selectedRow->applet);
         Sfx::Play(Sfx::Click);
         return true;
     }
@@ -427,73 +442,73 @@ namespace App {
     /// @brief Main per-frame pump: input, anim, present, audio.
     void Loop()
     {
-        AppState &st = s_state;
+        AppState &appState = s_state;
 
-        if (!st.padReady) {
+        if (!appState.padReady) {
             return;
         }
 
-        padUpdate(&st.pad);
-        u64 down = padGetButtonsDown(&st.pad);
-        u64 held = padGetButtons(&st.pad);
+        padUpdate(&appState.pad);
+        u64 buttonsDown = padGetButtonsDown(&appState.pad);
+        u64 buttonsHeld = padGetButtons(&appState.pad);
 
         PadIcon::Tick();
         UpdateMenuAnim();
         UpdateHomeShift();
 
-        if (st.focus.topDebounce > 0) {
-            st.focus.topDebounce--;
+        if (appState.focus.topDebounce > 0) {
+            appState.focus.topDebounce--;
         }
 
         if (WPrompt::IsOpen()) {
-            WPrompt::Input(down, held);
-        } else if (WAlbum::IsOpen() && st.menu.t >= 1.0f) {
-            Layout::Input(down, held);
-        } else if (st.menu.t < 1.0f) {
+            WPrompt::Input(buttonsDown, buttonsHeld);
+        } else if (Submenus::InputLockedTabIndex() >= 0 && appState.menu.t >= 1.0f) {
+            Layout::Input(buttonsDown, buttonsHeld);
+        } else if (appState.menu.t < 1.0f) {
             /* Lock input during transitions. */
-        } else if (down & HidNpadButton_L) {
+        } else if (buttonsDown & HidNpadButton_L) {
             TopSwitch(-1);
-        } else if (down & HidNpadButton_R) {
+        } else if (buttonsDown & HidNpadButton_R) {
             TopSwitch(1);
         } else {
-            int homeIdx = Tabs::FindById("home");
+            int homeTabIndex = Tabs::FindById("home");
 
-            if (st.menu.cur == homeIdx && !st.focus.top) {
-                if (down & HidNpadButton_X) {
+            if (appState.menu.cur == homeTabIndex && !appState.focus.top) {
+                if (buttonsDown & HidNpadButton_X) {
                     if (qext_game_running()) {
-                        WPrompt::OpenCloseGame(held, 0);
+                        WPrompt::OpenCloseGame(buttonsHeld, 0);
                     } else {
                         Sfx::Play(Sfx::Back);
                     }
                 }
 
-                if (down & HidNpadButton_Plus) {
+                if (buttonsDown & HidNpadButton_Plus) {
                     RefreshTitles();
                 }
             }
 
-            if (down & HidNpadButton_A) {
-                if (Activate(held)) {
-                    down &= ~HidNpadButton_A;
+            if (buttonsDown & HidNpadButton_A) {
+                if (Activate(buttonsHeld)) {
+                    buttonsDown &= ~HidNpadButton_A;
                 }
             }
 
-            Layout::Input(down, held);
+            Layout::Input(buttonsDown, buttonsHeld);
         }
 
         /* Scrolling moves the icon budget; re-sync without reloading. */
-        if (st.sel != s_iconSel || st.rowCount != s_iconRows)
+        if (appState.sel != s_iconSync.selection || appState.rowCount != s_iconSync.rowCount)
             AssignIconSlots();
 
-        st.frame++;
-        st.tick++;
+        appState.frame++;
+        appState.tick++;
 
-        if ((st.frame % 60) == 0) {
+        if ((appState.frame % 60) == 0) {
             Clock::Tick();
         }
 
-        if (st.frame >= 150) {
-            st.frame = 0;
+        if (appState.frame >= 150) {
+            appState.frame = 0;
             RefreshTitles();
         }
 
@@ -502,21 +517,22 @@ namespace App {
         }
 
         /* Upload any newly-decoded video frame before drawing. */
-        WVideo::Tick();
+        Submenus::Tick();
+        DynamicWidgets::Tick();
 
-        Present(st.launchBlack);
+        Present(appState.launchBlack);
         Sfx::Tick();
     }
 
     /// @brief Handle foregrounding: clear launch black, refresh caches.
     void OnOpen()
     {
-        AppState &st = s_state;
-        st.launchBlack = false;
+        AppState &appState = s_state;
+        appState.launchBlack = false;
         Font::Refresh();
         RefreshTitles();
         Avatars::Refresh();
-        WAlbum::OnRefresh();
+        Submenus::RefreshAll();
     }
 
     /// @brief Handle theme/content reload.
@@ -525,36 +541,31 @@ namespace App {
         s_state.launchBlack = false;
         Font::Refresh();
         RefreshTitles();
-        WAlbum::OnRefresh();
+        Submenus::RefreshAll();
     }
 
-    /// @brief Handle HOME press: close album, snap back to home tab.
+    /// @brief Handle HOME press: close viewers, snap back to home tab.
     void OnHome()
     {
-        AppState &st = s_state;
+        AppState &appState = s_state;
 
         WPrompt::Close();
+        Submenus::CloseFullTabs();
 
-        if (WAlbum::IsOpen()) {
-            WAlbum::Close();
+        int homeTabIndex = Tabs::FindById("home");
+
+        if (homeTabIndex < 0) {
+            homeTabIndex = 0;
         }
 
-        int homeIdx = Tabs::FindById("home");
-
-        if (homeIdx < 0) {
-            homeIdx = 0;
-        }
-
-        st.menu.cur = homeIdx;
-        st.menu.from = homeIdx;
-        st.menu.t = 1.0f;
-        st.menu.phase = MenuPhase_Idle;
-        st.focus.topSel = homeIdx;
-        st.sel = 0;
-        st.focus.top = false;
-        st.home.sub = HOMESUB_GAMES;
-        st.home.settingsPage = -1;
-        st.home.settingsRow = 0;
+        appState.menu.cur = homeTabIndex;
+        appState.menu.from = homeTabIndex;
+        appState.menu.t = 1.0f;
+        appState.menu.phase = MenuPhase_Idle;
+        appState.focus.topSel = homeTabIndex;
+        appState.sel = 0;
+        appState.focus.top = false;
+        appState.home.sub = kHomeSubGames;
     }
 
     /// @brief Handle power button (currently a no-op hook).
@@ -716,58 +727,58 @@ namespace App {
     }
 
     /// @brief Switch to a tab index, starting the slide state machine.
-    /// @param m Tab index.
-    void SwitchMenu(int m)
+    /// @param menuIndex Tab index.
+    void SwitchMenu(int menuIndex)
     {
-        AppState &st = s_state;
+        AppState &appState = s_state;
 
-        if (m < 0 || m >= Tabs::Count()) {
+        if (menuIndex < 0 || menuIndex >= Tabs::Count()) {
             return;
         }
 
-        st.focus.top = false;
-        st.focus.bottom = false;
+        appState.focus.top = false;
+        appState.focus.bottom = false;
 
-        const MenuTab *tab = Tabs::Get(m);
-        bool isAlbum = tab && strcmp(tab->id, "album") == 0;
+        if (menuIndex == appState.menu.cur && appState.menu.t >= 1.0f) {
+            if (Submenus::IsDynamicTab(menuIndex)) {
+                Submenus::EnterDynamicTab(menuIndex);
+            } else {
+                const MenuTab *sameTab = Tabs::Get(menuIndex);
 
-        if (isAlbum) {
-            if (st.menu.cur != m) {
-                if (st.menu.phase == MenuPhase_Idle) {
-                    st.menu.from = st.menu.cur;
+                if (sameTab && sameTab->onEnter) {
+                    sameTab->onEnter();
                 }
-
-                st.menu.cur = m;
-                st.menu.dir = (m > st.menu.from) ? 1 : -1;
-                st.menu.t = 0.0f;
-                st.menu.phase = MenuPhase_Animating;
-            }
-
-            st.focus.topSel = m;
-
-            if (tab->onEnter) {
-                tab->onEnter();
             }
 
             return;
         }
 
-        if (m == st.menu.cur && st.menu.t >= 1.0f) {
-            return;
+        if (Submenus::IsDynamicTab(appState.menu.cur) && appState.menu.cur != menuIndex) {
+            Submenus::ExitDynamicTab(appState.menu.cur);
         }
 
-        st.menu.from = st.menu.cur;
-        st.menu.cur = m;
-        st.menu.dir = (st.menu.cur > st.menu.from) ? 1 : -1;
+        appState.menu.from = appState.menu.cur;
+        appState.menu.cur = menuIndex;
+        appState.menu.dir = (appState.menu.cur > appState.menu.from) ? 1 : -1;
 
-        if (st.menu.cur == st.menu.from) {
-            st.menu.dir = 1;
+        if (appState.menu.cur == appState.menu.from) {
+            appState.menu.dir = 1;
         }
 
-        st.menu.t = 0.0f;
-        st.menu.phase = MenuPhase_Animating;
-        st.focus.topSel = m;
-        st.focus.top = false;
+        appState.menu.t = 0.0f;
+        appState.menu.phase = MenuPhase_Animating;
+        appState.focus.topSel = menuIndex;
+        appState.focus.top = false;
+
+        if (Submenus::IsDynamicTab(menuIndex)) {
+            Submenus::EnterDynamicTab(menuIndex);
+        } else {
+            const MenuTab *nextTab = Tabs::Get(menuIndex);
+
+            if (nextTab && nextTab->onEnter) {
+                nextTab->onEnter();
+            }
+        }
     }
 
     /// @brief Switch to a tab by string id.
@@ -780,23 +791,20 @@ namespace App {
     /// @brief Tick the menu slide state machine.
     void UpdateMenuAnim()
     {
-        AppState &st = s_state;
+        AppState &appState = s_state;
 
-        if (st.menu.phase == MenuPhase_Idle) {
+        if (appState.menu.phase == MenuPhase_Idle) {
             return;
         }
 
-        st.menu.t += 1.0f / 15.0f;
+        appState.menu.t += 1.0f / 15.0f;
 
-        if (st.menu.t >= 1.0f) {
-            st.menu.t = 1.0f;
-            st.menu.phase = MenuPhase_Idle;
+        if (appState.menu.t >= 1.0f) {
+            appState.menu.t = 1.0f;
+            appState.menu.phase = MenuPhase_Idle;
 
-            const MenuTab *cur = Tabs::Get(st.menu.cur);
-            bool curIsAlbum = cur && strcmp(cur->id, "album") == 0;
-
-            if (!curIsAlbum && WAlbum::IsOpen()) {
-                WAlbum::Close();
+            if (!Submenus::IsFullTab(appState.menu.cur)) {
+                Submenus::CloseFullTabs();
             }
         }
     }
@@ -836,9 +844,9 @@ namespace App {
     {
         float target = 0.0f;
 
-        if (s_state.home.sub == HOMESUB_FOLDERS) {
+        if (s_state.home.sub == kHomeSubFolders) {
             target = -830.0f;
-        } else if (s_state.home.sub == HOMESUB_VGC) {
+        } else if (s_state.home.sub == kHomeSubVgc) {
             target = 935.0f;
         }
 
@@ -851,9 +859,9 @@ namespace App {
     {
         float target = 0.0f;
 
-        if (s_state.home.sub == HOMESUB_FOLDERS) {
+        if (s_state.home.sub == kHomeSubFolders) {
             target = -830.0f;
-        } else if (s_state.home.sub == HOMESUB_VGC) {
+        } else if (s_state.home.sub == kHomeSubVgc) {
             target = 935.0f;
         }
 
@@ -864,49 +872,6 @@ namespace App {
         } else {
             s_state.home.shiftY += d * 0.12f;
         }
-    }
-
-    /// @brief Give the settings page (-1 = option list).
-    /// @return Page index.
-    int SettingsPage()
-    {
-        return s_state.home.settingsPage;
-    }
-
-    /// @brief Set the settings page and reset the row cursor.
-    /// @param p New page.
-    void SetSettingsPage(int p)
-    {
-        s_state.home.settingsPage = p;
-        s_state.home.settingsRow = 0;
-    }
-
-    /// @brief Give the settings row cursor.
-    /// @return Row index.
-    int SettingsRow()
-    {
-        return s_state.home.settingsRow;
-    }
-
-    /// @brief Set the settings row cursor.
-    /// @param r New row.
-    void SetSettingsRow(int r)
-    {
-        s_state.home.settingsRow = r < 0 ? 0 : r;
-    }
-
-    /// @brief Whether the shop shows news instead of the grid.
-    /// @return True for news.
-    bool EShopNews()
-    {
-        return s_state.home.eshopNews;
-    }
-
-    /// @brief Set the shop news flag.
-    /// @param n New flag.
-    void SetEShopNews(bool n)
-    {
-        s_state.home.eshopNews = n;
     }
 
     /// @brief Whether the bottom bar has focus.
@@ -948,7 +913,7 @@ namespace App {
     /// @brief Activate the focused bottom-bar icon.
     void ActivateBottom()
     {
-        AppState &st = s_state;
+        AppState &appState = s_state;
 
         if (HomeShiftBusy()) {
             return;
@@ -961,7 +926,7 @@ namespace App {
             return;
         }
 
-        int want = BottomSel() == 0 ? HOMESUB_FOLDERS : HOMESUB_VGC;
+        int want = BottomSel() == 0 ? kHomeSubFolders : kHomeSubVgc;
 
         if (BottomSel() == 0) {
             Sfx::PlayByName("folder_jingle");
@@ -969,22 +934,8 @@ namespace App {
             Sfx::PlayByName("vgc_jingle");
         }
 
-        SetHomeSub(want == HomeSub() ? HOMESUB_GAMES : want);
+        SetHomeSub(want == HomeSub() ? kHomeSubGames : want);
         SetBottomFocus(false);
-    }
-
-    /// @brief Give the friends selection cursor.
-    /// @return Index.
-    int FriendSel()
-    {
-        return s_state.home.friendSel;
-    }
-
-    /// @brief Set the friends selection cursor.
-    /// @param s New index.
-    void SetFriendSel(int s)
-    {
-        s_state.home.friendSel = s < 0 ? 0 : s;
     }
 
     /// @brief Whether we blacked out for a launch.

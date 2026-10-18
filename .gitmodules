@@ -1,11 +1,11 @@
 [submodule "extern/libnx-dlink"]
 	path = extern/libnx-dlink
 	url = https://github.com/souldbminerr/libnx-dlink.git
-[submodule "extern/ffmpeg"]
-	path = extern/ffmpeg
-	url = https://github.com/averne/FFmpeg.git
-	branch = nvtegra
 [submodule "extern/SDL-dlink"]
 	path = extern/SDL-dlink
 	url = https://github.com/souldbminerr/SDL-dlink.git
 	branch = switch-sdl-3.4
+[submodule "extern/FFmpeg-dlink"]
+	path = extern/FFmpeg-dlink
+	url = https://github.com/souldbminerr/FFmpeg-dlink.git
+	branch = nvtegra

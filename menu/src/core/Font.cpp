@@ -27,9 +27,14 @@ namespace Font {
         bool ok;
     };
 
-    static uint8_t s_Bitmap[FONT_ATLAS_W * FONT_ATLAS_H];
-    static Atlas s_at[3];
-    static bool s_initialized;
+    /// @brief All mutable font atlas state, single global.
+    struct FontState {
+        uint8_t bitmap[kFontAtlasWidth * kFontAtlasHeight];
+        Atlas atlases[3];
+        bool isInitialized;
+    };
+
+    static FontState s_state = {};
 
         /// @brief Bake one glyph range into the scratch atlas.
         /// @param atlas Atlas receiving the bake.
@@ -40,12 +45,12 @@ namespace Font {
         static bool BakeOne(Atlas *atlas, const uint8_t *file, const float *heights, int heightCount)
         {
             for (int i = 0; i < heightCount; i++) {
-                memset(s_Bitmap, 0, sizeof(s_Bitmap));
+                memset(s_state.bitmap, 0, sizeof(s_state.bitmap));
 
-                int rows = stbtt_BakeFontBitmap(file, 0, heights[i], s_Bitmap, FONT_ATLAS_W, FONT_ATLAS_H, atlas->first, atlas->count, atlas->g);
+                int rows = stbtt_BakeFontBitmap(file, 0, heights[i], s_state.bitmap, kFontAtlasWidth, kFontAtlasHeight, atlas->first, atlas->count, atlas->g);
                 Log::Line("[menu] Baked font atlas with %d rows", rows);
 
-                if (rows > 0 && rows <= FONT_ATLAS_H) {
+                if (rows > 0 && rows <= kFontAtlasHeight) {
                     atlas->px = heights[i];
                     return true;
                 }
@@ -59,7 +64,7 @@ namespace Font {
         /// @param a Atlas to upload.
         /// @return True on success.
         static bool UploadOne(Atlas *atlas) {
-            if (!Gfx::TexUpload(atlas->slot, s_Bitmap, FONT_ATLAS_W, FONT_ATLAS_H, Gfx::TexFormat::R8))
+            if (!Gfx::TexUpload(atlas->slot, s_state.bitmap, kFontAtlasWidth, kFontAtlasHeight, Gfx::TexFormat::R8))
                 return false;
             atlas->ok = true;
             return true;
@@ -68,15 +73,15 @@ namespace Font {
         /// @brief Shut down font rendering.
         void Shutdown()
         {
-            if (!s_initialized)
+            if (!s_state.isInitialized)
                 return;
-            s_initialized = false;
+            s_state.isInitialized = false;
             
             /* TODO: Dynamically load the atlases? */
             for (int i = 0; i < 3; i++) {
-                s_at[i].ok = false;
-                Gfx::TexFree(s_at[i].slot);
-                s_at[i].slot = -1;
+                s_state.atlases[i].ok = false;
+                Gfx::TexFree(s_state.atlases[i].slot);
+                s_state.atlases[i].slot = -1;
             }
         }
 
@@ -84,45 +89,45 @@ namespace Font {
         /// @return True on success.
         int Slot(int buf)
         {
-            if (buf < 0 || buf > 2 || !s_at[buf].ok)
+            if (buf < 0 || buf > 2 || !s_state.atlases[buf].ok)
                 return -1;
-            return s_at[buf].slot;
+            return s_state.atlases[buf].slot;
         }
 
         bool Init() {
             static const float big[] = { 64.0f, 56.0f, 48.0f, 40.0f };
             static const float sml[] = { 48.0f, 40.0f, 32.0f };
-            s_at[0].first = 32;
-            s_at[0].count = 224;
-            s_at[0].slot = Gfx::TexAlloc();
-            s_at[0].ok = false;
+            s_state.atlases[0].first = 32;
+            s_state.atlases[0].count = 224;
+            s_state.atlases[0].slot = Gfx::TexAlloc();
+            s_state.atlases[0].ok = false;
 
-            s_at[1].first = 0x3040;
-            s_at[1].count = 192;
-            s_at[1].slot = Gfx::TexAlloc();
-            s_at[1].ok = false;
+            s_state.atlases[1].first = 0x3040;
+            s_state.atlases[1].count = 192;
+            s_state.atlases[1].slot = Gfx::TexAlloc();
+            s_state.atlases[1].ok = false;
 
-            s_at[2].first = 0xE000;
-            s_at[2].count = 512;
-            s_at[2].slot = Gfx::TexAlloc();
-            s_at[2].ok = false;
+            s_state.atlases[2].first = 0xE000;
+            s_state.atlases[2].count = 512;
+            s_state.atlases[2].slot = Gfx::TexAlloc();
+            s_state.atlases[2].ok = false;
 
-            if (s_at[0].slot < 0 || s_at[1].slot < 0 || s_at[2].slot < 0)
+            if (s_state.atlases[0].slot < 0 || s_state.atlases[1].slot < 0 || s_state.atlases[2].slot < 0)
                 return false;
             
-            if (!BakeOne(&s_at[0], font_otf, big, 4))
+            if (!BakeOne(&s_state.atlases[0], font_otf, big, 4))
                 return false;
             
-            if (!UploadOne(&s_at[0]))
+            if (!UploadOne(&s_state.atlases[0]))
                 return false;
             
-            if (BakeOne(&s_at[1], font_otf, big, 4))
-                UploadOne(&s_at[1]);
+            if (BakeOne(&s_state.atlases[1], font_otf, big, 4))
+                UploadOne(&s_state.atlases[1]);
             
-            if (BakeOne(&s_at[2], switch_icons_ttf, sml, 3))
-                UploadOne(&s_at[2]);
+            if (BakeOne(&s_state.atlases[2], switch_icons_ttf, sml, 3))
+                UploadOne(&s_state.atlases[2]);
             
-            s_initialized = true;
+            s_state.isInitialized = true;
             return true;
         }
 
@@ -136,27 +141,27 @@ namespace Font {
         {
             if (!BakeOne(a, file, heights, nHeights))
                 return false;
-            return Gfx::TexUpload(a->slot, s_Bitmap, FONT_ATLAS_W, FONT_ATLAS_H,
+            return Gfx::TexUpload(a->slot, s_state.bitmap, kFontAtlasWidth, kFontAtlasHeight,
                                 Gfx::TexFormat::R8);
         }
 
         /// @brief Reload system fonts (theme/content change).
         void Refresh() {
-            if (!s_initialized)
+            if (!s_state.isInitialized)
                 return;
 
             static const float big[] = { 64.0f, 56.0f, 48.0f, 40.0f };
             static const float sml[] = { 48.0f, 40.0f, 32.0f };
 
-            RebakeOne(&s_at[0], font_otf, big, 4);
-            RebakeOne(&s_at[1], font_otf, big, 4);
-            RebakeOne(&s_at[2], switch_icons_ttf, sml, 3);
+            RebakeOne(&s_state.atlases[0], font_otf, big, 4);
+            RebakeOne(&s_state.atlases[1], font_otf, big, 4);
+            RebakeOne(&s_state.atlases[2], switch_icons_ttf, sml, 3);
         }
 
         /// @brief Whether font rendering is usable.
         /// @return True when initialized.
         bool Ok() {
-            return s_initialized;
+            return s_state.isInitialized;
         }
 
         /// @brief Decode the next codepoint and advance the cursor.
@@ -193,12 +198,12 @@ namespace Font {
         /// @return Atlas pointer, or null when unavailable.
         static Atlas *Pick(unsigned cp)
     {
-        if (cp >= 0xE000u && cp < 0xE200u && s_at[2].ok)
-            return &s_at[2];
-        if (cp >= 0x3040u && cp < 0x3100u && s_at[1].ok)
-            return &s_at[1];
-        if (s_at[0].ok)
-            return &s_at[0];
+        if (cp >= 0xE000u && cp < 0xE200u && s_state.atlases[2].ok)
+            return &s_state.atlases[2];
+        if (cp >= 0x3040u && cp < 0x3100u && s_state.atlases[1].ok)
+            return &s_state.atlases[1];
+        if (s_state.atlases[0].ok)
+            return &s_state.atlases[0];
         return 0;
     }
 
@@ -216,7 +221,7 @@ namespace Font {
         static float Pen(const char *s, float x, float y, float px, bool dry,
                         float r, float g, float b, float alpha)
     {
-        if (!s || !s_initialized)
+        if (!s || !s_state.isInitialized)
             return x;
         float pen = x;
         while (*s) {
@@ -224,14 +229,14 @@ namespace Font {
             Atlas *a = Pick(cp);
             if (!a)
                 return pen;
-            if (a != &s_at[0] &&
+            if (a != &s_state.atlases[0] &&
                 (cp < (unsigned)a->first ||
                 cp >= (unsigned)(a->first + a->count))) {
-                a = &s_at[0];
+                a = &s_state.atlases[0];
                 cp = 63u;
             }
 
-            if (a == &s_at[0] && (cp < 32u || cp > 255u))
+            if (a == &s_state.atlases[0] && (cp < 32u || cp > 255u))
                 cp = 63u;
             if (cp < (unsigned)a->first ||
                 cp >= (unsigned)(a->first + a->count))
@@ -242,9 +247,9 @@ namespace Font {
             float before = pen;
             float xpos = pen;
             float ypos = y;
-            int buf = (int)(a - s_at); /* text buffer, not texture slot */
+            int buf = (int)(a - s_state.atlases); /* text buffer, not texture slot */
             stbtt_aligned_quad q;
-            stbtt_GetBakedQuad(a->g, FONT_ATLAS_W, FONT_ATLAS_H,
+            stbtt_GetBakedQuad(a->g, kFontAtlasWidth, kFontAtlasHeight,
                             (int)(cp - (unsigned)a->first), &xpos, &ypos,
                             &q, 1);
             float x0 = before + (q.x0 - before) * scale;

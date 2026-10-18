@@ -5,11 +5,11 @@
 #pragma once
 #include <switch.h>
 
-constexpr int LAYOUT_MAX_NODES = 48;
-constexpr int LAYOUT_MAX_DOCK = 12;
-constexpr int LAYOUT_MAX_HINTS = 8;
-constexpr int LAYOUT_MAX_TABS = 8;
-constexpr int LAYOUT_ID_MAX = 24;
+constexpr int kLayoutMaxNodes = 48;
+constexpr int kLayoutMaxDock = 12;
+constexpr int kLayoutMaxHints = 8;
+constexpr int kLayoutMaxTabs = 12;
+constexpr int kLayoutIdMax = 24;
 
 /// @brief One dock shortcut inside a node.
 struct DockItem {
@@ -29,23 +29,23 @@ struct LayoutNode {
     char id[24];
     float x, y, tile, gap;
     bool label;
-    DockItem dock[LAYOUT_MAX_DOCK];
+    DockItem dock[kLayoutMaxDock];
     int dockCount;
-    HintItem hints[LAYOUT_MAX_HINTS];
+    HintItem hints[kLayoutMaxHints];
     int hintCount;
 };
 
 /// @brief Ordered tab reference resolved from layout.json.
 struct LayoutTab {
-    char id[LAYOUT_ID_MAX];
+    char id[kLayoutIdMax];
     int tabIndex; /* Index into the Tabs registry, -1 when missing. */
 };
 
 /// @brief Parsed layout document: nodes + tab order.
 struct LayoutDoc {
-    LayoutNode nodes[LAYOUT_MAX_NODES];
+    LayoutNode nodes[kLayoutMaxNodes];
     int nodeCount;
-    LayoutTab tabs[LAYOUT_MAX_TABS];
+    LayoutTab tabs[kLayoutMaxTabs];
     int tabCount;
     int designW;
     int designH;
@@ -75,9 +75,9 @@ namespace Layout {
     void Draw();
 
     /// @brief Route input to the focused layer, else the active tab.
-    /// @param down Buttons pressed.
-    /// @param held Buttons held.
-    void Input(u64 down, u64 held);
+    /// @param buttonsDown Buttons pressed.
+    /// @param buttonsHeld Buttons held.
+    void Input(u64 buttonsDown, u64 buttonsHeld);
 
     /// @brief Activate the focused top-bar tab.
     void ActivateTop();

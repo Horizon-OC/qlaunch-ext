@@ -4,12 +4,12 @@
 
 #pragma once
 
-constexpr int MENU_HOME = 0;
-constexpr int MENU_CONNECT = 1;
-constexpr int MENU_ESHOP = 2;
-constexpr int MENU_ALBUM = 3;
-constexpr int MENU_SETTINGS = 4;
-constexpr int MENU_COUNT = 5;
+constexpr int kMenuHome = 0;
+constexpr int kMenuConnect = 1;
+constexpr int kMenuEshop = 2;
+constexpr int kMenuAlbum = 3;
+constexpr int kMenuSettings = 4;
+constexpr int kMenuCount = 5;
 
 namespace Theme {
     /// @brief Load a legacy single-theme JSON blob.
@@ -72,11 +72,25 @@ namespace Theme {
     bool IsDark();
 
     /// @brief Give a tab's background color.
-    /// @param menu Tab index.
+    /// @param menu Theme slot 0-4.
     /// @param r Red output.
     /// @param g Green output.
     /// @param b Blue output.
     void MenuColor(int menu, float *r, float *g, float *b);
+
+    /// @brief Shut down theme state and free retained file bytes.
+    void Shutdown();
+
+    /// @brief Give the current theme file bytes.
+    /// @param outputData Output file pointer, valid until the next theme change.
+    /// @param outputSize Output byte size.
+    /// @return True when a theme file is retained.
+    bool ThemeFile(const unsigned char **outputData, unsigned *outputSize);
+
+    /// @brief Resolve a tab id to a theme background slot.
+    /// @param tabId Tab id (for example "album").
+    /// @return 0-4 for known tabs, or -1 when unknown.
+    int MenuSlotForId(const char *tabId);
 
     /// @brief Give a tab's accent color.
     /// @param menu Tab index.

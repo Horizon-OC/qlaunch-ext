@@ -16,28 +16,30 @@ struct InputRepeat {
     unsigned counter;
 
     /// @brief Reset the repeat counter.
-    void Reset() {
+    void Reset()
+    {
         counter = 0;
     }
 
-    /// @brief Poll directional buttons and expand holds into downs.
-    /// @param down Buttons pressed this frame (updated in place).
-    /// @param held Buttons currently held.
-    /// @param mask Direction mask to apply repeat to.
-    /// @param spec Timing tunables.
-    void Poll(u64 &down, u64 held, u64 mask, const RepeatSpec &spec) {
-        u64 dirs = held & mask;
+    /// @brief Poll directional buttons and expand holds into presses.
+    /// @param buttonsDown Buttons pressed this frame (updated in place).
+    /// @param buttonsHeld Buttons currently held.
+    /// @param directionMask Direction mask to apply repeat to.
+    /// @param repeatSpec Timing tunables.
+    void Poll(u64 &buttonsDown, u64 buttonsHeld, u64 directionMask, const RepeatSpec &repeatSpec)
+    {
+        u64 heldDirections = buttonsHeld & directionMask;
 
-        if (down & mask) {
+        if (buttonsDown & directionMask) {
             counter = 0;
             return;
         }
 
-        if (dirs) {
+        if (heldDirections) {
             counter++;
 
-            if (counter > spec.holdFrames && (counter % spec.period) == 0) {
-                down |= dirs;
+            if (counter > repeatSpec.holdFrames && (counter % repeatSpec.period) == 0) {
+                buttonsDown |= heldDirections;
             }
         } else {
             counter = 0;
@@ -48,18 +50,18 @@ struct InputRepeat {
 /// @brief Default repeat timing (matches the legacy widgets).
 inline RepeatSpec DefaultRepeat()
 {
-    RepeatSpec spec;
-    spec.holdFrames = 20;
-    spec.period = 6;
-    return spec;
+    RepeatSpec repeatSpec;
+    repeatSpec.holdFrames = 20;
+    repeatSpec.period = 6;
+    return repeatSpec;
 }
 
 /// @brief Faster repeat timing for the home strip.
 /// @return Spec with the default hold delay and a shorter repeat period.
 inline RepeatSpec StripRepeat()
 {
-    RepeatSpec spec;
-    spec.holdFrames = 20;
-    spec.period = 5;
-    return spec;
+    RepeatSpec repeatSpec;
+    repeatSpec.holdFrames = 20;
+    repeatSpec.period = 5;
+    return repeatSpec;
 }

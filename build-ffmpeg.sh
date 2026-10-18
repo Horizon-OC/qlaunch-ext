@@ -2,9 +2,9 @@
 set -eu
 
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-FFSRC="$ROOT/extern/ffmpeg"
-PREFIX="$ROOT/extern/ffmpeg-install"
-BUILD="$ROOT/extern/ffmpeg-build"
+FFSRC="$ROOT/extern/FFmpeg-dlink"
+PREFIX="$FFSRC/install"
+BUILD="$FFSRC/build"
 
 if [ -z "${DEVKITPRO:-}" ]; then
     if [ -d "/opt/devkitpro" ]; then
@@ -17,13 +17,18 @@ if [ -z "${DEVKITPRO:-}" ]; then
 fi
 
 if [ ! -f "$FFSRC/configure" ]; then
-    echo "error: $FFSRC/configure missing; run: git submodule update --init extern/ffmpeg" >&2
+    echo "error: $FFSRC/configure missing; run: git submodule update --init extern/FFmpeg-dlink" >&2
     exit 1
 fi
 
 DKA="$DEVKITPRO/devkitA64"
 rm -rf "$BUILD"
 mkdir -p "$BUILD"
+# Pre-create ffbuild: configure logs to ffbuild/config.log from its first
+# check, but only mkdirs it halfway through. A missing log dir makes every
+# test redirect fail, so the test binary never runs and features (rint and
+# friends) misdetect as missing, breaking the build in libavutil/libm.h.
+mkdir -p "$BUILD/ffbuild"
 cd "$BUILD"
 "$FFSRC/configure" \
     --prefix="$PREFIX" \

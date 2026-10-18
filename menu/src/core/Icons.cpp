@@ -32,28 +32,33 @@ static void *stb_realloc_sized(void *p, size_t oldsz, size_t newsz)
 #define STB_IMAGE_IMPLEMENTATION
 #include "../third_party/stb_image.h"
 
-namespace Icons {
-static Entry entries_[ICONS_MAX];
-static u64 s_seq = 0;
-static bool hudOk_[HUD_COUNT] = { false };
-static int hudTex_[HUD_COUNT] = { 0 };
-} /* namespace Icons */
-
 namespace {
 
-static bool s_slotsInit = false;
+    /// @brief All mutable icon cache state, single global.
+    struct IconsState {
+        Icons::Entry titleEntries[kIconsMax];
+        u64 sequenceCounter;
+        bool hudReady[kHudCount];
+        int hudTextures[kHudCount];
+        bool slotsInitialized;
+    };
+
+    static IconsState s_state = {};
 
 /// @brief One-time slot init (-1 = owns nothing). Zero-init would read
 /// as slot 0, which the manager may have handed to someone else.
 static void EnsureSlots()
 {
-    if (s_slotsInit)
+    if (s_state.slotsInitialized) {
         return;
-    s_slotsInit = true;
-    for (int i = 0; i < ICONS_MAX; i++)
-        Icons::entries_[i].slot = -1;
-    for (int i = 0; i < HUD_COUNT; i++)
-        Icons::hudTex_[i] = -1;
+    }
+    s_state.slotsInitialized = true;
+    for (int entryIndex = 0; entryIndex < kIconsMax; entryIndex++) {
+        s_state.titleEntries[entryIndex].textureSlot = -1;
+    }
+    for (int hudIndex = 0; hudIndex < kHudCount; hudIndex++) {
+        s_state.hudTextures[hudIndex] = -1;
+    }
 }
 
 /* NOTE: dont make these static pointer tables otherwise there will be crashes due to relocation stuff */
@@ -107,244 +112,390 @@ static uint8_t *Downscale(uint8_t *px, int *w, int *h)
 
     /// @brief Fetch, decode and upload one title icon into an entry.
     /// The entry must be freed first when it was in use.
-    /// @param e Entry receiving the icon.
-    /// @param tid Title id to load.
+    /// @param iconEntry Entry receiving the icon.
+    /// @param titleId Title id to load.
     /// @return True when the entry holds a fresh icon.
-    static bool LoadTitleIcon(Icons::Entry *e, u64 tid)
+    static bool LoadTitleIcon(Icons::Entry *iconEntry, u64 titleId)
     {
-        int count = qext_title_count();
-        for (int ti = 0; ti < count; ti++) {
-            if (qext_title_id(ti) != tid)
+        int titleCount = qext_title_count();
+
+        for (int titleIndex = 0; titleIndex < titleCount; titleIndex++) {
+            if (qext_title_id(titleIndex) != titleId) {
                 continue;
-            int jsize = qext_title_icon_size(ti);
-            if (jsize <= 0 || jsize > 0x40000)
+            }
+
+            int iconSize = qext_title_icon_size(titleIndex);
+
+            if (iconSize <= 0 || iconSize > 0x40000) {
                 break;
-            uint8_t head[4] = { 0 };
-            uint8_t *jpg = (uint8_t *)malloc((unsigned)jsize);
-            if (!jpg)
+            }
+
+            uint8_t *jpegBuffer = (uint8_t *)malloc((unsigned)iconSize);
+
+            if (!jpegBuffer) {
                 break;
-            int got = qext_title_icon(ti, jpg, (unsigned)jsize);
-            if (got > 2 && jpg[0] == 0xFF && jpg[1] == 0xD8) {
-                int w = 0, h = 0;
-                uint8_t *px = stbi_load_from_memory(
-                    jpg, got, &w, &h, NULL, 4);
-                if (px && w > 0 && h > 0 && w <= 1024 && h <= 1024) {
-                    if (e->slot < 0)
-                        e->slot = Gfx::TexAlloc();
-                    if (e->slot >= 0 && Icons::Upload(e, px, w, h)) {
-                        e->tid = tid;
-                        e->used = true;
-                        free(jpg);
-                        if (px)
-                            stbi_image_free(px);
+            }
+
+            int bytesRead = qext_title_icon(titleIndex, jpegBuffer, (unsigned)iconSize);
+
+            if (bytesRead > 2 && jpegBuffer[0] == 0xFF && jpegBuffer[1] == 0xD8) {
+                int imageWidth = 0;
+                int imageHeight = 0;
+                uint8_t *pixelData = stbi_load_from_memory(
+                    jpegBuffer, bytesRead, &imageWidth, &imageHeight, NULL, 4);
+
+                if (pixelData && imageWidth > 0 && imageHeight > 0 && imageWidth <= 1024 && imageHeight <= 1024) {
+                    if (iconEntry->textureSlot < 0) {
+                        iconEntry->textureSlot = Gfx::TexAlloc();
+                    }
+
+                    if (iconEntry->textureSlot >= 0 && Icons::Upload(iconEntry, pixelData, imageWidth, imageHeight)) {
+                        iconEntry->titleId = titleId;
+                        iconEntry->isUsed = true;
+                        free(jpegBuffer);
+
+                        if (pixelData) {
+                            stbi_image_free(pixelData);
+                        }
+
                         return true;
                     }
-                    Gfx::TexFree(e->slot);
-                    e->slot = -1;
+
+                    Gfx::TexFree(iconEntry->textureSlot);
+                    iconEntry->textureSlot = -1;
                 }
-                if (px)
-                    stbi_image_free(px);
+
+                if (pixelData) {
+                    stbi_image_free(pixelData);
+                }
             }
-            free(jpg);
+
+            free(jpegBuffer);
             break;
         }
+
         return false;
+    }
+
+    /// @brief Decode PNG bytes with core art policy.
+    /// @param pngData PNG bytes.
+    /// @param pngSize Byte size.
+    /// @param downscale True to shrink art larger than 256px.
+    /// @param invertForDark True to invert dark art on dark themes.
+    /// @param imageWidthOut Output width.
+    /// @param imageHeightOut Output height.
+    /// @return Pixels to release with stbi_image_free(), or null.
+    static uint8_t *DecodePng(const uint8_t *pngData, unsigned pngSize, bool downscale,
+                              bool invertForDark, int *imageWidthOut, int *imageHeightOut)
+    {
+        int imageWidth = 0;
+        int imageHeight = 0;
+        uint8_t *pixelData = nullptr;
+
+        if (pngData && pngSize > 0 && pngSize <= 0x40000) {
+            pixelData = stbi_load_from_memory(pngData, (int)pngSize, &imageWidth, &imageHeight, NULL, 4);
+        }
+
+        if (pixelData && downscale && (imageWidth > 256 || imageHeight > 256)) {
+            pixelData = Downscale(pixelData, &imageWidth, &imageHeight);
+        }
+
+        if (pixelData && invertForDark && Theme::IsDark()) {
+            unsigned long long luminanceSum = 0;
+            unsigned opaqueCount = 0;
+
+            for (int pixelIndex = 0; pixelIndex < imageWidth * imageHeight; pixelIndex++) {
+                if (pixelData[pixelIndex * 4 + 3] > 8) {
+                    luminanceSum += (unsigned)pixelData[pixelIndex * 4] * 30u +
+                           (unsigned)pixelData[pixelIndex * 4 + 1] * 59u +
+                           (unsigned)pixelData[pixelIndex * 4 + 2] * 11u;
+                    opaqueCount++;
+                }
+            }
+
+            if (opaqueCount > 0 && luminanceSum / opaqueCount < 128u * 100u) {
+                for (int pixelIndex = 0; pixelIndex < imageWidth * imageHeight; pixelIndex++) {
+                    pixelData[pixelIndex * 4] = (uint8_t)(255 - pixelData[pixelIndex * 4]);
+                    pixelData[pixelIndex * 4 + 1] = (uint8_t)(255 - pixelData[pixelIndex * 4 + 1]);
+                    pixelData[pixelIndex * 4 + 2] = (uint8_t)(255 - pixelData[pixelIndex * 4 + 2]);
+                }
+            }
+        }
+
+        if (!pixelData || imageWidth <= 0 || imageHeight <= 0 || imageHeight > 4096) {
+            if (pixelData) {
+                stbi_image_free(pixelData);
+            }
+
+            return nullptr;
+        }
+
+        *imageWidthOut = imageWidth;
+        *imageHeightOut = imageHeight;
+        return pixelData;
     }
 
 } // namespace
 
-bool Icons::InitHud(const HudDef *defs, int count)
+bool Icons::UploadPng(const uint8_t *pngData, unsigned pngSize, bool downscale, int *textureSlotOut)
 {
     EnsureSlots();
 
-    if (!defs || count <= 0) {
+    if (!textureSlotOut) {
         return false;
     }
 
-    if (count > HUD_COUNT) {
-        count = HUD_COUNT;
+    *textureSlotOut = -1;
+    int imageWidth = 0;
+    int imageHeight = 0;
+    uint8_t *pixelData = DecodePng(pngData, pngSize, downscale, true, &imageWidth, &imageHeight);
+
+    if (!pixelData) {
+        return false;
     }
 
-    bool any = false;
-    for (int i = 0; i < count; i++) {
-        if (hudOk_[i])
+    int textureSlot = Gfx::TexAlloc();
+
+    if (textureSlot < 0) {
+        stbi_image_free(pixelData);
+        return false;
+    }
+
+    if (!Gfx::TexUpload(textureSlot, pixelData, imageWidth, imageHeight, Gfx::TexFormat::RGBA)) {
+        stbi_image_free(pixelData);
+        Gfx::TexFree(textureSlot);
+        return false;
+    }
+
+    stbi_image_free(pixelData);
+    *textureSlotOut = textureSlot;
+    return true;
+}
+
+bool Icons::InitHud(const HudDef *assetDefs, int assetCount)
+{
+    EnsureSlots();
+
+    if (!assetDefs || assetCount <= 0) {
+        return false;
+    }
+
+    if (assetCount > kHudCount) {
+        assetCount = kHudCount;
+    }
+
+    bool anyLoaded = false;
+
+    for (int hudIndex = 0; hudIndex < assetCount; hudIndex++) {
+        if (s_state.hudReady[hudIndex]) {
             continue;
+        }
 
-        uint32_t size = (defs[i].size != nullptr) ? *defs[i].size : 0;
+        uint32_t pngSize = (assetDefs[hudIndex].size != nullptr) ? *assetDefs[hudIndex].size : 0;
 
-        if (defs[i].png == nullptr || size == 0) {
+        if (assetDefs[hudIndex].png == nullptr || pngSize == 0) {
             continue;
         }
 
-        int w = 0, h = 0;
-        uint8_t *px = stbi_load_from_memory(defs[i].png, (int)size,
-                                            &w, &h, NULL, 4);
-        if (px && (w > 256 || h > 256) && i != HUD_MARKER_STRIP)
-            px = Downscale(px, &w, &h);
-        if (px && Theme::IsDark() && !defs[i].noInvert) {
-            unsigned long long lum = 0;
-            unsigned cnt = 0;
-            for (int pxi = 0; pxi < w * h; pxi++) {
-                if (px[pxi * 4 + 3] > 8) {
-                    lum += (unsigned)px[pxi * 4] * 30u +
-                           (unsigned)px[pxi * 4 + 1] * 59u +
-                           (unsigned)px[pxi * 4 + 2] * 11u;
-                    cnt++;
-                }
-            }
-            if (cnt > 0 && lum / cnt < 128u * 100u) {
-                for (int pxi = 0; pxi < w * h; pxi++) {
-                    px[pxi * 4] = (uint8_t)(255 - px[pxi * 4]);
-                    px[pxi * 4 + 1] = (uint8_t)(255 - px[pxi * 4 + 1]);
-                    px[pxi * 4 + 2] = (uint8_t)(255 - px[pxi * 4 + 2]);
-                }
-            }
-        }
-        if (!px || w <= 0 || h <= 0 || (w > 512 && i != HUD_MARKER_STRIP) || h > 4096) {
-            if (px)
-                stbi_image_free(px);
+        bool downscaleArt = hudIndex != kHudMarkerStrip;
+        int imageWidth = 0;
+        int imageHeight = 0;
+        uint8_t *pixelData = DecodePng(assetDefs[hudIndex].png, pngSize, downscaleArt,
+                                       !assetDefs[hudIndex].noInvert, &imageWidth, &imageHeight);
+
+        if (!pixelData) {
             continue;
         }
-        if (hudTex_[i] < 0) {
-            hudTex_[i] = Gfx::TexAlloc();
-            if (hudTex_[i] < 0) {
-                stbi_image_free(px);
+
+        if (imageWidth > 512 && hudIndex != kHudMarkerStrip) {
+            stbi_image_free(pixelData);
+            continue;
+        }
+
+        if (s_state.hudTextures[hudIndex] < 0) {
+            s_state.hudTextures[hudIndex] = Gfx::TexAlloc();
+
+            if (s_state.hudTextures[hudIndex] < 0) {
+                stbi_image_free(pixelData);
                 continue;
             }
         }
-        if (!Gfx::TexUpload(hudTex_[i], px, w, h, Gfx::TexFormat::RGBA)) {
-            stbi_image_free(px);
+
+        if (!Gfx::TexUpload(s_state.hudTextures[hudIndex], pixelData, imageWidth, imageHeight, Gfx::TexFormat::RGBA)) {
+            stbi_image_free(pixelData);
             continue;
         }
-        stbi_image_free(px);
-        hudOk_[i] = true;
-        any = true;
+
+        stbi_image_free(pixelData);
+        s_state.hudReady[hudIndex] = true;
+        anyLoaded = true;
     }
-    return any;
+
+    return anyLoaded;
 }
 
 void Icons::ResetHud()
 {
     EnsureSlots();
-    for (int i = 0; i < HUD_COUNT; i++) {
-        hudOk_[i] = false;
-        Gfx::TexFree(hudTex_[i]);
-        hudTex_[i] = -1;
+
+    for (int hudIndex = 0; hudIndex < kHudCount; hudIndex++) {
+        s_state.hudReady[hudIndex] = false;
+        Gfx::TexFree(s_state.hudTextures[hudIndex]);
+        s_state.hudTextures[hudIndex] = -1;
     }
 }
 
-int Icons::HudSlot(int which)
+int Icons::HudSlot(int hudId)
 {
     EnsureSlots();
-    if (which < 0 || which >= HUD_COUNT || !hudOk_[which])
+
+    if (hudId < 0 || hudId >= kHudCount || !s_state.hudReady[hudId]) {
         return -1;
-    return hudTex_[which];
+    }
+
+    return s_state.hudTextures[hudId];
 }
 
-bool Icons::Upload(Icons::Entry *e, const uint8_t *rgba, int w, int h)
+bool Icons::Upload(Icons::Entry *iconEntry, const uint8_t *pixelData, int imageWidth, int imageHeight)
 {
-    if (!rgba || w <= 0 || h <= 0 || w > 1024 || h > 1024)
+    if (!pixelData || imageWidth <= 0 || imageHeight <= 0 || imageWidth > 1024 || imageHeight > 1024) {
         return false;
-    EnsureSlots();
-    if (e->slot < 0) {
-        e->slot = Gfx::TexAlloc();
-        if (e->slot < 0)
-            return false;
     }
-    return Gfx::TexUpload(e->slot, rgba, w, h, Gfx::TexFormat::RGBA);
+
+    EnsureSlots();
+
+    if (iconEntry->textureSlot < 0) {
+        iconEntry->textureSlot = Gfx::TexAlloc();
+
+        if (iconEntry->textureSlot < 0) {
+            return false;
+        }
+    }
+
+    return Gfx::TexUpload(iconEntry->textureSlot, pixelData, imageWidth, imageHeight, Gfx::TexFormat::RGBA);
 }
 
-void Icons::Free(Icons::Entry *e)
+void Icons::Free(Icons::Entry *iconEntry)
 {
     EnsureSlots();
-    if (e->used) {
-        e->used = false;
-        e->tid = 0;
+
+    if (iconEntry->isUsed) {
+        iconEntry->isUsed = false;
+        iconEntry->titleId = 0;
     }
-    Gfx::TexFree(e->slot);
-    e->slot = -1;
+
+    Gfx::TexFree(iconEntry->textureSlot);
+    iconEntry->textureSlot = -1;
 }
 
 void Icons::FreeAll()
 {
     EnsureSlots();
-    for (int i = 0; i < ICONS_MAX; i++)
-        Free(&entries_[i]);
-    for (int i = 0; i < HUD_COUNT; i++) {
-        hudOk_[i] = false;
-        Gfx::TexFree(hudTex_[i]);
-        hudTex_[i] = -1;
+
+    for (int entryIndex = 0; entryIndex < kIconsMax; entryIndex++) {
+        Free(&s_state.titleEntries[entryIndex]);
+    }
+
+    for (int hudIndex = 0; hudIndex < kHudCount; hudIndex++) {
+        s_state.hudReady[hudIndex] = false;
+        Gfx::TexFree(s_state.hudTextures[hudIndex]);
+        s_state.hudTextures[hudIndex] = -1;
     }
 }
 
-void Icons::Sync(const u64 *tids, int *slots, int n, int focus)
+void Icons::Sync(const u64 *titleIds, int *outputSlots, int rowCount, int focusedRow)
 {
-    if (!tids || !slots || n <= 0)
+    if (!titleIds || !outputSlots || rowCount <= 0) {
         return;
-    if (focus < 0)
-        focus = 0;
-    if (focus >= n)
-        focus = n - 1;
+    }
 
-    for (int i = 0; i < n; i++)
-        slots[i] = -1;
+    if (focusedRow < 0) {
+        focusedRow = 0;
+    }
+
+    if (focusedRow >= rowCount) {
+        focusedRow = rowCount - 1;
+    }
+
+    for (int rowIndex = 0; rowIndex < rowCount; rowIndex++) {
+        outputSlots[rowIndex] = -1;
+    }
 
     /* Outward from the focus, so the visible window owns the fixed
        budget. Entries stamped this pass are never evicted by it. */
-    u64 passStart = s_seq;
-    int loads = 0;
-    for (int step = 0; step < n; step++) {
-        for (int side = 0; side < 2; side++) {
-            if (side == 1 && step == 0)
-                continue;
-            int i = (side == 0) ? focus + step : focus - step;
-            if (i < 0 || i >= n)
-                continue;
-            u64 tid = tids[i];
-            if (!tid)
-                continue;
+    u64 passStartSequence = s_state.sequenceCounter;
+    int loadCount = 0;
 
-            Entry *hit = nullptr;
-            for (int k = 0; k < ICONS_MAX; k++) {
-                if (entries_[k].used && entries_[k].tid == tid) {
-                    hit = &entries_[k];
+    for (int distance = 0; distance < rowCount; distance++) {
+        for (int sideIndex = 0; sideIndex < 2; sideIndex++) {
+            if (sideIndex == 1 && distance == 0) {
+                continue;
+            }
+
+            int rowIndex = (sideIndex == 0) ? focusedRow + distance : focusedRow - distance;
+
+            if (rowIndex < 0 || rowIndex >= rowCount) {
+                continue;
+            }
+
+            u64 titleId = titleIds[rowIndex];
+
+            if (!titleId) {
+                continue;
+            }
+
+            Entry *cacheHit = nullptr;
+
+            for (int entryIndex = 0; entryIndex < kIconsMax; entryIndex++) {
+                if (s_state.titleEntries[entryIndex].isUsed && s_state.titleEntries[entryIndex].titleId == titleId) {
+                    cacheHit = &s_state.titleEntries[entryIndex];
                     break;
                 }
             }
-            if (hit) {
-                hit->seq = ++s_seq;
-                slots[i] = hit->slot;
+
+            if (cacheHit) {
+                cacheHit->sequence = ++s_state.sequenceCounter;
+                outputSlots[rowIndex] = cacheHit->textureSlot;
                 continue;
             }
 
             /* At most a full turnover per pass; the rest keeps
                fallback tiles until scrolling re-runs the pass. */
-            if (loads >= ICONS_MAX)
+            if (loadCount >= kIconsMax) {
                 continue;
+            }
 
-            Entry *victim = nullptr;
-            for (int k = 0; k < ICONS_MAX; k++) {
-                if (!entries_[k].used) {
-                    victim = &entries_[k];
+            Entry *victimEntry = nullptr;
+
+            for (int entryIndex = 0; entryIndex < kIconsMax; entryIndex++) {
+                if (!s_state.titleEntries[entryIndex].isUsed) {
+                    victimEntry = &s_state.titleEntries[entryIndex];
                     break;
                 }
             }
-            if (!victim) {
-                for (int k = 0; k < ICONS_MAX; k++) {
-                    if (!entries_[k].used || entries_[k].seq > passStart)
+
+            if (!victimEntry) {
+                for (int entryIndex = 0; entryIndex < kIconsMax; entryIndex++) {
+                    if (!s_state.titleEntries[entryIndex].isUsed || s_state.titleEntries[entryIndex].sequence > passStartSequence) {
                         continue;
-                    if (!victim || entries_[k].seq < victim->seq)
-                        victim = &entries_[k];
+                    }
+
+                    if (!victimEntry || s_state.titleEntries[entryIndex].sequence < victimEntry->sequence) {
+                        victimEntry = &s_state.titleEntries[entryIndex];
+                    }
                 }
             }
-            if (!victim)
-                continue;
 
-            Free(victim);
-            if (LoadTitleIcon(victim, tid)) {
-                victim->seq = ++s_seq;
-                slots[i] = victim->slot;
-                loads++;
+            if (!victimEntry) {
+                continue;
+            }
+
+            Free(victimEntry);
+
+            if (LoadTitleIcon(victimEntry, titleId)) {
+                victimEntry->sequence = ++s_state.sequenceCounter;
+                outputSlots[rowIndex] = victimEntry->textureSlot;
+                loadCount++;
             }
         }
     }

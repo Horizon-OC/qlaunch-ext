@@ -6,17 +6,17 @@
 #include <switch.h>
 #include <stdint.h>
 
-constexpr int GFX_VTX_MAX = 2048;
-constexpr int GFX_TEXT_MAX = 8192;
-constexpr int GFX_PANEL_MAX = 2048;
-constexpr int GFX_ICONQ_MAX = 2048;
-constexpr int GFX_HL_MAX = 64;
+constexpr int kGfxVtxMax = 2048;
+constexpr int kGfxTextMax = 8192;
+constexpr int kGfxPanelMax = 2048;
+constexpr int kGfxIconQueueMax = 2048;
+constexpr int kGfxHighlightMax = 64;
 
-constexpr int GFX_OVCOLOR_MAX = 144;
-constexpr int GFX_OVPANEL_MAX = 32;
-constexpr int GFX_OVHL_MAX = 16;
+constexpr int kGfxOverlayColorMax = 144;
+constexpr int kGfxOverlayPanelMax = 32;
+constexpr int kGfxOverlayHighlightMax = 16;
 
-constexpr int GFX_MAX_TEX = 256;
+constexpr int kGfxMaxTextures = 256;
 
 namespace Gfx {
 
@@ -68,17 +68,17 @@ namespace Gfx {
     /// @brief Scale an X coordinate to framebuffer space.
     /// @param x Design X (1920-wide).
     /// @return Framebuffer X.
-    float X(float x);
+    float X(float positionX);
 
     /// @brief Scale a Y coordinate to framebuffer space.
     /// @param y Design Y (1080-high).
     /// @return Framebuffer Y.
-    float Y(float y);
+    float Y(float positionY);
 
     /// @brief Scale a scalar to framebuffer space.
     /// @param v Design value.
     /// @return Framebuffer value.
-    float SC(float v);
+    float SC(float value);
 
     /// @brief Allocate a texture slot (0..255, first free).
     /// Slots are engine-managed: validity is allocation state, never a
@@ -100,16 +100,16 @@ namespace Gfx {
     /// @brief Create (or recreate on size change) and fully upload a texture.
     /// @param slot Descriptor slot.
     /// @param px Pixel data (RGBA bytes, or R8 gray for TexFormat::R8).
-    /// @param w Width.
-    /// @param h Height.
+    /// @param width Width.
+    /// @param height Height.
     /// @param fmt Pixel format.
     /// @return True on success.
     bool TexUpload(int slot, const uint8_t *px, int w, int h, TexFormat fmt);
 
     /// @brief Lock a streaming texture for CPU writes (creates it sized).
     /// @param slot Descriptor slot.
-    /// @param w Width.
-    /// @param h Height.
+    /// @param width Width.
+    /// @param height Height.
     /// @param pixels Output CPU pointer.
     /// @param pitch Output row pitch in bytes.
     /// @return True on success.
@@ -120,44 +120,44 @@ namespace Gfx {
     void TexUnlock(int slot);
 
     /// @brief Queue a solid-color quad.
-    /// @param x X position.
-    /// @param y Y position.
-    /// @param w Width.
-    /// @param h Height.
-    /// @param r Red 0-1.
-    /// @param g Green 0-1.
-    /// @param b Blue 0-1.
-    /// @param a Alpha 0-1.
-    void PushQuad(float x, float y, float w, float h,
-                  float r, float g, float b, float a);
+    /// @param positionX X position.
+    /// @param positionY Y position.
+    /// @param width Width.
+    /// @param height Height.
+    /// @param red Red 0-1.
+    /// @param green Green 0-1.
+    /// @param blue Blue 0-1.
+    /// @param alpha Alpha 0-1.
+    void PushQuad(float positionX, float positionY, float width, float height,
+                  float red, float green, float blue, float alpha);
 
     /// @brief Queue a rounded panel.
-    /// @param x X position.
-    /// @param y Y position.
-    /// @param w Width.
-    /// @param h Height.
-    /// @param rad Corner radius.
-    /// @param r Red 0-1.
-    /// @param g Green 0-1.
-    /// @param b Blue 0-1.
-    /// @param a Alpha 0-1.
-    void PushPanel(float x, float y, float w, float h, float rad,
-                   float r, float g, float b, float a);
+    /// @param positionX X position.
+    /// @param positionY Y position.
+    /// @param width Width.
+    /// @param height Height.
+    /// @param cornerRadius Corner radius.
+    /// @param red Red 0-1.
+    /// @param green Green 0-1.
+    /// @param blue Blue 0-1.
+    /// @param alpha Alpha 0-1.
+    void PushPanel(float positionX, float positionY, float width, float height, float rad,
+                   float red, float green, float blue, float alpha);
 
     /// @brief Queue an icon quad bound to a texture slot.
-    /// @param x X position.
-    /// @param y Y position.
-    /// @param w Width.
-    /// @param h Height.
-    /// @param rTL Top-left corner radius.
-    /// @param rTR Top-right corner radius.
-    /// @param rBR Bottom-right corner radius.
-    /// @param rBL Bottom-left corner radius.
-    /// @param r Red 0-1.
-    /// @param g Green 0-1.
-    /// @param b Blue 0-1.
+    /// @param positionX X position.
+    /// @param positionY Y position.
+    /// @param width Width.
+    /// @param height Height.
+    /// @param cornerTopLeft Top-left corner radius.
+    /// @param cornerTopRight Top-right corner radius.
+    /// @param cornerBottomRight Bottom-right corner radius.
+    /// @param cornerBottomLeft Bottom-left corner radius.
+    /// @param red Red 0-1.
+    /// @param green Green 0-1.
+    /// @param blue Blue 0-1.
     /// @param border Unused (old SDF border factor).
-    /// @param tex Texture slot.
+    /// @param textureSlot Texture slot.
     /// @param u0 Left UV.
     /// @param v0 Top UV.
     /// @param u1 Right UV.
@@ -165,67 +165,67 @@ namespace Gfx {
     /// @param edgeBlend Unused (old SDF edge factor).
     /// @param alpha Opacity multiplier.
     /// @return Queued quad count.
-    unsigned PushIcon(float x, float y, float w, float h,
-                      float rTL, float rTR, float rBR, float rBL,
-                      float r, float g, float b, float border, int tex,
+    unsigned PushIcon(float positionX, float positionY, float width, float height,
+                      float cornerTopLeft, float cornerTopRight, float cornerBottomRight, float cornerBottomLeft,
+                      float red, float green, float blue, float border, int textureSlot,
                       float u0 = 0.0f, float v0 = 0.0f, float u1 = 1.0f, float v1 = 1.0f, float edgeBlend = 1.0f, float alpha = 1.0f);
 
     /// @brief Queue a selection ring around a rect.
-    /// @param x X position.
-    /// @param y Y position.
-    /// @param w Width.
-    /// @param h Height.
-    /// @param rad Corner radius.
+    /// @param positionX X position.
+    /// @param positionY Y position.
+    /// @param width Width.
+    /// @param height Height.
+    /// @param cornerRadius Corner radius.
     /// @param thick Ring thickness.
-    void PushSelectRing(float x, float y, float w, float h, float rad, float thick);
+    void PushSelectRing(float positionX, float positionY, float width, float height, float rad, float thick);
 
     /// @brief Queue a solid-color quad in the overlay layer (modal dim).
-    /// @param x X position.
-    /// @param y Y position.
-    /// @param w Width.
-    /// @param h Height.
-    /// @param r Red 0-1.
-    /// @param g Green 0-1.
-    /// @param b Blue 0-1.
-    /// @param a Alpha 0-1.
-    void PushOverlayQuad(float x, float y, float w, float h,
-                         float r, float g, float b, float a);
+    /// @param positionX X position.
+    /// @param positionY Y position.
+    /// @param width Width.
+    /// @param height Height.
+    /// @param red Red 0-1.
+    /// @param green Green 0-1.
+    /// @param blue Blue 0-1.
+    /// @param alpha Alpha 0-1.
+    void PushOverlayQuad(float positionX, float positionY, float width, float height,
+                         float red, float green, float blue, float alpha);
 
     /// @brief Queue a rounded panel in the overlay layer (modal chrome).
-    /// @param x X position.
-    /// @param y Y position.
-    /// @param w Width.
-    /// @param h Height.
-    /// @param rad Corner radius.
-    /// @param r Red 0-1.
-    /// @param g Green 0-1.
-    /// @param b Blue 0-1.
-    /// @param a Alpha 0-1.
-    void PushOverlayPanel(float x, float y, float w, float h, float rad,
-                          float r, float g, float b, float a);
+    /// @param positionX X position.
+    /// @param positionY Y position.
+    /// @param width Width.
+    /// @param height Height.
+    /// @param cornerRadius Corner radius.
+    /// @param red Red 0-1.
+    /// @param green Green 0-1.
+    /// @param blue Blue 0-1.
+    /// @param alpha Alpha 0-1.
+    void PushOverlayPanel(float positionX, float positionY, float width, float height, float rad,
+                          float red, float green, float blue, float alpha);
 
     /// @brief Queue a selection ring in the overlay layer (modal focus).
-    /// @param x X position.
-    /// @param y Y position.
-    /// @param w Width.
-    /// @param h Height.
-    /// @param rad Corner radius.
+    /// @param positionX X position.
+    /// @param positionY Y position.
+    /// @param width Width.
+    /// @param height Height.
+    /// @param cornerRadius Corner radius.
     /// @param thick Ring thickness.
-    void PushOverlayRing(float x, float y, float w, float h, float rad, float thick);
+    void PushOverlayRing(float positionX, float positionY, float width, float height, float rad, float thick);
 
     /// @brief Queue a four-color highlight ring.
-    /// @param x X position.
-    /// @param y Y position.
-    /// @param w Width.
-    /// @param h Height.
-    /// @param rad Corner radius.
+    /// @param positionX X position.
+    /// @param positionY Y position.
+    /// @param width Width.
+    /// @param height Height.
+    /// @param cornerRadius Corner radius.
     /// @param thick Ring thickness.
     /// @param c0 First corner color (RGBA).
     /// @param c1 Second corner color (RGBA).
     /// @param c2 Third corner color (RGBA).
     /// @param c3 Fourth corner color (RGBA).
     /// @param rot Rotation phase.
-    void PushHighlight(float x, float y, float w, float h, float rad,
+    void PushHighlight(float positionX, float positionY, float width, float height, float rad,
                        float thick, const float *c0, const float *c1,
                        const float *c2, const float *c3, float rot);
 
@@ -239,10 +239,10 @@ namespace Gfx {
     /// @param t0 Top V.
     /// @param s1 Right U.
     /// @param t1 Bottom V.
-    /// @param r Red 0-1.
-    /// @param g Green 0-1.
-    /// @param b Blue 0-1.
-    /// @param a Alpha 0-1.
+    /// @param red Red 0-1.
+    /// @param green Green 0-1.
+    /// @param blue Blue 0-1.
+    /// @param alpha Alpha 0-1.
     void PushText(int buf, float x0, float y0, float x1, float y1,
                   float s0, float t0, float s1, float t1,
                   float r, float g, float b, float a = 1.0f);

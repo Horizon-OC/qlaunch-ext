@@ -18,19 +18,50 @@ namespace WBottomBar {
 
     namespace {
 
-        /// @brief Bottom-bar transient state (key repeat only).
-        struct BottomState {
-            InputRepeat repeat;
+        constexpr int kBottomButtonCount = 3;
+        constexpr float kBottomBarY = 924.0f;
+        constexpr float kBottomBarHeight = 156.0f;
+        constexpr float kBottomButtonSize = 72.0f;
+        constexpr float kBottomButtonGap = 24.0f;
+        constexpr float kBottomRowStartX = 1578.0f;
+        constexpr float kBottomRowY = 958.0f;
+
+        /// @brief Focus phase for the bottom bar action state machine.
+        enum class BottomFocusPhase {
+            Unfocused,
+            Focused,
         };
 
-        static BottomState s_state = { { 0 } };
+        /// @brief Bottom-bar transient state (key repeat only).
+        struct BottomBarState {
+            InputRepeat keyRepeat;
+        };
+
+        static BottomBarState s_state = { { 0 } };
 
         /// @brief Resolve a HUD icon slot.
-        /// @param which HUD_* id.
+        /// @param hudId kHud* icon id.
         /// @return Icon slot.
-        int IconSlot(int which)
+        int ResolveHudSlot(int hudId)
         {
-            return Icons::HudSlot(which);
+            return Icons::HudSlot(hudId);
+        }
+
+        /// @brief Current focus phase derived from App state.
+        /// @return Unfocused when the bottom bar is hidden or busy.
+        BottomFocusPhase CurrentPhase()
+        {
+            int homeTabIndex = Tabs::FindById("home");
+
+            if (!App::BottomFocus() || App::Menu() != homeTabIndex) {
+                return BottomFocusPhase::Unfocused;
+            }
+
+            if (App::HomeShiftBusy()) {
+                return BottomFocusPhase::Unfocused;
+            }
+
+            return BottomFocusPhase::Focused;
         }
 
     } // namespace
@@ -38,108 +69,115 @@ namespace WBottomBar {
     /// @brief Draw the bottom bar (pad icon + home shortcuts).
     void Draw()
     {
-        float mbR, mbG, mbB;
-        Theme::Color("menubar", &mbR, &mbG, &mbB);
-        Gfx::PushPanel(0.0f, 924.0f, 1920.0f, 156.0f, 0.0f, mbR, mbG, mbB, 1.0f);
+        float menuBarRed = 0.0f;
+        float menuBarGreen = 0.0f;
+        float menuBarBlue = 0.0f;
+        Theme::Color("menubar", &menuBarRed, &menuBarGreen, &menuBarBlue);
+        Gfx::PushPanel(0.0f, kBottomBarY, 1920.0f, kBottomBarHeight, 0.0f, menuBarRed, menuBarGreen, menuBarBlue, 1.0f);
 
-        float inkR, inkG, inkB;
-        Theme::Color("ink", &inkR, &inkG, &inkB);
+        float inkRed = 0.0f;
+        float inkGreen = 0.0f;
+        float inkBlue = 0.0f;
+        Theme::Color("ink", &inkRed, &inkGreen, &inkBlue);
 
         /* Controller symbol. TODO: add better controller detection. */
-        unsigned cp = PadIcon::Glyph();
-        float cr, cg, cb;
-        PadIcon::Color(&cr, &cg, &cb);
-        char gb[4] = { 0 };
-        GlyphUTF8(cp, gb);
-        float gw = Font::Measure(gb, 72.0f);
-        Font::Draw(gb, 76.0f + (100.0f - gw) * 0.5f, 957.0f + 62.0f, 72.0f, cr, cg, cb);
+        unsigned controllerGlyph = PadIcon::Glyph();
+        float controllerRed = 0.0f;
+        float controllerGreen = 0.0f;
+        float controllerBlue = 0.0f;
+        PadIcon::Color(&controllerRed, &controllerGreen, &controllerBlue);
 
-        int homeIdx = Tabs::FindById("home");
+        char glyphText[4] = { 0 };
+        GlyphUTF8(controllerGlyph, glyphText);
+        float glyphWidth = Font::Measure(glyphText, 72.0f);
+        Font::Draw(glyphText, 76.0f + (100.0f - glyphWidth) * 0.5f, 957.0f + 62.0f, 72.0f, controllerRed, controllerGreen, controllerBlue);
+
+        int homeTabIndex = Tabs::FindById("home");
 
         /* Only on the home tab. */
-        if (App::Menu() == homeIdx) {
-            float size = 72.0f, gap = 24.0f;
+        if (App::Menu() == homeTabIndex) {
             /* M-FOLDER 1614, M-VGC 1710, sleep 1806. */
-            float x0 = 1578.0f;
-            float y = 958.0f;
-            float bR = 1.0f, bG = 1.0f, bB = 1.0f;
+            float buttonRed = 1.0f;
+            float buttonGreen = 1.0f;
+            float buttonBlue = 1.0f;
 
             if (Theme::IsDark()) {
-                bR = 0.16f;
-                bG = 0.16f;
-                bB = 0.18f;
+                buttonRed = 0.16f;
+                buttonGreen = 0.16f;
+                buttonBlue = 0.18f;
             }
 
-            for (int i = 0; i < 3; i++) {
-                bool focused = App::BottomFocus() && App::BottomSel() == i;
-                float cx = x0 + (float)i * (size + gap);
-                float bd = size + 16.0f;
-                Gfx::PushPanel(cx - 8.0f, y - 8.0f, bd, bd, bd * 0.5f, bR, bG, bB, 1.0f);
+            for (int buttonIndex = 0; buttonIndex < kBottomButtonCount; buttonIndex++) {
+                bool isFocused = App::BottomFocus() && App::BottomSel() == buttonIndex;
+                float buttonCenterX = kBottomRowStartX + (float)buttonIndex * (kBottomButtonSize + kBottomButtonGap);
+                float buttonDiameter = kBottomButtonSize + 16.0f;
+                Gfx::PushPanel(buttonCenterX - 8.0f, kBottomRowY - 8.0f, buttonDiameter, buttonDiameter, buttonDiameter * 0.5f, buttonRed, buttonGreen, buttonBlue, 1.0f);
 
-                if (i == 2) {
-                    char pw[4] = { 0 };
-                    GlyphUTF8(GLYPH_POWER, pw);
-                    float pwW = Font::Measure(pw, 52.0f);
-                    float pr, pg, pb;
-                    Theme::Color("icon", &pr, &pg, &pb);
+                if (buttonIndex == 2) {
+                    char powerText[4] = { 0 };
+                    GlyphUTF8(GLYPH_POWER, powerText);
+                    float powerWidth = Font::Measure(powerText, 52.0f);
 
-                    Font::Draw(pw, cx + (size - pwW) * 0.5f, y + size * 0.5f + 18.0f, 52.0f, pr, pg, pb);
+                    float iconRed = 0.0f;
+                    float iconGreen = 0.0f;
+                    float iconBlue = 0.0f;
+                    Theme::Color("icon", &iconRed, &iconGreen, &iconBlue);
+
+                    Font::Draw(powerText, buttonCenterX + (kBottomButtonSize - powerWidth) * 0.5f, kBottomRowY + kBottomButtonSize * 0.5f + 18.0f, 52.0f, iconRed, iconGreen, iconBlue);
                 } else {
-                    int slot = (i == 0) ? IconSlot(HUD_FOLDER) : IconSlot(HUD_VGCCARD);
+                    int iconSlot = (buttonIndex == 0) ? ResolveHudSlot(kHudFolder) : ResolveHudSlot(kHudVgcCard);
 
-                    if (Gfx::TexValid(slot)) {
-                        Gfx::PushIcon(cx, y + 8.0f, size, size, 16.0f, 16.0f, 16.0f, 16.0f, 1.0f, 1.0f, 1.0f, 0.0f, slot);
+                    if (Gfx::TexValid(iconSlot)) {
+                        Gfx::PushIcon(buttonCenterX, kBottomRowY + 8.0f, kBottomButtonSize, kBottomButtonSize, 16.0f, 16.0f, 16.0f, 16.0f, 1.0f, 1.0f, 1.0f, 0.0f, iconSlot);
                     }
                 }
 
-                if (focused) {
-                    Gfx::PushSelectRing(cx - 9.0f, y - 9.0f, bd + 2.0f, bd + 2.0f, (bd + 2.0f) * 0.5f, 10.0f);
+                if (isFocused) {
+                    Gfx::PushSelectRing(buttonCenterX - 9.0f, kBottomRowY - 9.0f, buttonDiameter + 2.0f, buttonDiameter + 2.0f, (buttonDiameter + 2.0f) * 0.5f, 10.0f);
                 }
             }
         }
     }
 
     /// @brief Handle bottom-bar navigation input.
-    /// @param down Buttons pressed.
-    /// @param held Buttons held.
-    void Input(u64 down, u64 held)
+    /// @param buttonsDown Buttons pressed.
+    /// @param buttonsHeld Buttons held.
+    void Input(u64 buttonsDown, u64 buttonsHeld)
     {
-        int homeIdx = Tabs::FindById("home");
+        switch (CurrentPhase()) {
+            case BottomFocusPhase::Unfocused:
+                return;
 
-        if (!App::BottomFocus() || App::Menu() != homeIdx) {
-            return;
+            case BottomFocusPhase::Focused:
+                break;
         }
 
-        if (App::HomeShiftBusy()) {
-            return;
-        }
+        s_state.keyRepeat.Poll(buttonsDown, buttonsHeld, HidNpadButton_AnyLeft | HidNpadButton_AnyRight, DefaultRepeat());
 
-        s_state.repeat.Poll(down, held, HidNpadButton_AnyLeft | HidNpadButton_AnyRight, DefaultRepeat());
+        if (buttonsDown & HidNpadButton_AnyLeft) {
+            int currentSelection = App::BottomSel();
 
-        if (down & HidNpadButton_AnyLeft) {
-            int s = App::BottomSel();
-
-            if (s > 0) {
-                App::SetBottomSel(s - 1);
+            if (currentSelection > 0) {
+                App::SetBottomSel(currentSelection - 1);
                 Sfx::Play(Sfx::Hover);
             }
         }
 
-        if (down & HidNpadButton_AnyRight) {
-            int s = App::BottomSel();
+        if (buttonsDown & HidNpadButton_AnyRight) {
+            int currentSelection = App::BottomSel();
 
-            if (s < 2) {
-                App::SetBottomSel(s + 1);
+            if (currentSelection < 2) {
+                App::SetBottomSel(currentSelection + 1);
                 Sfx::Play(Sfx::Hover);
             }
         }
 
-        if (down & HidNpadButton_AnyUp) {
+        if (buttonsDown & HidNpadButton_AnyUp) {
             App::SetBottomFocus(false);
             Sfx::Play(Sfx::Hover);
         }
 
-        if (down & HidNpadButton_B) {
+        if (buttonsDown & HidNpadButton_B) {
             App::SetBottomFocus(false);
             Sfx::Play(Sfx::Back);
         }

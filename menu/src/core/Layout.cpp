@@ -10,6 +10,7 @@
 #include "Sfx.hpp"
 #include "Qext.hpp"
 #include "Tabs.hpp"
+#include "Submenus.hpp"
 #include "../widgets/Widgets.hpp"
 #include <string.h>
 #include <stdlib.h>
@@ -23,7 +24,7 @@ namespace Layout {
         LayoutDoc s_doc;
 
         /// @brief Current horizontal slide offset for transitions.
-        float s_shiftX = 0.0f;
+        float s_slideOffsetX = 0.0f;
 
         /// @brief Zero a node before parsing.
         /// @param n Node to clear.
@@ -82,54 +83,54 @@ namespace Layout {
         }
 
         /// @brief Parse one layout node object.
-        /// @param d JSON document.
-        /// @param on Object token.
-        /// @param nd Node to populate.
-        void ParseNode(const JxDoc &d, int on, LayoutNode *nd)
+        /// @param jsonDoc JSON document.
+        /// @param nodeToken Object token.
+        /// @param targetNode Node to populate.
+        void ParseNode(const JxDoc &jsonDoc, int nodeToken, LayoutNode *targetNode)
         {
-            ClearNode(nd);
-            JStr(d, on, "type", nd->type, sizeof(nd->type));
-            JStr(d, on, "id", nd->id, sizeof(nd->id));
-            nd->x = JNum(d, on, "x", 0.0f);
-            nd->y = JNum(d, on, "y", 0.0f);
-            nd->tile = JNum(d, on, "tile", 200.0f);
-            nd->gap = JNum(d, on, "gap", 24.0f);
-            nd->label = JBool(d, on, "label", false);
+            ClearNode(targetNode);
+            JStr(jsonDoc, nodeToken, "type", targetNode->type, sizeof(targetNode->type));
+            JStr(jsonDoc, nodeToken, "id", targetNode->id, sizeof(targetNode->id));
+            targetNode->x = JNum(jsonDoc, nodeToken, "x", 0.0f);
+            targetNode->y = JNum(jsonDoc, nodeToken, "y", 0.0f);
+            targetNode->tile = JNum(jsonDoc, nodeToken, "tile", 200.0f);
+            targetNode->gap = JNum(jsonDoc, nodeToken, "gap", 24.0f);
+            targetNode->label = JBool(jsonDoc, nodeToken, "label", false);
 
-            int di = Jx::ObjGet(d, on, "items");
+            int itemsToken = Jx::ObjGet(jsonDoc, nodeToken, "items");
 
             /* Dock items: {glyph, action?}  Hints: {button, label}. */
-            if (Jx::TokType(d, di) != 2) {
+            if (Jx::TokType(jsonDoc, itemsToken) != 2) {
                 return;
             }
 
-            int m = Jx::ArrSize(d, di);
+            int itemCount = Jx::ArrSize(jsonDoc, itemsToken);
 
-            for (int k = 0; k < m; k++) {
-                int io = Jx::ArrAt(d, di, k);
+            for (int itemIndex = 0; itemIndex < itemCount; itemIndex++) {
+                int itemObject = Jx::ArrAt(jsonDoc, itemsToken, itemIndex);
 
-                if (Jx::TokType(d, io) != 1) {
+                if (Jx::TokType(jsonDoc, itemObject) != 1) {
                     continue;
                 }
 
-                if (nd->dockCount < LAYOUT_MAX_DOCK) {
-                    int g = Jx::ObjGet(d, io, "glyph");
+                if (targetNode->dockCount < kLayoutMaxDock) {
+                    int glyphToken = Jx::ObjGet(jsonDoc, itemObject, "glyph");
 
-                    if (Jx::TokType(d, g) == 3) {
-                        DockItem *it = &nd->dock[nd->dockCount++];
-                        JStr(d, io, "glyph", it->glyph, sizeof(it->glyph));
-                        JStr(d, io, "action", it->action, sizeof(it->action));
+                    if (Jx::TokType(jsonDoc, glyphToken) == 3) {
+                        DockItem *dockItem = &targetNode->dock[targetNode->dockCount++];
+                        JStr(jsonDoc, itemObject, "glyph", dockItem->glyph, sizeof(dockItem->glyph));
+                        JStr(jsonDoc, itemObject, "action", dockItem->action, sizeof(dockItem->action));
                         continue;
                     }
                 }
 
-                if (nd->hintCount < LAYOUT_MAX_HINTS) {
-                    int b = Jx::ObjGet(d, io, "button");
+                if (targetNode->hintCount < kLayoutMaxHints) {
+                    int buttonToken = Jx::ObjGet(jsonDoc, itemObject, "button");
 
-                    if (Jx::TokType(d, b) == 3) {
-                        HintItem *h = &nd->hints[nd->hintCount++];
-                        JStr(d, io, "button", h->button, sizeof(h->button));
-                        JStr(d, io, "label", h->label, sizeof(h->label));
+                    if (Jx::TokType(jsonDoc, buttonToken) == 3) {
+                        HintItem *hintItem = &targetNode->hints[targetNode->hintCount++];
+                        JStr(jsonDoc, itemObject, "button", hintItem->button, sizeof(hintItem->button));
+                        JStr(jsonDoc, itemObject, "label", hintItem->label, sizeof(hintItem->label));
                     }
                 }
             }
@@ -140,7 +141,7 @@ namespace Layout {
         {
             s_doc.tabCount = 0;
 
-            for (int i = 0; i < Tabs::Count() && s_doc.tabCount < LAYOUT_MAX_TABS; i++) {
+            for (int i = 0; i < Tabs::Count() && s_doc.tabCount < kLayoutMaxTabs; i++) {
                 const MenuTab *tab = Tabs::Get(i);
 
                 if (!tab) {
@@ -174,10 +175,10 @@ namespace Layout {
 
             int n = Jx::ArrSize(d, ta);
 
-            for (int i = 0; i < n && s_doc.tabCount < LAYOUT_MAX_TABS; i++) {
+            for (int i = 0; i < n && s_doc.tabCount < kLayoutMaxTabs; i++) {
                 int to = Jx::ArrAt(d, ta, i);
-                char id[LAYOUT_ID_MAX] = { 0 };
-                char jingle[TAB_JINGLE_MAX] = { 0 };
+                char id[kLayoutIdMax] = { 0 };
+                char jingle[kTabJingleMax] = { 0 };
 
                 if (Jx::TokType(d, to) == 1) {
                     JStr(d, to, "id", id, sizeof(id));
@@ -212,59 +213,81 @@ namespace Layout {
         }
 
         /// @brief Draw one tab by registry index.
-        /// @param tab Tabs registry index.
-        void DrawTab(int tab)
+        /// @param tabIndex Tabs registry index.
+        void DrawTab(int tabIndex)
         {
-            const MenuTab *desc = Tabs::Get(tab);
+            const MenuTab *tabDescriptor = Tabs::Get(tabIndex);
 
-            if (!desc) {
+            if (!tabDescriptor) {
                 return;
             }
 
-            float br, bg, bb;
-            Theme::MenuColor(tab, &br, &bg, &bb);
-            Gfx::PushPanel(s_shiftX, 0.0f, 1920.0f, 1080.0f, 0.0f, br, bg, bb, 1.0f);
+            float backgroundRed = 0.0f;
+            float backgroundGreen = 0.0f;
+            float backgroundBlue = 0.0f;
 
-            if (strcmp(desc->id, "home") == 0) {
-                const LayoutNode *strip = FindNode("gamestrip");
+            if (Submenus::IsDynamicTab(tabIndex)) {
+                if (!Submenus::TabBackgroundColor(tabIndex, &backgroundRed, &backgroundGreen, &backgroundBlue)) {
+                    backgroundRed = 1.0f;
+                    backgroundGreen = 1.0f;
+                    backgroundBlue = 1.0f;
+                }
+            } else {
+                Theme::MenuColor(Theme::MenuSlotForId(tabDescriptor->id), &backgroundRed, &backgroundGreen, &backgroundBlue);
+            }
 
-                if (strip) {
-                    WStrip::Draw(*strip);
+            Gfx::PushPanel(s_slideOffsetX, 0.0f, 1920.0f, 1080.0f, 0.0f, backgroundRed, backgroundGreen, backgroundBlue, 1.0f);
+
+            if (strcmp(tabDescriptor->id, "home") == 0) {
+                const LayoutNode *stripNode = FindNode("gamestrip");
+
+                if (stripNode) {
+                    WStrip::Draw(*stripNode);
                 }
 
                 WStrip::DrawSubs();
                 return;
             }
 
-            if (desc->draw) {
-                desc->draw();
+            if (Submenus::IsDynamicTab(tabIndex)) {
+                Submenus::DrawDynamicTab(tabIndex);
+                return;
+            }
+
+            if (tabDescriptor->draw) {
+                tabDescriptor->draw();
             }
         }
 
         /// @brief Route input to one tab by registry index.
-        /// @param tab Tabs registry index.
-        /// @param down Buttons pressed.
-        /// @param held Buttons held.
-        void InputTab(int tab, u64 down, u64 held)
+        /// @param tabIndex Tabs registry index.
+        /// @param buttonsDown Buttons pressed.
+        /// @param buttonsHeld Buttons held.
+        void InputTab(int tabIndex, u64 buttonsDown, u64 buttonsHeld)
         {
-            const MenuTab *desc = Tabs::Get(tab);
+            const MenuTab *tabDescriptor = Tabs::Get(tabIndex);
 
-            if (!desc) {
+            if (!tabDescriptor) {
                 return;
             }
 
-            if (strcmp(desc->id, "home") == 0 || strcmp(desc->id, "album") == 0) {
-                const LayoutNode *strip = FindNode("gamestrip");
+            if (strcmp(tabDescriptor->id, "home") == 0) {
+                const LayoutNode *stripNode = FindNode("gamestrip");
 
-                if (strip) {
-                    WStrip::Input(*strip, down, held);
+                if (stripNode) {
+                    WStrip::Input(*stripNode, buttonsDown, buttonsHeld);
                 }
 
                 return;
             }
 
-            if (desc->input) {
-                desc->input(down, held);
+            if (Submenus::IsDynamicTab(tabIndex)) {
+                Submenus::InputDynamicTab(tabIndex, buttonsDown, buttonsHeld);
+                return;
+            }
+
+            if (tabDescriptor->input) {
+                tabDescriptor->input(buttonsDown, buttonsHeld);
             }
         }
 
@@ -307,7 +330,7 @@ namespace Layout {
 
         int n = Jx::ArrSize(doc, ch);
 
-        for (int i = 0; i < n && s_doc.nodeCount < LAYOUT_MAX_NODES; i++) {
+        for (int i = 0; i < n && s_doc.nodeCount < kLayoutMaxNodes; i++) {
             int on = Jx::ArrAt(doc, ch, i);
 
             if (Jx::TokType(doc, on) != 1) {
@@ -377,7 +400,7 @@ namespace Layout {
     /// @return Offset in pixels.
     float ShiftX()
     {
-        return s_shiftX;
+        return s_slideOffsetX;
     }
 
     /// @brief Find the first node of a given type.
@@ -409,39 +432,50 @@ namespace Layout {
     /// @brief Draw background, active tab(s), top and bottom bars.
     void Draw()
     {
-        if (WAlbum::IsFull()) {
+        int fullTab = Submenus::FullTabIndex();
+
+        if (fullTab >= 0) {
             Gfx::PushPanel(0.0f, 0.0f, 1920.0f, 1080.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f);
-            WAlbum::Draw();
+            Submenus::DrawDynamicTab(fullTab);
             if (WPrompt::IsOpen()) {
                 WPrompt::Draw();
             }
             return;
         }
 
-        for (int i = 0; i < s_doc.nodeCount; i++) {
-            if (strcmp(s_doc.nodes[i].type, "background") == 0) {
-                WBackground::Draw(s_doc.nodes[i]);
+        for (int nodeIndex = 0; nodeIndex < s_doc.nodeCount; nodeIndex++) {
+            if (strcmp(s_doc.nodes[nodeIndex].type, "background") == 0) {
+                WBackground::Draw(s_doc.nodes[nodeIndex]);
             }
         }
 
-        float e = App::MenuT();
+        float transitionProgress = App::MenuT();
 
-        if (e >= 1.0f) {
-            s_shiftX = 0.0f;
-            DrawTab(App::Menu());
-        } else {
-            float eo = 1.0f - (1.0f - e) * (1.0f - e) * (1.0f - e);
-            int dir = App::MenuDir();
-            s_shiftX = -eo * (float)dir * 1920.0f;
-            DrawTab(App::MenuFrom());
-            s_shiftX = (1.0f - eo) * (float)dir * 1920.0f;
-            DrawTab(App::Menu());
-            s_shiftX = 0.0f;
+        switch (App::MenuPhaseOf()) {
+            case MenuPhase_Idle:
+                s_slideOffsetX = 0.0f;
+                DrawTab(App::Menu());
+                break;
+
+            case MenuPhase_Animating:
+                if (transitionProgress >= 1.0f) {
+                    s_slideOffsetX = 0.0f;
+                    DrawTab(App::Menu());
+                } else {
+                    float easedOffset = 1.0f - (1.0f - transitionProgress) * (1.0f - transitionProgress) * (1.0f - transitionProgress);
+                    int slideDirection = App::MenuDir();
+                    s_slideOffsetX = -easedOffset * (float)slideDirection * 1920.0f;
+                    DrawTab(App::MenuFrom());
+                    s_slideOffsetX = (1.0f - easedOffset) * (float)slideDirection * 1920.0f;
+                    DrawTab(App::Menu());
+                    s_slideOffsetX = 0.0f;
+                }
+                break;
         }
 
-        for (int i = 0; i < s_doc.nodeCount; i++) {
-            if (strcmp(s_doc.nodes[i].type, "topbar") == 0) {
-                WTopBar::Draw(s_doc.nodes[i]);
+        for (int nodeIndex = 0; nodeIndex < s_doc.nodeCount; nodeIndex++) {
+            if (strcmp(s_doc.nodes[nodeIndex].type, "topbar") == 0) {
+                WTopBar::Draw(s_doc.nodes[nodeIndex]);
             }
         }
 
@@ -453,31 +487,33 @@ namespace Layout {
     }
 
     /// @brief Route input to the focused layer, else the active tab.
-    /// @param down Buttons pressed.
-    /// @param held Buttons held.
-    void Input(u64 down, u64 held)
+    /// @param buttonsDown Buttons pressed.
+    /// @param buttonsHeld Buttons held.
+    void Input(u64 buttonsDown, u64 buttonsHeld)
     {
         if (WPrompt::IsOpen()) {
-            WPrompt::Input(down, held);
+            WPrompt::Input(buttonsDown, buttonsHeld);
             return;
         }
 
-        if (WAlbum::IsOpen() && App::MenuT() >= 1.0f) {
-            WAlbum::Input(down, held);
+        int fullTab = Submenus::FullTabIndex();
+
+        if (fullTab >= 0 && App::MenuT() >= 1.0f) {
+            Submenus::InputDynamicTab(fullTab, buttonsDown, buttonsHeld);
             return;
         }
 
         if (App::TopFocus()) {
-            WTopBar::Input(down, held);
+            WTopBar::Input(buttonsDown, buttonsHeld);
             return;
         }
 
         if (App::BottomFocus()) {
-            WBottomBar::Input(down, held);
+            WBottomBar::Input(buttonsDown, buttonsHeld);
             return;
         }
 
-        InputTab(App::Menu(), down, held);
+        InputTab(App::Menu(), buttonsDown, buttonsHeld);
     }
 
     /// @brief Give the node count.

@@ -11,107 +11,148 @@
 
 #include "../third_party/stb_image.h"
 
-constexpr int AV_MAX = 2;
+constexpr int kAvatarMax = 2;
 
 namespace Avatars {
 
-static int s_count;
-static int s_Texture[AV_MAX] = { -1, -1 };
-static_assert(AV_MAX == 2, "keep -1 init in sync");
-static bool s_ok[AV_MAX];
+    namespace {
+
+        /// @brief All mutable avatar cache state, single global.
+        struct AvatarState {
+            int avatarCount;
+            int textureSlots[kAvatarMax] = { -1, -1 };
+            bool slotReady[kAvatarMax];
+            AccountUid userIds[kAvatarMax];
+            s32 userTotal;
+            bool hasUserIds;
+        };
+
+        static_assert(kAvatarMax == 2, "keep -1 slot init in sync");
+
+        static AvatarState s_state = {};
+
+    } // namespace
 
     /// @brief Free one avatar's GPU resources.
-    /// @param i Avatar slot.
-    static void FreeOne(int i) {
-        if (s_ok[i]) {
-            s_ok[i] = false;
+    /// @param avatarIndex Avatar slot.
+    static void FreeOne(int avatarIndex)
+    {
+        if (s_state.slotReady[avatarIndex]) {
+            s_state.slotReady[avatarIndex] = false;
         }
-        Gfx::TexFree(s_Texture[i]);
-        s_Texture[i] = -1;
+
+        Gfx::TexFree(s_state.textureSlots[avatarIndex]);
+        s_state.textureSlots[avatarIndex] = -1;
     }
 
     /// @brief Upload RGBA pixels into an avatar slot.
-    /// @param i Avatar slot.
-    /// @param rgba Pixel data.
-    /// @param w Width.
-    /// @param h Height.
+    /// @param avatarIndex Avatar slot.
+    /// @param pixelData Pixel data.
+    /// @param imageWidth Width.
+    /// @param imageHeight Height.
     /// @return True on success.
-    static bool UploadOne(int i, const uint8_t *rgba, int w, int h)
-{
-    if (!rgba || w <= 0 || h <= 0 || w > 512 || h > 512)
-        return false;
-    FreeOne(i);
-    if (s_Texture[i] < 0) {
-        s_Texture[i] = Gfx::TexAlloc();
-        if (s_Texture[i] < 0)
+    static bool UploadOne(int avatarIndex, const uint8_t *pixelData, int imageWidth, int imageHeight)
+    {
+        if (!pixelData || imageWidth <= 0 || imageHeight <= 0 || imageWidth > 512 || imageHeight > 512) {
             return false;
-    }
-    if (!Gfx::TexUpload(s_Texture[i], rgba, w, h, Gfx::TexFormat::RGBA))
-        return false;
-    s_ok[i] = true;
-    return true;
-}
+        }
 
-static AccountUid s_uids[AV_MAX];
-static s32 s_uidTotal = -1;
-static bool s_haveUids = false;
+        FreeOne(avatarIndex);
+
+        if (s_state.textureSlots[avatarIndex] < 0) {
+            s_state.textureSlots[avatarIndex] = Gfx::TexAlloc();
+
+            if (s_state.textureSlots[avatarIndex] < 0) {
+                return false;
+            }
+        }
+
+        if (!Gfx::TexUpload(s_state.textureSlots[avatarIndex], pixelData, imageWidth, imageHeight, Gfx::TexFormat::RGBA)) {
+            return false;
+        }
+
+        s_state.slotReady[avatarIndex] = true;
+        return true;
+    }
 
     /// @brief Refresh cached avatar images from accounts.
     void Refresh()
-{
-    AccountUid uids[AV_MAX] = {};
-    int total = qext_account_list(uids, AV_MAX);
-    if (total < 0)
-        return;
+    {
+        AccountUid userIds[kAvatarMax] = {};
+        int userTotal = qext_account_list(userIds, kAvatarMax);
 
-    if (s_haveUids && total == s_uidTotal && memcmp(uids, s_uids, sizeof(uids)) == 0)
-        return;
-    for (int i = 0; i < AV_MAX; i++)
-        FreeOne(i);
-
-    s_count = 0;
-    for (int i = 0; i < AV_MAX && i < total; i++) {
-        if (!qext_account_uid_valid(uids[i]))
-            continue;
-        s_count++;
-        int size = qext_account_image_size(uids[i]);
-        if (size < 0)
-            continue;
-        uint8_t *jpg = (uint8_t *)malloc((unsigned)size);
-        uint8_t *px = 0;
-        if (jpg) {
-            int done = qext_account_image(uids[i], jpg, (unsigned)size);
-            if (done > 2) {
-                int w = 0, h = 0;
-                px = stbi_load_from_memory(jpg, done, &w, &h, NULL, 4);
-                if (px && w > 0 && h > 0)
-                    UploadOne(i, px, w, h);
-                if (px)
-                    stbi_image_free(px);
-            }
-            free(jpg);
+        if (userTotal < 0) {
+            return;
         }
+
+        if (s_state.hasUserIds && userTotal == s_state.userTotal && memcmp(userIds, s_state.userIds, sizeof(userIds)) == 0) {
+            return;
+        }
+
+        for (int avatarIndex = 0; avatarIndex < kAvatarMax; avatarIndex++) {
+            FreeOne(avatarIndex);
+        }
+
+        s_state.avatarCount = 0;
+
+        for (int avatarIndex = 0; avatarIndex < kAvatarMax && avatarIndex < userTotal; avatarIndex++) {
+            if (!qext_account_uid_valid(userIds[avatarIndex])) {
+                continue;
+            }
+
+            s_state.avatarCount++;
+            int imageSize = qext_account_image_size(userIds[avatarIndex]);
+
+            if (imageSize < 0) {
+                continue;
+            }
+
+            uint8_t *jpegBuffer = (uint8_t *)malloc((unsigned)imageSize);
+            uint8_t *pixelData = 0;
+
+            if (jpegBuffer) {
+                int bytesRead = qext_account_image(userIds[avatarIndex], jpegBuffer, (unsigned)imageSize);
+
+                if (bytesRead > 2) {
+                    int imageWidth = 0;
+                    int imageHeight = 0;
+                    pixelData = stbi_load_from_memory(jpegBuffer, bytesRead, &imageWidth, &imageHeight, NULL, 4);
+
+                    if (pixelData && imageWidth > 0 && imageHeight > 0) {
+                        UploadOne(avatarIndex, pixelData, imageWidth, imageHeight);
+                    }
+
+                    if (pixelData) {
+                        stbi_image_free(pixelData);
+                    }
+                }
+
+                free(jpegBuffer);
+            }
+        }
+
+        memcpy(s_state.userIds, userIds, sizeof(userIds));
+        s_state.userTotal = userTotal;
+        s_state.hasUserIds = true;
     }
-    memcpy(s_uids, uids, sizeof(uids));
-    s_uidTotal = total;
-    s_haveUids = true;
-}
 
     /// @brief Number of cached avatars.
     /// @return Avatar count.
     int Count()
-{
-    return s_count;
-}
+    {
+        return s_state.avatarCount;
+    }
 
     /// @brief Look up the icon slot for an avatar.
-    /// @param i Avatar index.
+    /// @param avatarIndex Avatar index.
     /// @return HUD icon slot, or <= 0 when missing.
-    int Slot(int i)
-{
-    if (i < 0 || i >= AV_MAX || !s_ok[i])
-        return -1;
-    return s_Texture[i];
-}
+    int Slot(int avatarIndex)
+    {
+        if (avatarIndex < 0 || avatarIndex >= kAvatarMax || !s_state.slotReady[avatarIndex]) {
+            return -1;
+        }
+
+        return s_state.textureSlots[avatarIndex];
+    }
 
 } // namespace Avatars

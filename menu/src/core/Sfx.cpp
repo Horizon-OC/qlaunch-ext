@@ -73,49 +73,49 @@ namespace Sfx {
         };
 
         /// @brief Clip registry backing store.
-        RegClip s_reg[kMaxClips];
+        RegClip s_registry[kMaxClips];
 
-        /// @brief Number of live entries in s_reg.
-        int s_nReg = 0;
+        /// @brief Number of live entries in s_registry.
+        int s_registryCount = 0;
 
         /// @brief Live mixer voices.
         Voice s_voices[kVoices];
 
         /// @brief Round-robin cursor into s_voices.
-        unsigned s_cursor = 0;
+        unsigned s_voiceCursor = 0;
 
         /// @brief True once audio output is open.
-        bool s_ready = false;
+        bool s_isReady = false;
 
         /// @brief Device-bound SDL audio stream (null when closed).
-        SDL_AudioStream *s_stream = 0;
+        SDL_AudioStream *s_audioStream = 0;
 
         /// @brief Scratch buffer holding one mixed tick.
-        short s_mix[kFramesPerTick * kOutCh];
+        short s_mixBuffer[kFramesPerTick * kOutCh];
 
         /// @brief Ticks elapsed (seeds hover jitter).
-        unsigned s_ticks = 0;
+        unsigned s_tickCount = 0;
 
         /// @brief Successful stream pushes.
-        unsigned s_appends = 0;
+        unsigned s_appendCount = 0;
 
         /// @brief Dropped or rejected stream pushes.
-        unsigned s_appFails = 0;
+        unsigned s_appendFailCount = 0;
 
         /// @brief Total Play() calls accepted.
-        unsigned s_plays = 0;
+        unsigned s_playCount = 0;
 
         /// @brief RNG state for hover pitch jitter.
-        unsigned s_rng = 0x12345678;
+        unsigned s_randomState = 0x12345678;
 
         /// @brief True while video PCM mode mutes UI voices.
-        bool s_video = false;
+        bool s_videoMode = false;
 
         /// @brief True while paused: Tick() outputs silence, keeps the ring.
-        bool s_vidPaused = false;
+        bool s_videoPaused = false;
 
         /// @brief Guards the video ring (worker pushes, main thread drains).
-        pthread_mutex_t s_vidMx = PTHREAD_MUTEX_INITIALIZER;
+        pthread_mutex_t s_videoMutex = PTHREAD_MUTEX_INITIALIZER;
 
         /// @brief Video PCM ring capacity in shorts (2s of stereo @48kHz).
         /// Mirrors sLaunch's two-second audio ring so the demuxer can read
@@ -126,16 +126,16 @@ namespace Sfx {
         static constexpr unsigned kVidHungry = 48000u * 2u * 6u / 10u;
 
         /// @brief Video PCM ring buffer (interleaved stereo shorts).
-        short s_vidBuf[48000u * 2u * 2u];
+        short s_videoBuffer[48000u * 2u * 2u];
 
-        /// @brief Read head into s_vidBuf.
-        unsigned s_vidHead = 0;
+        /// @brief Read head into s_videoBuffer.
+        unsigned s_videoHead = 0;
 
         /// @brief Buffered (unplayed) sample count.
-        unsigned s_vidLen = 0;
+        unsigned s_videoLength = 0;
 
         /// @brief Total video samples queued since begin/seek.
-        unsigned s_vidPlayed = 0;
+        unsigned s_videoPlayed = 0;
 
         /// @brief Legacy Id-to-name mapping for Play(Id) compatibility.
         const char *const kLegacyNames[Count] = {
@@ -267,8 +267,8 @@ namespace Sfx {
         /// @brief Clear the clip registry.
         void ClearReg()
         {
-            memset(s_reg, 0, sizeof(s_reg));
-            s_nReg = 0;
+            memset(s_registry, 0, sizeof(s_registry));
+            s_registryCount = 0;
         }
 
         /// @brief Store one decoded clip, replacing any same-id entry.
@@ -282,19 +282,19 @@ namespace Sfx {
                 return -1;
             }
 
-            for (int i = 0; i < s_nReg; i++) {
-                if (strncmp(s_reg[i].id, id, kIdMax) == 0) {
-                    s_reg[i].clip = clip;
-                    s_reg[i].jitter = jitter;
+            for (int i = 0; i < s_registryCount; i++) {
+                if (strncmp(s_registry[i].id, id, kIdMax) == 0) {
+                    s_registry[i].clip = clip;
+                    s_registry[i].jitter = jitter;
                     return i;
                 }
             }
 
-            if (s_nReg >= kMaxClips) {
+            if (s_registryCount >= kMaxClips) {
                 return -1;
             }
 
-            RegClip *r = &s_reg[s_nReg];
+            RegClip *r = &s_registry[s_registryCount];
             memset(r, 0, sizeof(*r));
             size_t len = strlen(id);
 
@@ -306,7 +306,7 @@ namespace Sfx {
             r->id[len] = 0;
             r->clip = clip;
             r->jitter = jitter;
-            return s_nReg++;
+            return s_registryCount++;
         }
 
         /// @brief Decode one asset blob and store it under a clip id.
@@ -419,22 +419,22 @@ namespace Sfx {
         /// @param pitch Playback rate multiplier, clamped 0.25-4.0.
         void StartVoice(int slot, float pitch)
         {
-            if (!s_ready || slot < 0 || slot >= s_nReg) {
+            if (!s_isReady || slot < 0 || slot >= s_registryCount) {
                 return;
             }
 
-            if (s_video) {
+            if (s_videoMode) {
                 return;
             }
 
-            const RegClip &r = s_reg[slot];
+            const RegClip &r = s_registry[slot];
 
             if (!r.clip.pcm || !r.clip.frames || !r.clip.rate) {
                 return;
             }
 
-            Voice &v = s_voices[s_cursor];
-            s_cursor = (s_cursor + 1u) % kVoices;
+            Voice &v = s_voices[s_voiceCursor];
+            s_voiceCursor = (s_voiceCursor + 1u) % kVoices;
             v.pcm = r.clip.pcm;
             v.frames = r.clip.frames;
             v.ch = r.clip.ch;
@@ -442,8 +442,8 @@ namespace Sfx {
             float p = pitch;
 
             if (r.jitter) {
-                s_rng = s_rng * 1664525u + 1013904223u + (s_ticks++);
-                float u = (float)(s_rng >> 8) * (1.0f / 16777216.0f);
+                s_randomState = s_randomState * 1664525u + 1013904223u + (s_tickCount++);
+                float u = (float)(s_randomState >> 8) * (1.0f / 16777216.0f);
                 p = powf(1.3f, u * 2.0f - 1.0f);
             }
 
@@ -462,7 +462,7 @@ namespace Sfx {
             v.pos = 0;
             v.vol = r.clip.gain;
             v.on = true;
-            s_plays++;
+            s_playCount++;
         }
 
     } // namespace
@@ -471,12 +471,12 @@ namespace Sfx {
     /// @return True when audio is ready (registry still loads on failure).
     bool Init()
     {
-        if (s_ready) {
+        if (s_isReady) {
             return true;
         }
 
         memset(s_voices, 0, sizeof(s_voices));
-        memset(s_mix, 0, sizeof(s_mix));
+        memset(s_mixBuffer, 0, sizeof(s_mixBuffer));
 
         if (!LoadAuto()) {
             LoadLegacy();
@@ -491,23 +491,23 @@ namespace Sfx {
         spec.format = SDL_AUDIO_S16;
         spec.channels = kOutCh;
         spec.freq = kOutRate;
-        s_stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, NULL, NULL);
+        s_audioStream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, NULL, NULL);
 
-        if (!s_stream) {
+        if (!s_audioStream) {
             logging::LogLine("[sfx] Can't open stream, error: %s", SDL_GetError());
             SDL_QuitSubSystem(SDL_INIT_AUDIO);
             return false;
         }
 
-        if (!SDL_ResumeAudioStreamDevice(s_stream)) {
+        if (!SDL_ResumeAudioStreamDevice(s_audioStream)) {
             logging::LogLine("[sfx] Can't resume stream, error: %s", SDL_GetError());
-            SDL_DestroyAudioStream(s_stream);
-            s_stream = 0;
+            SDL_DestroyAudioStream(s_audioStream);
+            s_audioStream = 0;
             SDL_QuitSubSystem(SDL_INIT_AUDIO);
             return false;
         }
 
-        s_ready = true;
+        s_isReady = true;
         return true;
     }
 
@@ -518,13 +518,13 @@ namespace Sfx {
             s_voices[i].on = false;
         }
 
-        if (s_stream) {
-            SDL_DestroyAudioStream(s_stream);
-            s_stream = 0;
+        if (s_audioStream) {
+            SDL_DestroyAudioStream(s_audioStream);
+            s_audioStream = 0;
         }
 
-        if (s_ready) {
-            s_ready = false;
+        if (s_isReady) {
+            s_isReady = false;
             SDL_QuitSubSystem(SDL_INIT_AUDIO);
         }
     }
@@ -558,8 +558,8 @@ namespace Sfx {
             return -1;
         }
 
-        for (int i = 0; i < s_nReg; i++) {
-            if (strncmp(s_reg[i].id, name, kIdMax) == 0) {
+        for (int i = 0; i < s_registryCount; i++) {
+            if (strncmp(s_registry[i].id, name, kIdMax) == 0) {
                 return i;
             }
         }
@@ -571,7 +571,7 @@ namespace Sfx {
     /// @return Clip count.
     int ClipCount()
     {
-        return s_nReg;
+        return s_registryCount;
     }
 
     /// @brief Look up a clip id by slot.
@@ -579,11 +579,11 @@ namespace Sfx {
     /// @return Clip id string, or "" when out of range.
     const char *ClipName(int slot)
     {
-        if (slot < 0 || slot >= s_nReg) {
+        if (slot < 0 || slot >= s_registryCount) {
             return "";
         }
 
-        return s_reg[slot].id;
+        return s_registry[slot].id;
     }
 
     /// @brief Load the clip registry from a JSON buffer.
@@ -632,7 +632,7 @@ namespace Sfx {
             LoadOneNamed(id, asset, db, jitter);
         }
 
-        return s_nReg > 0;
+        return s_registryCount > 0;
     }
 
     /// @brief Load the embedded sfx.json registry.
@@ -691,36 +691,36 @@ namespace Sfx {
     /// @brief Mix one tick and queue it on the SDL audio stream. Call every frame.
     void Tick()
     {
-        if (!s_ready || !s_stream) {
+        if (!s_isReady || !s_audioStream) {
             return;
         }
 
-        short *dst = s_mix;
+        short *dst = s_mixBuffer;
 
-        if (s_video) {
-            pthread_mutex_lock(&s_vidMx);
+        if (s_videoMode) {
+            pthread_mutex_lock(&s_videoMutex);
 
-            if (s_vidPaused) {
+            if (s_videoPaused) {
                 for (unsigned f = 0; f < (unsigned)kFramesPerTick * (unsigned)kOutCh; f++) {
                     dst[f] = 0;
                 }
 
-                pthread_mutex_unlock(&s_vidMx);
+                pthread_mutex_unlock(&s_videoMutex);
             } else {
                 for (unsigned f = 0; f < (unsigned)kFramesPerTick * (unsigned)kOutCh; f++) {
-                    if (s_vidLen > 0) {
-                        dst[f] = s_vidBuf[s_vidHead];
-                        s_vidHead = (s_vidHead + 1u) % kVidCap;
-                        s_vidLen--;
+                    if (s_videoLength > 0) {
+                        dst[f] = s_videoBuffer[s_videoHead];
+                        s_videoHead = (s_videoHead + 1u) % kVidCap;
+                        s_videoLength--;
                     } else {
                         dst[f] = 0;
                     }
                 }
 
-                pthread_mutex_unlock(&s_vidMx);
+                pthread_mutex_unlock(&s_videoMutex);
             }
 
-            s_vidPlayed += kFramesPerTick;
+            s_videoPlayed += kFramesPerTick;
         } else {
             for (unsigned f = 0; f < (unsigned)kFramesPerTick; f++) {
                 int l = 0;
@@ -783,14 +783,14 @@ namespace Sfx {
 
         const int tickBytes = kFramesPerTick * kOutCh * (int)sizeof(short);
 
-        if (SDL_GetAudioStreamQueued(s_stream) < kQueueTicks * tickBytes) {
-            if (SDL_PutAudioStreamData(s_stream, dst, tickBytes)) {
-                s_appends++;
+        if (SDL_GetAudioStreamQueued(s_audioStream) < kQueueTicks * tickBytes) {
+            if (SDL_PutAudioStreamData(s_audioStream, dst, tickBytes)) {
+                s_appendCount++;
             } else {
-                s_appFails++;
+                s_appendFailCount++;
             }
         } else {
-            s_appFails++;
+            s_appendFailCount++;
         }
     }
 
@@ -801,24 +801,24 @@ namespace Sfx {
             s_voices[i].on = false;
         }
 
-        pthread_mutex_lock(&s_vidMx);
-        s_video = true;
-        s_vidPaused = false;
-        s_vidHead = 0;
-        s_vidLen = 0;
-        pthread_mutex_unlock(&s_vidMx);
-        s_vidPlayed = 0;
+        pthread_mutex_lock(&s_videoMutex);
+        s_videoMode = true;
+        s_videoPaused = false;
+        s_videoHead = 0;
+        s_videoLength = 0;
+        pthread_mutex_unlock(&s_videoMutex);
+        s_videoPlayed = 0;
     }
 
     /// @brief Stop video PCM mode and drain the video buffer.
     void VideoEnd()
     {
-        pthread_mutex_lock(&s_vidMx);
-        s_video = false;
-        s_vidPaused = false;
-        s_vidHead = 0;
-        s_vidLen = 0;
-        pthread_mutex_unlock(&s_vidMx);
+        pthread_mutex_lock(&s_videoMutex);
+        s_videoMode = false;
+        s_videoPaused = false;
+        s_videoHead = 0;
+        s_videoLength = 0;
+        pthread_mutex_unlock(&s_videoMutex);
     }
 
     /// @brief Push interleaved stereo PCM into the video buffer.
@@ -830,38 +830,38 @@ namespace Sfx {
             return;
         }
 
-        pthread_mutex_lock(&s_vidMx);
+        pthread_mutex_lock(&s_videoMutex);
 
         for (unsigned i = 0; i < frames * 2u; i++) {
-            if (s_vidLen >= kVidCap) {
+            if (s_videoLength >= kVidCap) {
                 break;
             }
 
-            s_vidBuf[(s_vidHead + s_vidLen) % kVidCap] = pcm[i];
-            s_vidLen++;
+            s_videoBuffer[(s_videoHead + s_videoLength) % kVidCap] = pcm[i];
+            s_videoLength++;
         }
 
-        pthread_mutex_unlock(&s_vidMx);
+        pthread_mutex_unlock(&s_videoMutex);
     }
 
     /// @brief Seek the video clock without pushing samples.
     /// @param secs New clock position in seconds.
     void VideoSeekTo(double secs)
     {
-        pthread_mutex_lock(&s_vidMx);
-        s_vidHead = 0;
-        s_vidLen = 0;
-        pthread_mutex_unlock(&s_vidMx);
-        s_vidPlayed = secs > 0.0 ? (unsigned)(secs * 48000.0) : 0u;
+        pthread_mutex_lock(&s_videoMutex);
+        s_videoHead = 0;
+        s_videoLength = 0;
+        pthread_mutex_unlock(&s_videoMutex);
+        s_videoPlayed = secs > 0.0 ? (unsigned)(secs * 48000.0) : 0u;
     }
 
     /// @brief Whether the video buffer wants more PCM.
     /// @return True when below the refill threshold.
     bool VideoHungry()
     {
-        pthread_mutex_lock(&s_vidMx);
-        bool hungry = s_vidLen < kVidHungry;
-        pthread_mutex_unlock(&s_vidMx);
+        pthread_mutex_lock(&s_videoMutex);
+        bool hungry = s_videoLength < kVidHungry;
+        pthread_mutex_unlock(&s_videoMutex);
         return hungry;
     }
 
@@ -869,9 +869,9 @@ namespace Sfx {
     /// @return Buffered seconds (0 when empty).
     double VideoBuffered()
     {
-        pthread_mutex_lock(&s_vidMx);
-        double secs = (double)s_vidLen / (48000.0 * 2.0);
-        pthread_mutex_unlock(&s_vidMx);
+        pthread_mutex_lock(&s_videoMutex);
+        double secs = (double)s_videoLength / (48000.0 * 2.0);
+        pthread_mutex_unlock(&s_videoMutex);
         return secs;
     }
 
@@ -879,16 +879,16 @@ namespace Sfx {
     /// @param paused True to output silence and keep buffered PCM.
     void VideoSetPaused(bool paused)
     {
-        pthread_mutex_lock(&s_vidMx);
-        s_vidPaused = paused;
-        pthread_mutex_unlock(&s_vidMx);
+        pthread_mutex_lock(&s_videoMutex);
+        s_videoPaused = paused;
+        pthread_mutex_unlock(&s_videoMutex);
     }
 
     /// @brief Give the video clock in seconds.
     /// @return Seconds played.
     double VideoTime()
     {
-        return (double)s_vidPlayed / 48000.0;
+        return (double)s_videoPlayed / 48000.0;
     }
 
 } /* namespace Sfx */

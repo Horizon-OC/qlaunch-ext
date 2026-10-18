@@ -15,17 +15,17 @@
 
 namespace Theme {
 
-constexpr int MAX_COLORS = 64;
-constexpr int MAX_METRICS = 32;
-constexpr int MAX_THEMES = 16;
-constexpr int THEME_COLS = 13;
+constexpr int kThemeMaxColors = 64;
+constexpr int kThemeMaxMetrics = 32;
+constexpr int kThemeMaxThemes = 16;
+constexpr int kThemeColumnCount = 13;
 
 struct Entry {
     char name[24];
     float a, b, c;
 };
 
-static const char *kColKeys[THEME_COLS] = {
+static const char *kThemeColumnKeys[kThemeColumnCount] = {
     "bd_home", "bd_connect", "bd_eshop", "bd_album", "bd_settings",
     "menubar", "menugray", "font_pressed", "ac_home", "ac_connect",
     "ac_eshop", "ac_album", "ac_settings",
@@ -34,19 +34,25 @@ static const char *kColKeys[THEME_COLS] = {
 struct ThemeRow {
     char name[16];
     bool dark;
-    float col[THEME_COLS][3];
+    float col[kThemeColumnCount][3];
     float ink[3];
 };
 
-static char g_name[32];
-static Entry g_colors[MAX_COLORS];
-static int g_nColors;
-static Entry g_metrics[MAX_METRICS];
-static int g_nMetrics;
+    /// @brief All mutable theme state, single global.
+    struct ThemeState {
+        char activeName[32];
+        Entry colors[kThemeMaxColors];
+        int colorCount;
+        Entry metrics[kThemeMaxMetrics];
+        int metricCount;
+        ThemeRow themes[kThemeMaxThemes];
+        int themeCount;
+        int activeTheme;
+        char *themeFileData;
+        unsigned themeFileSize;
+    };
 
-static ThemeRow g_themes[MAX_THEMES];
-static int g_nThemes;
-static int g_theme = -1;
+    static ThemeState s_state = {};
 
     /// @brief Parse a #RRGGBB or #RGB hex color.
     /// @param s Hex text (leading '#' or spaces skipped).
@@ -94,17 +100,17 @@ static int g_theme = -1;
     /// @param b Blue 0-1.
     static void StoreColor(const char *key, float r, float g, float b)
 {
-    for (int i = 0; i < g_nColors; i++) {
-        if (strcmp(g_colors[i].name, key) == 0) {
-            g_colors[i].a = r;
-            g_colors[i].b = g;
-            g_colors[i].c = b;
+    for (int i = 0; i < s_state.colorCount; i++) {
+        if (strcmp(s_state.colors[i].name, key) == 0) {
+            s_state.colors[i].a = r;
+            s_state.colors[i].b = g;
+            s_state.colors[i].c = b;
             return;
         }
     }
-    if (g_nColors >= MAX_COLORS)
+    if (s_state.colorCount >= kThemeMaxColors)
         return;
-    Entry *e = &g_colors[g_nColors++];
+    Entry *e = &s_state.colors[s_state.colorCount++];
     size_t kl = strlen(key);
     if (kl > sizeof(e->name) - 1)
         kl = sizeof(e->name) - 1;
@@ -120,15 +126,15 @@ static int g_theme = -1;
     /// @param v Metric value.
     static void StoreMetric(const char *key, float v)
 {
-    for (int i = 0; i < g_nMetrics; i++) {
-        if (strcmp(g_metrics[i].name, key) == 0) {
-            g_metrics[i].a = v;
+    for (int i = 0; i < s_state.metricCount; i++) {
+        if (strcmp(s_state.metrics[i].name, key) == 0) {
+            s_state.metrics[i].a = v;
             return;
         }
     }
-    if (g_nMetrics >= MAX_METRICS)
+    if (s_state.metricCount >= kThemeMaxMetrics)
         return;
-    Entry *e = &g_metrics[g_nMetrics++];
+    Entry *e = &s_state.metrics[s_state.metricCount++];
     size_t kl = strlen(key);
     if (kl > sizeof(e->name) - 1)
         kl = sizeof(e->name) - 1;
@@ -143,10 +149,10 @@ static int g_theme = -1;
     /// @param idx Theme table index.
     static void ApplyRow(int idx)
 {
-    const ThemeRow *t = &g_themes[idx];
-    g_nColors = 0;
-    for (int i = 0; i < THEME_COLS; i++)
-        StoreColor(kColKeys[i], t->col[i][0], t->col[i][1], t->col[i][2]);
+    const ThemeRow *t = &s_state.themes[idx];
+    s_state.colorCount = 0;
+    for (int i = 0; i < kThemeColumnCount; i++)
+        StoreColor(kThemeColumnKeys[i], t->col[i][0], t->col[i][1], t->col[i][2]);
     
     StoreColor("bg", t->col[0][0], t->col[0][1], t->col[0][2]);
     StoreColor("panel", t->col[5][0], t->col[5][1], t->col[5][2]);
@@ -177,11 +183,135 @@ static int g_theme = -1;
     else
         StoreColor("icon", t->ink[0], t->ink[1], t->ink[2]);
     size_t nl = strlen(t->name);
-    if (nl > sizeof(g_name) - 1)
-        nl = sizeof(g_name) - 1;
-    memcpy(g_name, t->name, nl);
-    g_name[nl] = 0;
+    if (nl > sizeof(s_state.activeName) - 1)
+        nl = sizeof(s_state.activeName) - 1;
+    memcpy(s_state.activeName, t->name, nl);
+    s_state.activeName[nl] = 0;
 }
+
+    constexpr int kThemeCustomMaxMenus = 8;
+    constexpr int kThemeCustomMaxColors = 16;
+
+    /// @brief Retain the active theme file bytes.
+    /// @param fileData File bytes.
+    /// @param fileSize Byte size.
+    static void RetainThemeFile(const char *fileData, unsigned fileSize)
+    {
+        free(s_state.themeFileData);
+        s_state.themeFileData = nullptr;
+        s_state.themeFileSize = 0;
+
+        if (!fileData || fileSize == 0 || fileSize > 65536) {
+            return;
+        }
+
+        char *fileCopy = (char *)malloc(fileSize + 1);
+
+        if (!fileCopy) {
+            return;
+        }
+
+        memcpy(fileCopy, fileData, fileSize);
+        fileCopy[fileSize] = 0;
+        s_state.themeFileData = fileCopy;
+        s_state.themeFileSize = fileSize;
+    }
+
+    /// @brief Whether a custom section name is usable.
+    /// @param sectionName Lowercase name.
+    /// @return True when valid.
+    static bool IsCustomNameUsable(const char *sectionName)
+    {
+        if (!sectionName || !sectionName[0]) {
+            return false;
+        }
+
+        for (const char *cursor = sectionName; *cursor; cursor++) {
+            char current = *cursor;
+            bool lower = current >= 'a' && current <= 'z';
+            bool digit = current >= '0' && current <= '9';
+
+            if (!lower && !digit && current != '_') {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// @brief Apply namespaced custom submenu colors from a theme file.
+    /// @param fileData File bytes.
+    /// @param fileSize Byte size.
+    static void ApplyCustomColors(const char *fileData, unsigned fileSize)
+    {
+        JxDoc customDoc;
+
+        if (!fileData || fileSize == 0 || !Jx::Parse(customDoc, fileData, fileSize)) {
+            return;
+        }
+
+        if (Jx::TokType(customDoc, 0) != 1) {
+            return;
+        }
+
+        int customRoot = Jx::ObjGet(customDoc, 0, "custom");
+
+        if (Jx::TokType(customDoc, customRoot) != 1) {
+            return;
+        }
+
+        int menuSpan = Jx::TokAfter(customDoc, customRoot);
+        int menuCount = 0;
+
+        for (int menuToken = customRoot + 1; menuToken < menuSpan && menuCount < kThemeCustomMaxMenus;) {
+            char menuName[32] = { 0 };
+
+            if (Jx::TokType(customDoc, menuToken) != 3) {
+                break;
+            }
+
+            Jx::Str(customDoc, menuToken, menuName, sizeof(menuName));
+
+            if (!IsCustomNameUsable(menuName) || Jx::TokType(customDoc, menuToken + 1) != 1) {
+                menuToken = Jx::TokAfter(customDoc, menuToken + 1);
+                continue;
+            }
+
+            int colorSpan = Jx::TokAfter(customDoc, menuToken + 1);
+            int colorCount = 0;
+
+            for (int colorToken = menuToken + 2; colorToken < colorSpan && colorCount < kThemeCustomMaxColors;) {
+                char colorKey[24] = { 0 };
+
+                if (Jx::TokType(customDoc, colorToken) != 3) {
+                    break;
+                }
+
+                Jx::Str(customDoc, colorToken, colorKey, sizeof(colorKey));
+
+                char colorValue[16] = { 0 };
+                Jx::Str(customDoc, colorToken + 1, colorValue, sizeof(colorValue));
+
+                if (IsCustomNameUsable(colorKey)) {
+                    float red = 1.0f;
+                    float green = 0.0f;
+                    float blue = 1.0f;
+
+                    if (ParseHex(colorValue, &red, &green, &blue)) {
+                        char namespacedKey[24] = { 0 };
+                        snprintf(namespacedKey, sizeof(namespacedKey), "%s_%s", menuName, colorKey);
+                        StoreColor(namespacedKey, red, green, blue);
+                        colorCount++;
+                    }
+                }
+
+                colorToken = Jx::TokAfter(customDoc, colorToken + 1);
+            }
+
+            menuCount++;
+            menuToken = Jx::TokAfter(customDoc, menuToken + 1);
+        }
+    }
 
     /// @brief Load the packed theme table JSON.
     /// @param json JSON text.
@@ -198,17 +328,17 @@ static int g_theme = -1;
     if (Jx::TokType(doc, ta) != 2)
         return false;
     int n = Jx::ArrSize(doc, ta);
-    g_nThemes = 0;
-    for (int i = 0; i < n && g_nThemes < MAX_THEMES; i++) {
+    s_state.themeCount = 0;
+    for (int i = 0; i < n && s_state.themeCount < kThemeMaxThemes; i++) {
         int row = Jx::ArrAt(doc, ta, i);
         if (Jx::TokType(doc, row) != 2 || Jx::ArrSize(doc, row) < 16)
             continue;
-        ThemeRow *t = &g_themes[g_nThemes];
+        ThemeRow *t = &s_state.themes[s_state.themeCount];
         memset(t, 0, sizeof(*t));
         Jx::Str(doc, Jx::ArrAt(doc, row, 0), t->name, sizeof(t->name));
         t->dark = Jx::Num(doc, Jx::ArrAt(doc, row, 1), 0) != 0;
         char hb[16];
-        for (int c = 0; c < THEME_COLS; c++) {
+        for (int c = 0; c < kThemeColumnCount; c++) {
             hb[0] = 0;
             Jx::Str(doc, Jx::ArrAt(doc, row, 2 + c), hb, sizeof(hb));
             if (!ParseHex(hb, &t->col[c][0], &t->col[c][1], &t->col[c][2])) {
@@ -224,9 +354,9 @@ static int g_theme = -1;
             t->ink[1] = 0.15f;
             t->ink[2] = 0.15f;
         }
-        g_nThemes++;
+        s_state.themeCount++;
     }
-    return g_nThemes > 0;
+    return s_state.themeCount > 0;
 }
 
     /// @brief Load a legacy single-theme JSON blob.
@@ -240,10 +370,10 @@ static int g_theme = -1;
         return false;
     if (Jx::TokType(doc, 0) != 1)
         return false;
-    g_nColors = 0;
-    g_nMetrics = 0;
-    g_name[0] = 0;
-    Jx::Str(doc, Jx::ObjGet(doc, 0, "name"), g_name, sizeof(g_name));
+    s_state.colorCount = 0;
+    s_state.metricCount = 0;
+    s_state.activeName[0] = 0;
+    Jx::Str(doc, Jx::ObjGet(doc, 0, "name"), s_state.activeName, sizeof(s_state.activeName));
     int co = Jx::ObjGet(doc, 0, "colors");
     if (Jx::TokType(doc, co) == 1) {
         int span = Jx::TokAfter(doc, co);
@@ -272,6 +402,8 @@ static int g_theme = -1;
             t = Jx::TokAfter(doc, t + 1);
         }
     }
+    ApplyCustomColors(json, len);
+    RetainThemeFile(json, len);
     return true;
 }
 
@@ -282,11 +414,11 @@ static int g_theme = -1;
     /// @param b Blue output.
     void Color(const char *key, float *r, float *g, float *b)
 {
-    for (int i = 0; i < g_nColors; i++) {
-        if (strcmp(g_colors[i].name, key) == 0) {
-            *r = g_colors[i].a;
-            *g = g_colors[i].b;
-            *b = g_colors[i].c;
+    for (int i = 0; i < s_state.colorCount; i++) {
+        if (strcmp(s_state.colors[i].name, key) == 0) {
+            *r = s_state.colors[i].a;
+            *g = s_state.colors[i].b;
+            *b = s_state.colors[i].c;
             return;
         }
     }
@@ -301,9 +433,9 @@ static int g_theme = -1;
     /// @return Metric value or default.
     float Metric(const char *key, float dflt)
 {
-    for (int i = 0; i < g_nMetrics; i++) {
-        if (strcmp(g_metrics[i].name, key) == 0)
-            return g_metrics[i].a;
+    for (int i = 0; i < s_state.metricCount; i++) {
+        if (strcmp(s_state.metrics[i].name, key) == 0)
+            return s_state.metrics[i].a;
     }
     return dflt;
 }
@@ -312,14 +444,14 @@ static int g_theme = -1;
     /// @return Theme name.
     const char *Name()
 {
-    return g_name;
+    return s_state.activeName;
 }
 
     /// @brief Number of themes in the table.
     /// @return Theme count.
     int ThemeCount()
 {
-    return g_nThemes;
+    return s_state.themeCount;
 }
 
     /// @brief Look up a theme name by index.
@@ -327,23 +459,23 @@ static int g_theme = -1;
     /// @return Theme name, or "" when out of range.
     const char *ThemeName(int i)
 {
-    if (i < 0 || i >= g_nThemes)
+    if (i < 0 || i >= s_state.themeCount)
         return "";
-    return g_themes[i].name;
+    return s_state.themes[i].name;
 }
 
     /// @brief Give the active theme index.
     /// @return Theme index.
     int GetTheme()
 {
-    return g_theme;
+    return s_state.activeTheme;
 }
 
     /// @brief Whether the active theme is dark.
     /// @return True for dark themes.
     bool IsDark()
 {
-    return g_theme >= 0 && g_theme < g_nThemes && g_themes[g_theme].dark;
+    return s_state.activeTheme >= 0 && s_state.activeTheme < s_state.themeCount && s_state.themes[s_state.activeTheme].dark;
 }
 
     /// @brief Give a tab's background color.
@@ -353,15 +485,15 @@ static int g_theme = -1;
     /// @param b Blue output.
     void MenuColor(int menu, float *r, float *g, float *b)
 {
-    if (g_theme < 0 || g_theme >= g_nThemes || menu < 0 || menu > 4) {
+    if (s_state.activeTheme < 0 || s_state.activeTheme >= s_state.themeCount || menu < 0 || menu > 4) {
         *r = 1.0f;
         *g = 1.0f;
         *b = 1.0f;
         return;
     }
-    *r = g_themes[g_theme].col[menu][0];
-    *g = g_themes[g_theme].col[menu][1];
-    *b = g_themes[g_theme].col[menu][2];
+    *r = s_state.themes[s_state.activeTheme].col[menu][0];
+    *g = s_state.themes[s_state.activeTheme].col[menu][1];
+    *b = s_state.themes[s_state.activeTheme].col[menu][2];
 }
 
     /// @brief Give a tab's accent color.
@@ -371,15 +503,15 @@ static int g_theme = -1;
     /// @param b Blue output.
     void MenuAccent(int menu, float *r, float *g, float *b)
 {
-    if (g_theme < 0 || g_theme >= g_nThemes || menu < 0 || menu > 4) {
+    if (s_state.activeTheme < 0 || s_state.activeTheme >= s_state.themeCount || menu < 0 || menu > 4) {
         *r = 0.5f;
         *g = 0.5f;
         *b = 0.5f;
         return;
     }
-    *r = g_themes[g_theme].col[8 + menu][0];
-    *g = g_themes[g_theme].col[8 + menu][1];
-    *b = g_themes[g_theme].col[8 + menu][2];
+    *r = s_state.themes[s_state.activeTheme].col[8 + menu][0];
+    *g = s_state.themes[s_state.activeTheme].col[8 + menu][1];
+    *b = s_state.themes[s_state.activeTheme].col[8 + menu][2];
 }
 
     /// @brief Give a theme's preview swatch color.
@@ -389,37 +521,72 @@ static int g_theme = -1;
     /// @param b Blue output.
     void ThemePreview(int t, float *r, float *g, float *b)
 {
-    if (t < 0 || t >= g_nThemes) {
+    if (t < 0 || t >= s_state.themeCount) {
         *r = 0.5f;
         *g = 0.5f;
         *b = 0.5f;
         return;
     }
-    *r = g_themes[t].col[0][0];
-    *g = g_themes[t].col[0][1];
-    *b = g_themes[t].col[0][2];
+    *r = s_state.themes[t].col[0][0];
+    *g = s_state.themes[t].col[0][1];
+    *b = s_state.themes[t].col[0][2];
 }
 
-    /// @brief Persist the active theme index to the SD card.
+    /// @brief Persist the active theme index, preserving custom colors.
     static void PersistTheme()
-{
-    char buf[48];
-    snprintf(buf, sizeof(buf), "{\"theme\": %d}", g_theme);
-    FILE *f = fopen("sdmc:/qlaunch-ext/theme.json", "wb");
-    if (!f)
-        return;
-    fwrite(buf, 1, strlen(buf), f);
-    fclose(f);
-}
+    {
+        char retainedCustom[65536] = { 0 };
+        unsigned retainedCustomSize = 0;
+
+        if (s_state.themeFileData && s_state.themeFileSize > 0) {
+            JxDoc retainedDoc;
+
+            if (Jx::Parse(retainedDoc, s_state.themeFileData, s_state.themeFileSize) &&
+                Jx::TokType(retainedDoc, 0) == 1) {
+                int customRoot = Jx::ObjGet(retainedDoc, 0, "custom");
+
+                if (Jx::TokType(retainedDoc, customRoot) == 1 &&
+                    customRoot >= 0 && customRoot < retainedDoc.count) {
+                    int customStart = retainedDoc.toks[customRoot].start;
+                    int customEnd = retainedDoc.toks[customRoot].end;
+
+                    if (customStart >= 0 && customEnd > customStart &&
+                        (unsigned)customEnd <= s_state.themeFileSize &&
+                        (unsigned)(customEnd - customStart) < sizeof(retainedCustom)) {
+                        memcpy(retainedCustom, s_state.themeFileData + customStart,
+                               (size_t)(customEnd - customStart));
+                        retainedCustomSize = (unsigned)(customEnd - customStart);
+                    }
+                }
+            }
+        }
+
+        FILE *themeFile = fopen("sdmc:/qlaunch-ext/theme.json", "wb");
+
+        if (!themeFile) {
+            return;
+        }
+
+        if (retainedCustomSize > 0) {
+            fprintf(themeFile, "{\"theme\": %d,\n\"custom\": %.*s}\n", s_state.activeTheme,
+                    (int)retainedCustomSize, retainedCustom);
+        } else {
+            char indexBuffer[48];
+            snprintf(indexBuffer, sizeof(indexBuffer), "{\"theme\": %d}", s_state.activeTheme);
+            fwrite(indexBuffer, 1, strlen(indexBuffer), themeFile);
+        }
+
+        fclose(themeFile);
+    }
 
     /// @brief Activate a theme by index.
     /// @param i Theme index.
     /// @return True on success.
     bool SetTheme(int i)
 {
-    if (i < 0 || i >= g_nThemes)
+    if (i < 0 || i >= s_state.themeCount)
         return false;
-    if (!g_nMetrics) {
+    if (!s_state.metricCount) {
         StoreMetric("corner", 30.0f);
         StoreMetric("frame", 10.0f);
         StoreMetric("dock_h", 110.0f);
@@ -430,7 +597,7 @@ static int g_theme = -1;
         StoreMetric("sub_slide", 1.0f);
         StoreMetric("top_debounce", 0.65f);
     }
-    g_theme = i;
+    s_state.activeTheme = i;
     ApplyRow(i);
     if (Gfx::Ready()) {
         Icons::ResetHud();
@@ -445,14 +612,24 @@ static int g_theme = -1;
     /// @return True on success.
     bool LoadBuiltin(const char *name)
 {
-    if (!g_nThemes &&
+    if (!s_state.themeCount &&
         !LoadTable(themes_json, themes_json_size))
         return LoadJson(
             (name && strcmp(name, "dark") == 0) ? theme_dark_json : theme_light_json,
             (name && strcmp(name, "dark") == 0) ? theme_dark_json_size : theme_light_json_size);
-    if (name && strcmp(name, "dark") == 0)
-        return SetTheme(1);
-    return SetTheme(0);
+    bool builtinOk = false;
+
+    if (name && strcmp(name, "dark") == 0) {
+        builtinOk = SetTheme(1);
+    } else {
+        builtinOk = SetTheme(0);
+    }
+
+    if (builtinOk) {
+        RetainThemeFile(themes_json, themes_json_size);
+    }
+
+    return builtinOk;
 }
 
     /// @brief Load a theme override from an SD file.
@@ -488,9 +665,20 @@ static int g_theme = -1;
     if (Jx::Parse(doc, buf, (unsigned)got) && Jx::TokType(doc, 0) == 1) {
         int tt = Jx::ObjGet(doc, 0, "theme");
         if (Jx::TokType(doc, tt) == 4) {
-            if (!g_nThemes)
+            if (!s_state.themeCount)
                 LoadTable(themes_json, themes_json_size);
-            ok = SetTheme((int)Jx::Num(doc, tt, 0));
+
+            int themeIndex = (int)Jx::Num(doc, tt, 0);
+
+            if (themeIndex >= 0 && themeIndex < s_state.themeCount) {
+                RetainThemeFile(buf, (unsigned)got);
+                ok = SetTheme(themeIndex);
+
+                if (ok) {
+                    ApplyCustomColors(buf, (unsigned)got);
+                }
+            }
+
             free(buf);
             return ok;
         }
@@ -504,13 +692,83 @@ static int g_theme = -1;
     /// @return True on success.
     bool InitAuto()
 {
-    if (!g_nThemes)
+    if (!s_state.themeCount)
         LoadTable(themes_json, themes_json_size);
     if (LoadFile("sdmc:/qlaunch-ext/theme.json"))
         return true;
-    if (qext_colorset() == ColorSetId_Dark)
-        return SetTheme(g_nThemes > 1 ? 1 : 0);
-    return SetTheme(0);
+
+    bool autoOk = false;
+
+    if (qext_colorset() == ColorSetId_Dark) {
+        autoOk = SetTheme(s_state.themeCount > 1 ? 1 : 0);
+    } else {
+        autoOk = SetTheme(0);
+    }
+
+    if (autoOk) {
+        RetainThemeFile(themes_json, themes_json_size);
+    }
+
+    return autoOk;
 }
+
+    /// @brief Shut down theme state and free retained file bytes.
+    void Shutdown()
+    {
+        free(s_state.themeFileData);
+        s_state.themeFileData = nullptr;
+        s_state.themeFileSize = 0;
+    }
+
+    /// @brief Give the current theme file bytes.
+    /// @param outputData Output file pointer, valid until the next theme change.
+    /// @param outputSize Output byte size.
+    /// @return True when a theme file is retained.
+    bool ThemeFile(const unsigned char **outputData, unsigned *outputSize)
+    {
+        if (!outputData || !outputSize) {
+            return false;
+        }
+
+        if (!s_state.themeFileData || s_state.themeFileSize == 0) {
+            return false;
+        }
+
+        *outputData = (const unsigned char *)s_state.themeFileData;
+        *outputSize = s_state.themeFileSize;
+        return true;
+    }
+
+    /// @brief Resolve a tab id to a theme background slot.
+    /// @param tabId Tab id (for example "album").
+    /// @return 0-4 for known tabs, or -1 when unknown.
+    int MenuSlotForId(const char *tabId)
+    {
+        if (!tabId) {
+            return -1;
+        }
+
+        if (strcmp(tabId, "home") == 0) {
+            return 0;
+        }
+
+        if (strcmp(tabId, "connect") == 0) {
+            return 1;
+        }
+
+        if (strcmp(tabId, "eshop") == 0) {
+            return 2;
+        }
+
+        if (strcmp(tabId, "album") == 0) {
+            return 3;
+        }
+
+        if (strcmp(tabId, "settings") == 0) {
+            return 4;
+        }
+
+        return -1;
+    }
 
 } /* namespace Theme */

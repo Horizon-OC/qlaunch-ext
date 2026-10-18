@@ -12,12 +12,11 @@ PY := python3
 UAM := $(DEVKITPRO)/tools/bin/uam
 
 ARCH := -march=armv8-a -mtune=cortex-a57 -mtp=soft -fPIC
-BASEFLAGS := -g -O2 -ffunction-sections -fdata-sections $(ARCH) -D__SWITCH__ -I$(SDLDIR)/include -I$(DEVKITPRO)/libnx/include -I$(TOP)/src -I$(TOP)/../extern/ffmpeg-install/include
+BASEFLAGS := -g -O2 -ffunction-sections -fdata-sections $(ARCH) -D__SWITCH__ -I$(SDLDIR)/include -I$(DEVKITPRO)/libnx/include -I$(DLINK)/include -I$(TOP)/src
 CFLAGS := $(BASEFLAGS)
 CXXFLAGS := $(BASEFLAGS) -std=c++17 -fno-exceptions -fno-rtti -fno-threadsafe-statics -MMD -MP
 ASFLAGS := -g $(ARCH)
-LDFLAGS := -specs=$(DLINK)/tools/module.specs -g $(ARCH) -shared -nodefaultlibs -Wl,--export-dynamic -Wl,-Map,$(TOP)/menu.map -Wl,-z,nopack-relative-relocs -L$(TOP)/../extern/ffmpeg-install/lib -Wl,-Bsymbolic -Wl,--gc-sections
-FFLIBS := -lavformat -lavcodec -lswscale -lswresample -lavutil -lgcc
+LDFLAGS := -specs=$(DLINK)/tools/module.specs -g $(ARCH) -shared -nodefaultlibs -Wl,--export-dynamic -Wl,-Map,$(TOP)/menu.map -Wl,-z,nopack-relative-relocs -Wl,-Bsymbolic -Wl,--gc-sections
 
 SRCS := $(wildcard $(TOP)/src/*.cpp $(TOP)/src/core/*.cpp $(TOP)/src/widgets/*.cpp)
 OBJS := $(patsubst $(TOP)/%.cpp,$(TOP)/build/%.o,$(SRCS))
@@ -50,7 +49,7 @@ $(TOP)/menu.dnro: $(TOP)/menu.elf
 	$(PY) $(DLINK)/tools/elf2dnro.py $(TOP)/menu.elf $(TOP)/menu.dnro
 
 $(TOP)/menu.elf: $(OBJS) $(TOP)/Makefile
-	$(CXX) $(LDFLAGS) -o $@ $(OBJS) $(FFLIBS)
+	$(CXX) $(LDFLAGS) -o $@ $(OBJS) -lgcc
 
 $(TOP)/build/%.o: $(TOP)/%.cpp
 	@mkdir -p $(dir $@)

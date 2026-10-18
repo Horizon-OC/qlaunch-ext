@@ -21,490 +21,679 @@ namespace WStrip {
 
     namespace {
 
-        /// @brief Scroll + highlight state for the game strip.
+        /// @brief Scroll + highlight state for the game strip, single global.
         struct StripState {
-            float scroll;
-            float target;
-            float maxScroll;
-            float highlightT;
-            float markerT;
-            InputRepeat repeat;
+            float stripScroll;
+            float stripTarget;
+            float stripMaxScroll;
+            float highlightProgress;
+            float markerTime;
+            InputRepeat keyRepeat;
         };
 
         static StripState s_state = { 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, { 0 } };
 
+        /// @brief Home strip phase derived from App state.
+        enum class StripPhase {
+            Hidden,
+            Folders,
+            VirtualCards,
+            Games,
+        };
+
+        /// @brief Current strip phase for the Input state machine.
+        /// @return Games when the strip owns input, else the sub-screen.
+        StripPhase CurrentPhase()
+        {
+            if (App::TopFocus() || App::Menu() != Tabs::FindById("home")) {
+                return StripPhase::Hidden;
+            }
+
+            if (App::HomeShiftBusy()) {
+                return StripPhase::Hidden;
+            }
+
+            if (App::BottomFocus()) {
+                return StripPhase::Hidden;
+            }
+
+            switch (App::HomeSub()) {
+                case kHomeSubFolders:
+                    return StripPhase::Folders;
+                case kHomeSubVgc:
+                    return StripPhase::VirtualCards;
+                default:
+                    return StripPhase::Games;
+            }
+        }
+
     } // namespace
 
     /// @brief Draw a fallback tile when no icon is available.
-    /// @param r Row to represent.
-    /// @param x X position.
-    /// @param y Y position.
-    /// @param w Width.
-    /// @param h Height.
-    /// @param rad Corner radius.
-    /// @param alpha Opacity.
-    static void TileFallback(const AppRow &r, float x, float y, float w, float h, float rad, float alpha)
-{
-    float cr = 0.5f, cg = 0.5f, cb = 0.55f;
-    unsigned glyph = 0;
-    if (r.isGame) {
-        uint32_t h = (uint32_t)(r.tid ^ (r.tid >> 32));
-        h ^= h >> 16;
-        h *= 0x7feb352d;
-        h ^= h >> 15;
-        h *= 0x846ca68b;
-        h ^= h >> 16;
-        cr = 0.35f + 0.55f * ((float)((h >> 0) & 0xFF) / 255.0f);
-        cg = 0.35f + 0.55f * ((float)((h >> 8) & 0xFF) / 255.0f);
-        cb = 0.35f + 0.55f * ((float)((h >> 16) & 0xFF) / 255.0f);
-    } else if (r.applet == 0) {
-        Theme::Color("tile_album", &cr, &cg, &cb);
-        glyph = GLYPH_ALBUM;
-    } else {
-        Theme::Color("tile_ctrl", &cr, &cg, &cb);
-        glyph = GLYPH_JOYCON;
-    }
-    float size = w < h ? w : h;
-    Gfx::PushPanel(x, y, w, h, rad, cr, cg, cb, alpha);
-    if (glyph) {
-        char gb[4] = { 0 };
-        GlyphUTF8(glyph, gb);
-        float gs = size * 0.45f;
-        float gw = Font::Measure(gb, gs);
-        Font::Draw(gb, x + (size - gw) * 0.5f, y + size * 0.5f + gs * 0.35f,
-                   gs, 1.0f, 1.0f, 1.0f);
-    } else {
-        const char *p = r.name;
-        uint32_t cp = Font::Next(&p);
-        if (cp < 32u || cp > 255u)
-            cp = 63u;
-        char ib[8] = { 0 };
-        if (cp < 0x80) {
-            ib[0] = (char)cp;
-        } else if (cp < 0x800) {
-            ib[0] = (char)(0xC0 | (cp >> 6));
-            ib[1] = (char)(0x80 | (cp & 0x3F));
+    /// @param row Row to represent.
+    /// @param tileX X position.
+    /// @param tileY Y position.
+    /// @param tileWidth Width.
+    /// @param tileHeight Height.
+    /// @param cornerRadius Corner radius.
+    /// @param opacity Opacity.
+    static void TileFallback(const AppRow &row, float tileX, float tileY, float tileWidth, float tileHeight, float cornerRadius, float opacity)
+    {
+        float tileRed = 0.5f;
+        float tileGreen = 0.5f;
+        float tileBlue = 0.55f;
+        unsigned fallbackGlyph = 0;
+
+        if (row.isGame) {
+            uint32_t titleHash = (uint32_t)(row.tid ^ (row.tid >> 32));
+            titleHash ^= titleHash >> 16;
+            titleHash *= 0x7feb352d;
+            titleHash ^= titleHash >> 15;
+            titleHash *= 0x846ca68b;
+            titleHash ^= titleHash >> 16;
+            tileRed = 0.35f + 0.55f * ((float)((titleHash >> 0) & 0xFF) / 255.0f);
+            tileGreen = 0.35f + 0.55f * ((float)((titleHash >> 8) & 0xFF) / 255.0f);
+            tileBlue = 0.35f + 0.55f * ((float)((titleHash >> 16) & 0xFF) / 255.0f);
+        } else if (row.applet == 0) {
+            Theme::Color("tile_album", &tileRed, &tileGreen, &tileBlue);
+            fallbackGlyph = GLYPH_ALBUM;
         } else {
-            ib[0] = 63;
+            Theme::Color("tile_ctrl", &tileRed, &tileGreen, &tileBlue);
+            fallbackGlyph = GLYPH_JOYCON;
         }
-        float ls = size * 0.42f;
-        float lw = Font::Measure(ib, ls);
-        Font::Draw(ib, x + (size - lw) * 0.5f,
-                   y + size * 0.5f + ls * 0.35f, ls, 1.0f, 1.0f, 1.0f);
+
+        float tileSize = tileWidth < tileHeight ? tileWidth : tileHeight;
+        Gfx::PushPanel(tileX, tileY, tileWidth, tileHeight, cornerRadius, tileRed, tileGreen, tileBlue, opacity);
+
+        if (fallbackGlyph) {
+            char glyphText[4] = { 0 };
+            GlyphUTF8(fallbackGlyph, glyphText);
+            float glyphSize = tileSize * 0.45f;
+            float glyphWidth = Font::Measure(glyphText, glyphSize);
+            Font::Draw(glyphText, tileX + (tileSize - glyphWidth) * 0.5f, tileY + tileSize * 0.5f + glyphSize * 0.35f,
+                       glyphSize, 1.0f, 1.0f, 1.0f);
+        } else {
+            const char *nameCursor = row.name;
+            uint32_t codepoint = Font::Next(&nameCursor);
+
+            if (codepoint < 32u || codepoint > 255u) {
+                codepoint = 63u;
+            }
+
+            char initialText[8] = { 0 };
+
+            if (codepoint < 0x80) {
+                initialText[0] = (char)codepoint;
+            } else if (codepoint < 0x800) {
+                initialText[0] = (char)(0xC0 | (codepoint >> 6));
+                initialText[1] = (char)(0x80 | (codepoint & 0x3F));
+            } else {
+                initialText[0] = 63;
+            }
+
+            float letterSize = tileSize * 0.42f;
+            float letterWidth = Font::Measure(initialText, letterSize);
+            Font::Draw(initialText, tileX + (tileSize - letterWidth) * 0.5f,
+                       tileY + tileSize * 0.5f + letterSize * 0.35f, letterSize, 1.0f, 1.0f, 1.0f);
+        }
     }
-}
 
     /// @brief Draw the animated "new" marker above the selected tile.
-    /// @param cx Center X.
+    /// @param centerX Center X.
     /// @param bandTop Top of the growth band.
-    /// @param bandH Height of the growth band.
-    /// @param t Highlight progress.
-    static void DrawMarker(float cx, float bandTop, float bandH, float t)
-{
-    (void)t;
-    s_state.markerT += 1.0f / 60.0f;
-    if (s_state.markerT >= 4.0f)
-        s_state.markerT -= 4.0f;
-    int fr = (int)(s_state.markerT * 12.0f);
-    if (fr < 0)
-        fr = 0;
-    if (fr > 47)
-        fr = 47;
-    int slot = Icons::HudSlot(HUD_MARKER_STRIP);
-    if (slot <= 0)
-        return;
-    float fx = (float)((fr % 14) * 113);
-    float fy = (float)((fr / 14) * 51);
-    float u0 = fx / 1582.0f, v0 = fy / 204.0f;
-    float u1 = (fx + 113.0f) / 1582.0f, v1 = (fy + 51.0f) / 204.0f;
-    float mw = 100.0f, mh = 45.0f;
-    float mx = cx - mw * 0.5f;
-    float my = bandTop + (bandH - mh) * 0.5f;
-    Gfx::PushIcon(mx, my, mw, mh, 6.0f, 6.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 0.0f, slot, u0, v0, u1, v1);
-}
+    /// @param bandHeight Height of the growth band.
+    /// @param highlightProgress Highlight progress.
+    static void DrawMarker(float centerX, float bandTop, float bandHeight, float highlightProgress)
+    {
+        (void)highlightProgress;
+        s_state.markerTime += 1.0f / 60.0f;
+
+        if (s_state.markerTime >= 4.0f) {
+            s_state.markerTime -= 4.0f;
+        }
+
+        int frameIndex = (int)(s_state.markerTime * 12.0f);
+
+        if (frameIndex < 0) {
+            frameIndex = 0;
+        }
+
+        if (frameIndex > 47) {
+            frameIndex = 47;
+        }
+
+        int markerSlot = Icons::HudSlot(kHudMarkerStrip);
+
+        if (markerSlot <= 0) {
+            return;
+        }
+
+        float sheetX = (float)((frameIndex % 14) * 113);
+        float sheetY = (float)((frameIndex / 14) * 51);
+        float uvLeft = sheetX / 1582.0f;
+        float uvTop = sheetY / 204.0f;
+        float uvRight = (sheetX + 113.0f) / 1582.0f;
+        float uvBottom = (sheetY + 51.0f) / 204.0f;
+        float markerWidth = 100.0f;
+        float markerHeight = 45.0f;
+        float markerX = centerX - markerWidth * 0.5f;
+        float markerY = bandTop + (bandHeight - markerHeight) * 0.5f;
+        Gfx::PushIcon(markerX, markerY, markerWidth, markerHeight, 6.0f, 6.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 0.0f, markerSlot, uvLeft, uvTop, uvRight, uvBottom);
+    }
 
     /// @brief Draw a title wrapped to two lines under the selected tile.
-    /// @param name Title name.
-    /// @param tcx Center X.
-    /// @param yTop Top Y of the label block.
-    static void DrawWrappedName(const char *name, float tcx, float yTop)
-{
-    char buf[128];
-    unsigned bi = 0;
-    while (name[bi] != 0 && bi + 1 < sizeof(buf)) {
-        buf[bi] = name[bi];
-        bi++;
-    }
-    buf[bi] = 0;
-    const char *words[16];
-    int nw = 0;
-    for (unsigned i = 0; i < bi && nw < 16;) {
-        while (i < bi && buf[i] == 32)
-            i++;
-        if (i >= bi)
-            break;
-        words[nw++] = &buf[i];
-        while (i < bi && buf[i] != 32)
-            i++;
-        if (i < bi)
-            buf[i++] = 0;
-    }
-    char line[2][128];
-    int nl = 0;
-    int wi = 0;
-    while (wi < nw && nl < 2) {
-        line[nl][0] = 0;
-        unsigned len = 0;
-        while (wi < nw) {
-            const char *w = words[wi];
-            unsigned wl = 0;
-            while (w[wl] != 0)
-                wl++;
-            unsigned need = len + (len ? 1 : 0) + wl;
-            if (len > 0 && need >= 127)
+    /// @param titleName Title name.
+    /// @param centerX Center X.
+    /// @param topY Top Y of the label block.
+    static void DrawWrappedName(const char *titleName, float centerX, float topY)
+    {
+        char wordBuffer[128];
+        unsigned bufferLength = 0;
+
+        while (titleName[bufferLength] != 0 && bufferLength + 1 < sizeof(wordBuffer)) {
+            wordBuffer[bufferLength] = titleName[bufferLength];
+            bufferLength++;
+        }
+
+        wordBuffer[bufferLength] = 0;
+
+        const char *wordList[16];
+        int wordCount = 0;
+
+        for (unsigned bufferIndex = 0; bufferIndex < bufferLength && wordCount < 16;) {
+            while (bufferIndex < bufferLength && wordBuffer[bufferIndex] == 32) {
+                bufferIndex++;
+            }
+
+            if (bufferIndex >= bufferLength) {
                 break;
-            if (len > 0) {
-                line[nl][len++] = 32;
             }
-            for (unsigned k = 0; k < wl && len + 1 < 127; k++)
-                line[nl][len++] = w[k];
-            line[nl][len] = 0;
-            wi++;
-            if (nl == 0 && wi < nw) {
-                char trial[128];
-                unsigned tl = 0;
-                while (line[nl][tl] != 0 && tl + 1 < sizeof(trial)) {
-                    trial[tl] = line[nl][tl];
-                    tl++;
+
+            wordList[wordCount++] = &wordBuffer[bufferIndex];
+
+            while (bufferIndex < bufferLength && wordBuffer[bufferIndex] != 32) {
+                bufferIndex++;
+            }
+
+            if (bufferIndex < bufferLength) {
+                wordBuffer[bufferIndex++] = 0;
+            }
+        }
+
+        char wrappedLines[2][128];
+        int lineCount = 0;
+        int wordIndex = 0;
+
+        while (wordIndex < wordCount && lineCount < 2) {
+            wrappedLines[lineCount][0] = 0;
+            unsigned lineLength = 0;
+
+            while (wordIndex < wordCount) {
+                const char *wordText = wordList[wordIndex];
+                unsigned wordLength = 0;
+
+                while (wordText[wordLength] != 0) {
+                    wordLength++;
                 }
-                trial[tl++] = 32;
-                unsigned vl = 0;
-                while (words[wi][vl] != 0 && tl + 1 < sizeof(trial))
-                    trial[tl++] = words[wi][vl++];
-                trial[tl] = 0;
-                if (Font::Measure(trial, 30.0f) > 460.0f)
+
+                unsigned neededLength = lineLength + (lineLength ? 1 : 0) + wordLength;
+
+                if (lineLength > 0 && neededLength >= 127) {
                     break;
+                }
+
+                if (lineLength > 0) {
+                    wrappedLines[lineCount][lineLength++] = 32;
+                }
+
+                for (unsigned letterIndex = 0; letterIndex < wordLength && lineLength + 1 < 127; letterIndex++) {
+                    wrappedLines[lineCount][lineLength++] = wordText[letterIndex];
+                }
+
+                wrappedLines[lineCount][lineLength] = 0;
+                wordIndex++;
+
+                if (lineCount == 0 && wordIndex < wordCount) {
+                    char trialText[128];
+                    unsigned trialLength = 0;
+
+                    while (wrappedLines[lineCount][trialLength] != 0 && trialLength + 1 < sizeof(trialText)) {
+                        trialText[trialLength] = wrappedLines[lineCount][trialLength];
+                        trialLength++;
+                    }
+
+                    trialText[trialLength++] = 32;
+                    unsigned nextLength = 0;
+
+                    while (wordList[wordIndex][nextLength] != 0 && trialLength + 1 < sizeof(trialText)) {
+                        trialText[trialLength++] = wordList[wordIndex][nextLength++];
+                    }
+
+                    trialText[trialLength] = 0;
+
+                    if (Font::Measure(trialText, 30.0f) > 460.0f) {
+                        break;
+                    }
+                }
+            }
+
+            if (wrappedLines[lineCount][0] != 0) {
+                lineCount++;
+            } else {
+                break;
             }
         }
-        if (line[nl][0] != 0)
-            nl++;
-        else
-            break;
-    }
-    while (wi < nw && nl > 0) {
-        unsigned len = 0;
-        while (line[nl - 1][len] != 0)
-            len++;
-        const char *w = words[wi++];
-        if (len > 0 && len + 1 < 127)
-            line[nl - 1][len++] = 32;
-        while (w[0] != 0 && len + 1 < 127) {
-            line[nl - 1][len++] = w[0];
-            w++;
+
+        while (wordIndex < wordCount && lineCount > 0) {
+            unsigned lineLength = 0;
+
+            while (wrappedLines[lineCount - 1][lineLength] != 0) {
+                lineLength++;
+            }
+
+            const char *wordText = wordList[wordIndex++];
+
+            if (lineLength > 0 && lineLength + 1 < 127) {
+                wrappedLines[lineCount - 1][lineLength++] = 32;
+            }
+
+            while (wordText[0] != 0 && lineLength + 1 < 127) {
+                wrappedLines[lineCount - 1][lineLength++] = wordText[0];
+                wordText++;
+            }
+
+            wrappedLines[lineCount - 1][lineLength] = 0;
         }
-        line[nl - 1][len] = 0;
+
+        for (int lineIndex = 0; lineIndex < lineCount; lineIndex++) {
+            Font::Centered(wrappedLines[lineIndex], centerX, topY + (float)lineIndex * 36.0f, 30.0f, 460.0f, 0.043f, 0.337f, 0.804f);
+        }
     }
-    for (int li = 0; li < nl; li++)
-        Font::Centered(line[li], tcx, yTop + (float)li * 36.0f, 30.0f, 460.0f, 0.043f, 0.337f, 0.804f);
-}
+
     /// @brief Draw the home game strip from a layout node.
-    /// @param nd Gamestrip node carrying tile geometry.
-    void Draw(const LayoutNode &nd)
-{
-    float corner = 24.0f;
-    float frame = 6.0f;
-    float tile = nd.tile > 0.0f ? nd.tile : 384.0f;
-    float gap = nd.gap > 0.0f ? nd.gap : 50.0f;
-    float pitch = tile + gap;
-    float shx = Layout::ShiftX();
-    float shy = App::HomeShiftY();
+    /// @param layoutNode Gamestrip node carrying tile geometry.
+    void Draw(const LayoutNode &layoutNode)
+    {
+        float cornerRadius = 24.0f;
+        float frameWidth = 6.0f;
+        float tileSize = layoutNode.tile > 0.0f ? layoutNode.tile : 384.0f;
+        float tileGap = layoutNode.gap > 0.0f ? layoutNode.gap : 50.0f;
+        float tilePitch = tileSize + tileGap;
+        float slideOffsetX = Layout::ShiftX();
+        float shiftOffsetY = App::HomeShiftY();
 
-    int n = App::RowCount();
-    int sel = App::Sel();
-    /* Focus */
-    bool gamesActive = App::Menu() == Tabs::FindById("home") && !App::TopFocus() &&
-                       !App::BottomFocus() && App::HomeSub() == HOMESUB_GAMES;
-    float outer = tile + frame * 2.0f;
+        int rowCount = App::RowCount();
+        int selectedIndex = App::Sel();
 
-    /* Game label 30px accent, 461px wide. */
-    if (nd.label && gamesActive && sel >= 0 && sel < n) {
-        float lt = s_state.highlightT < 0.0f ? 0.0f : (s_state.highlightT > 1.0f ? 1.0f : s_state.highlightT);
-        float tcx = nd.x + shx + (float)sel * pitch - s_state.scroll + outer * 0.5f;
-        DrawWrappedName(App::Row(sel).name, tcx,
-                        nd.y + shy + outer + 20.0f * lt + 45.0f);
-    }
+        /* Focus */
+        bool isGamesActive = App::Menu() == Tabs::FindById("home") && !App::TopFocus() &&
+                           !App::BottomFocus() && App::HomeSub() == kHomeSubGames;
+        float outerSize = tileSize + frameWidth * 2.0f;
 
-    float viewW = 1920.0f - nd.x;
-    s_state.maxScroll = (float)(n - 1) * pitch + outer + nd.x * 2.0f - 1920.0f;
-    if (s_state.maxScroll < 0.0f)
-        s_state.maxScroll = 0.0f;
-    
-    if (s_state.target < 0.0f)
-        s_state.target = 0.0f;
-    
-    if (s_state.target > s_state.maxScroll)
-        s_state.target = s_state.maxScroll;
-
-    if (n > 0 && sel >= 0 && sel < n) {
-        float tl = (float)sel * pitch;
-        float tr = tl + outer;
-        if (tr - s_state.target > viewW - nd.x)
-            s_state.target = tr - (viewW - nd.x);
-        if (tl - s_state.target < 0.0f)
-            s_state.target = tl;
-    }
-
-    s_state.scroll += (s_state.target - s_state.scroll) * 0.25f;
-    if (s_state.scroll < 0.0f)
-        s_state.scroll = 0.0f;
-
-    float slide = shx < 0.0f ? -shx : shx;
-    int k0 = (int)((s_state.scroll - slide) / pitch) - 2;
-    if (k0 < 0)
-        k0 = 0;
-
-    int k1 = (int)((s_state.scroll + 1920.0f + slide) / pitch) + 3;
-    if (k1 > n)
-        k1 = n;
-
-    if (s_state.highlightT < 1.0f)
-        s_state.highlightT += 1.0f / 7.0f;
-
-    if (s_state.highlightT > 1.0f)
-        s_state.highlightT = 1.0f;
-    
-    /* Gamecard animation stuff */
-    int selK = (gamesActive && sel >= k0 && sel < k1) ? sel : -1;
-    for (int k = k0; k < k1; k++) {
-        if (k == selK)
-            continue;
-
-        float cx = nd.x + shx + (float)k * pitch - s_state.scroll + outer * 0.5f;
-        const AppRow &r = App::Row(k);
-        float ta = r.ejected ? 0.50f : 1.0f;
-        float x = cx - outer * 0.5f;
-        float y = nd.y + shy;
-
-        if (x + outer < -50.0f || x > 1970.0f)
-            continue;
-        
-        if (Gfx::TexValid(r.iconSlot)) {
-            unsigned q = Gfx::PushIcon(x, y, outer, outer, corner, corner, corner, corner, 1.0f, 1.0f, 1.0f, 0.0f, r.iconSlot, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, ta);
-            if (q >= (unsigned)(GFX_ICONQ_MAX / 6))
-                TileFallback(r, x, y, outer, outer, corner, ta);
-        } else {
-            TileFallback(r, x, y, outer, outer, corner, ta);
-        }
-    }
-
-    if (selK >= 0) {
-        float cx = nd.x + shx + (float)selK * pitch - s_state.scroll + outer * 0.5f;
-        const AppRow &r = App::Row(selK);
-        float ta = r.ejected ? 0.50f : 1.0f;
-        float brad = r.ejected ? corner : 0.0f;
-        float x = cx - outer * 0.5f;
-        float y = nd.y + shy;
-        float t = r.ejected ? 0.0f : (s_state.highlightT < 0.0f ? 0.0f : (s_state.highlightT > 1.0f ? 1.0f : s_state.highlightT));
-
-        /* More gamecard stuff. */
-        float grow = 84.0f * t;
-        float gx = x, gy = y - 84.0f * t, gw = outer, gh = outer + grow;
-        Gfx::PushSelectRing(gx - 9.0f, gy - 9.0f, gw + 18.0f, gh + 18.0f, corner + 9.0f, 12.0f);
-
-        /* Rounded top and square bottom. */
-        if (Gfx::TexValid(r.iconSlot)) {
-            unsigned q = Gfx::PushIcon(gx, gy, outer, outer, corner, corner, brad, brad, 1.0f, 1.0f, 1.0f, 0.0f, r.iconSlot, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, ta);
-            if (q >= (unsigned)(GFX_ICONQ_MAX / 6))
-                TileFallback(r, gx, gy, outer, outer, corner, ta);
-        } else {
-            TileFallback(r, gx, gy, outer, outer, corner, ta);
+        /* Game label 30px accent, 461px wide. */
+        if (layoutNode.label && isGamesActive && selectedIndex >= 0 && selectedIndex < rowCount) {
+            float labelProgress = s_state.highlightProgress < 0.0f ? 0.0f : (s_state.highlightProgress > 1.0f ? 1.0f : s_state.highlightProgress);
+            float titleCenterX = layoutNode.x + slideOffsetX + (float)selectedIndex * tilePitch - s_state.stripScroll + outerSize * 0.5f;
+            DrawWrappedName(App::Row(selectedIndex).name, titleCenterX,
+                            layoutNode.y + shiftOffsetY + outerSize + 20.0f * labelProgress + 45.0f);
         }
 
-        if (grow > 0.5f) {
-            Gfx::PushPanel(gx, gy + outer, gw, grow, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f);
-            DrawMarker(cx, gy + outer, grow, t);
+        float visibleWidth = 1920.0f - layoutNode.x;
+        s_state.stripMaxScroll = (float)(rowCount - 1) * tilePitch + outerSize + layoutNode.x * 2.0f - 1920.0f;
+
+        if (s_state.stripMaxScroll < 0.0f) {
+            s_state.stripMaxScroll = 0.0f;
+        }
+
+        if (s_state.stripTarget < 0.0f) {
+            s_state.stripTarget = 0.0f;
+        }
+
+        if (s_state.stripTarget > s_state.stripMaxScroll) {
+            s_state.stripTarget = s_state.stripMaxScroll;
+        }
+
+        if (rowCount > 0 && selectedIndex >= 0 && selectedIndex < rowCount) {
+            float selectedLeft = (float)selectedIndex * tilePitch;
+            float selectedRight = selectedLeft + outerSize;
+
+            if (selectedRight - s_state.stripTarget > visibleWidth - layoutNode.x) {
+                s_state.stripTarget = selectedRight - (visibleWidth - layoutNode.x);
+            }
+
+            if (selectedLeft - s_state.stripTarget < 0.0f) {
+                s_state.stripTarget = selectedLeft;
+            }
+        }
+
+        s_state.stripScroll += (s_state.stripTarget - s_state.stripScroll) * 0.25f;
+
+        if (s_state.stripScroll < 0.0f) {
+            s_state.stripScroll = 0.0f;
+        }
+
+        float slideDistance = slideOffsetX < 0.0f ? -slideOffsetX : slideOffsetX;
+        int firstTile = (int)((s_state.stripScroll - slideDistance) / tilePitch) - 2;
+
+        if (firstTile < 0) {
+            firstTile = 0;
+        }
+
+        int lastTile = (int)((s_state.stripScroll + 1920.0f + slideDistance) / tilePitch) + 3;
+
+        if (lastTile > rowCount) {
+            lastTile = rowCount;
+        }
+
+        if (s_state.highlightProgress < 1.0f) {
+            s_state.highlightProgress += 1.0f / 7.0f;
+        }
+
+        if (s_state.highlightProgress > 1.0f) {
+            s_state.highlightProgress = 1.0f;
+        }
+
+        /* Gamecard animation stuff */
+        int selectedTile = (isGamesActive && selectedIndex >= firstTile && selectedIndex < lastTile) ? selectedIndex : -1;
+
+        for (int tileIndex = firstTile; tileIndex < lastTile; tileIndex++) {
+            if (tileIndex == selectedTile) {
+                continue;
+            }
+
+            float tileCenterX = layoutNode.x + slideOffsetX + (float)tileIndex * tilePitch - s_state.stripScroll + outerSize * 0.5f;
+            const AppRow &row = App::Row(tileIndex);
+            float tileAlpha = row.ejected ? 0.50f : 1.0f;
+            float tileX = tileCenterX - outerSize * 0.5f;
+            float tileY = layoutNode.y + shiftOffsetY;
+
+            if (tileX + outerSize < -50.0f || tileX > 1970.0f) {
+                continue;
+            }
+
+            if (Gfx::TexValid(row.iconSlot)) {
+                unsigned queuedQuads = Gfx::PushIcon(tileX, tileY, outerSize, outerSize, cornerRadius, cornerRadius, cornerRadius, cornerRadius, 1.0f, 1.0f, 1.0f, 0.0f, row.iconSlot, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, tileAlpha);
+
+                if (queuedQuads >= (unsigned)(kGfxIconQueueMax / 6)) {
+                    TileFallback(row, tileX, tileY, outerSize, outerSize, cornerRadius, tileAlpha);
+                }
+            } else {
+                TileFallback(row, tileX, tileY, outerSize, outerSize, cornerRadius, tileAlpha);
+            }
+        }
+
+        if (selectedTile >= 0) {
+            float tileCenterX = layoutNode.x + slideOffsetX + (float)selectedTile * tilePitch - s_state.stripScroll + outerSize * 0.5f;
+            const AppRow &row = App::Row(selectedTile);
+            float tileAlpha = row.ejected ? 0.50f : 1.0f;
+            float bottomRadius = row.ejected ? cornerRadius : 0.0f;
+            float tileX = tileCenterX - outerSize * 0.5f;
+            float tileY = layoutNode.y + shiftOffsetY;
+            float highlightProgress = row.ejected ? 0.0f : (s_state.highlightProgress < 0.0f ? 0.0f : (s_state.highlightProgress > 1.0f ? 1.0f : s_state.highlightProgress));
+
+            /* More gamecard stuff. */
+            float growPixels = 84.0f * highlightProgress;
+            float growX = tileX;
+            float growY = tileY - 84.0f * highlightProgress;
+            float growWidth = outerSize;
+            float growHeight = outerSize + growPixels;
+            Gfx::PushSelectRing(growX - 9.0f, growY - 9.0f, growWidth + 18.0f, growHeight + 18.0f, cornerRadius + 9.0f, 12.0f);
+
+            /* Rounded top and square bottom. */
+            if (Gfx::TexValid(row.iconSlot)) {
+                unsigned queuedQuads = Gfx::PushIcon(growX, growY, outerSize, outerSize, cornerRadius, cornerRadius, bottomRadius, bottomRadius, 1.0f, 1.0f, 1.0f, 0.0f, row.iconSlot, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, tileAlpha);
+
+                if (queuedQuads >= (unsigned)(kGfxIconQueueMax / 6)) {
+                    TileFallback(row, growX, growY, outerSize, outerSize, cornerRadius, tileAlpha);
+                }
+            } else {
+                TileFallback(row, growX, growY, outerSize, outerSize, cornerRadius, tileAlpha);
+            }
+
+            if (growPixels > 0.5f) {
+                Gfx::PushPanel(growX, growY + outerSize, growWidth, growPixels, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f);
+                DrawMarker(tileCenterX, growY + outerSize, growPixels, highlightProgress);
+            }
         }
     }
-}
 
     /// @brief Draw folders/VGC sub-screens under the strip.
     void DrawSubs()
-{
-    float shx = Layout::ShiftX();
-    float shy = App::HomeShiftY();
-    float inkR, inkG, inkB;
-    Theme::Color("ink", &inkR, &inkG, &inkB);
-    float dimR, dimG, dimB;
-    Theme::Color("dim", &dimR, &dimG, &dimB);
-
-    /* Folders screen. TODO: Fix this */
     {
-        float y0 = 293.0f + 830.0f + shy;
-        if (y0 > -400.0f && y0 < 1100.0f) {
-            Font::Centered("Folders", 960.0f + shx, y0 - 60.0f, 44.0f,
-                           800.0f, inkR, inkG, inkB);
-            float tw = 300.0f, gap = 40.0f;
-            float x0 = 960.0f - (tw * 3.0f + gap * 2.0f) * 0.5f + shx;
-            int fslot = Icons::HudSlot(HUD_FOLDER);
-            for (int i = 0; i < 3; i++) {
-                char nm[24];
-                snprintf(nm, sizeof(nm), "Folder %d", i + 1);
-                float fx = x0 + i * (tw + gap);
-                float fr, fg, fb;
-                Theme::Color("panel", &fr, &fg, &fb);
-                Gfx::PushPanel(fx, y0, tw, tw, 24.0f, fr, fg, fb, 1.0f);
-                if (Gfx::TexValid(fslot)) {
-                    Gfx::PushIcon(fx + 40.0f, y0 + 20.0f, 220.0f, 220.0f, 16.0f, 16.0f, 16.0f, 16.0f, 1.0f, 1.0f, 1.0f, 0.0f, fslot);
-                }
-                float nw = Font::Measure(nm, 36.0f);
-                Font::Draw(nm, fx + (tw - nw) * 0.5f, y0 + tw + 48.0f,
-                           36.0f, dimR, dimG, dimB);
-            }
-        }
-    }
+        float slideOffsetX = Layout::ShiftX();
+        float shiftOffsetY = App::HomeShiftY();
 
-    /* VGC grid. */
-    {
-        float y0 = 293.0f - 935.0f + shy;
-        if (y0 > -700.0f && y0 < 1100.0f) {
-            Font::Centered("Virtual Game Cards", 960.0f + shx, y0 - 60.0f,
-                           44.0f, 900.0f, inkR, inkG, inkB);
-            int n = App::RowCount();
-            int sel = App::Sel();
-            float tw = 180.0f, gap = 20.0f, pitch = tw + gap;
-            int cols = 6;
-            float x0 = 960.0f - (cols * pitch - gap) * 0.5f + shx;
-            for (int k = 0; k < n && k < 18; k++) {
-                int cx = k % cols, cy = k / cols;
-                float x = x0 + cx * pitch;
-                float y = y0 + cy * (tw + 44.0f);
-                const AppRow &r = App::Row(k);
-                float ta = r.ejected ? 0.50f : 1.0f;
-                bool isSel = (k == sel);
-                if (isSel)
-                    Gfx::PushSelectRing(x - 8.0f, y - 8.0f, tw + 16.0f, tw + 16.0f, 20.0f, 8.0f);
-                if (Gfx::TexValid(r.iconSlot)) {
-                    unsigned q = Gfx::PushIcon(x, y, tw, tw, 12.0f, 12.0f, 12.0f, 12.0f, 1.0f, 1.0f, 1.0f, 0.0f, r.iconSlot, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, ta);
-                    if (q >= (unsigned)(GFX_ICONQ_MAX / 6))
-                        TileFallback(r, x, y, tw, tw, 12.0f, ta);
-                } else {
-                    TileFallback(r, x, y, tw, tw, 12.0f, ta);
+        float inkRed = 0.0f;
+        float inkGreen = 0.0f;
+        float inkBlue = 0.0f;
+        Theme::Color("ink", &inkRed, &inkGreen, &inkBlue);
+
+        float dimRed = 0.0f;
+        float dimGreen = 0.0f;
+        float dimBlue = 0.0f;
+        Theme::Color("dim", &dimRed, &dimGreen, &dimBlue);
+
+        /* Folders screen. TODO: Fix this */
+        {
+            float foldersY = 293.0f + 830.0f + shiftOffsetY;
+
+            if (foldersY > -400.0f && foldersY < 1100.0f) {
+                Font::Centered("Folders", 960.0f + slideOffsetX, foldersY - 60.0f, 44.0f,
+                               800.0f, inkRed, inkGreen, inkBlue);
+                float folderWidth = 300.0f;
+                float folderGap = 40.0f;
+                float folderStartX = 960.0f - (folderWidth * 3.0f + folderGap * 2.0f) * 0.5f + slideOffsetX;
+                int folderSlot = Icons::HudSlot(kHudFolder);
+
+                for (int folderIndex = 0; folderIndex < 3; folderIndex++) {
+                    char folderName[24];
+                    snprintf(folderName, sizeof(folderName), "Folder %d", folderIndex + 1);
+                    float folderX = folderStartX + folderIndex * (folderWidth + folderGap);
+
+                    float panelRed = 0.0f;
+                    float panelGreen = 0.0f;
+                    float panelBlue = 0.0f;
+                    Theme::Color("panel", &panelRed, &panelGreen, &panelBlue);
+                    Gfx::PushPanel(folderX, foldersY, folderWidth, folderWidth, 24.0f, panelRed, panelGreen, panelBlue, 1.0f);
+
+                    if (Gfx::TexValid(folderSlot)) {
+                        Gfx::PushIcon(folderX + 40.0f, foldersY + 20.0f, 220.0f, 220.0f, 16.0f, 16.0f, 16.0f, 16.0f, 1.0f, 1.0f, 1.0f, 0.0f, folderSlot);
+                    }
+
+                    float nameWidth = Font::Measure(folderName, 36.0f);
+                    Font::Draw(folderName, folderX + (folderWidth - nameWidth) * 0.5f, foldersY + folderWidth + 48.0f,
+                               36.0f, dimRed, dimGreen, dimBlue);
                 }
             }
         }
+
+        /* VGC grid. */
+        {
+            float gridY = 293.0f - 935.0f + shiftOffsetY;
+
+            if (gridY > -700.0f && gridY < 1100.0f) {
+                Font::Centered("Virtual Game Cards", 960.0f + slideOffsetX, gridY - 60.0f,
+                               44.0f, 900.0f, inkRed, inkGreen, inkBlue);
+                int rowCount = App::RowCount();
+                int selectedIndex = App::Sel();
+                float cardWidth = 180.0f;
+                float cardGap = 20.0f;
+                float cardPitch = cardWidth + cardGap;
+                int columnCount = 6;
+                float gridStartX = 960.0f - (columnCount * cardPitch - cardGap) * 0.5f + slideOffsetX;
+
+                for (int cardIndex = 0; cardIndex < rowCount && cardIndex < 18; cardIndex++) {
+                    int gridColumn = cardIndex % columnCount;
+                    int gridRow = cardIndex / columnCount;
+                    float cardX = gridStartX + gridColumn * cardPitch;
+                    float cardY = gridY + gridRow * (cardWidth + 44.0f);
+                    const AppRow &row = App::Row(cardIndex);
+                    float cardAlpha = row.ejected ? 0.50f : 1.0f;
+                    bool isSelected = (cardIndex == selectedIndex);
+
+                    if (isSelected) {
+                        Gfx::PushSelectRing(cardX - 8.0f, cardY - 8.0f, cardWidth + 16.0f, cardWidth + 16.0f, 20.0f, 8.0f);
+                    }
+
+                    if (Gfx::TexValid(row.iconSlot)) {
+                        unsigned queuedQuads = Gfx::PushIcon(cardX, cardY, cardWidth, cardWidth, 12.0f, 12.0f, 12.0f, 12.0f, 1.0f, 1.0f, 1.0f, 0.0f, row.iconSlot, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, cardAlpha);
+
+                        if (queuedQuads >= (unsigned)(kGfxIconQueueMax / 6)) {
+                            TileFallback(row, cardX, cardY, cardWidth, cardWidth, 12.0f, cardAlpha);
+                        }
+                    } else {
+                        TileFallback(row, cardX, cardY, cardWidth, cardWidth, 12.0f, cardAlpha);
+                    }
+                }
+            }
+        }
     }
-}
 
     /// @brief Step the strip selection.
     /// A fresh press past an edge wraps around; holding into an edge
     /// clamps instead, so a continuous hold never loops.
-    /// @param delta Signed step.
-    /// @param fresh True when the direction was freshly pressed this frame.
+    /// @param stepDelta Signed step.
+    /// @param isFreshPress True when the direction was freshly pressed this frame.
     /// @return True when the selection changed.
-    static bool StepSel(int delta, bool fresh)
-{
-    int n = App::RowCount();
-    if (n <= 0)
-        return false;
+    static bool StepSelection(int stepDelta, bool isFreshPress)
+    {
+        int rowCount = App::RowCount();
 
-    int sel = App::Sel();
-    sel += delta;
+        if (rowCount <= 0) {
+            return false;
+        }
 
-    if (sel < 0) {
-        sel = fresh ? n - 1 : 0;
-    } else if (sel >= n) {
-        sel = fresh ? 0 : n - 1;
-    }
+        int selectedIndex = App::Sel();
+        selectedIndex += stepDelta;
 
-    /* Ensure we don't restart animation every time. */
-    if (sel != App::Sel()) {
-        App::SetSel(sel);
-        s_state.highlightT = 0.0f;
-        Sfx::Play(Sfx::Hover);
+        if (selectedIndex < 0) {
+            selectedIndex = isFreshPress ? rowCount - 1 : 0;
+        } else if (selectedIndex >= rowCount) {
+            selectedIndex = isFreshPress ? 0 : rowCount - 1;
+        }
+
+        /* Ensure we don't restart animation every time. */
+        if (selectedIndex != App::Sel()) {
+            App::SetSel(selectedIndex);
+            s_state.highlightProgress = 0.0f;
+            Sfx::Play(Sfx::Hover);
+            App::SetTopFocus(false);
+            return true;
+        }
+
         App::SetTopFocus(false);
-        return true;
+        return false;
     }
 
-    App::SetTopFocus(false);
-    return false;
-}
+    /// @brief Handle folders sub-screen input.
+    /// @param buttonsDown Buttons pressed.
+    static void HandleFoldersInput(u64 buttonsDown)
+    {
+        if (buttonsDown & HidNpadButton_A) {
+            App::SetHomeSub(kHomeSubGames);
+            Sfx::Play(Sfx::Click);
+        } else if (buttonsDown & (HidNpadButton_B | HidNpadButton_AnyUp)) {
+            App::SetHomeSub(kHomeSubGames);
+            Sfx::Play(Sfx::Back);
+        }
+    }
+
+    /// @brief Handle VGC sub-screen input.
+    /// @param buttonsDown Buttons pressed.
+    /// @param buttonsHeld Buttons held.
+    static void HandleVirtualCardsInput(u64 buttonsDown, u64 buttonsHeld)
+    {
+        u64 filteredButtonsDown = buttonsDown;
+        s_state.keyRepeat.Poll(filteredButtonsDown, buttonsHeld, HidNpadButton_AnyLeft | HidNpadButton_AnyRight, StripRepeat());
+
+        if (filteredButtonsDown & HidNpadButton_AnyLeft) {
+            StepSelection(-1, (buttonsDown & HidNpadButton_AnyLeft) != 0);
+            return;
+        }
+
+        if (filteredButtonsDown & HidNpadButton_AnyRight) {
+            StepSelection(1, (buttonsDown & HidNpadButton_AnyRight) != 0);
+            return;
+        }
+
+        if (buttonsDown & (HidNpadButton_B | HidNpadButton_AnyUp)) {
+            App::SetHomeSub(kHomeSubGames);
+            Sfx::Play(Sfx::Back);
+        }
+    }
+
+    /// @brief Handle games strip input.
+    /// @param buttonsDown Buttons pressed.
+    /// @param buttonsHeld Buttons held.
+    static void HandleGamesInput(u64 buttonsDown, u64 buttonsHeld)
+    {
+        u64 repeatedButtonsDown = buttonsDown;
+        s_state.keyRepeat.Poll(repeatedButtonsDown, buttonsHeld, HidNpadButton_AnyLeft | HidNpadButton_AnyRight, StripRepeat());
+
+        /* No repeat reset on steps: fresh presses already reset the counter
+           in Poll, and resetting here would re-arm the full hold delay for
+           every step, so a hold would never actually auto-repeat. */
+        if (repeatedButtonsDown & HidNpadButton_AnyLeft) {
+            StepSelection(-1, (buttonsDown & HidNpadButton_AnyLeft) != 0);
+        }
+
+        if (repeatedButtonsDown & HidNpadButton_AnyRight) {
+            StepSelection(1, (buttonsDown & HidNpadButton_AnyRight) != 0);
+        }
+
+        if (buttonsDown & HidNpadButton_AnyUp) {
+            App::SetTopSel(App::Menu());
+            App::SetTopFocus(true);
+            Sfx::Play(Sfx::Hover);
+        }
+
+        if (buttonsDown & HidNpadButton_AnyDown) {
+            App::SetBottomSel(1);
+            App::SetBottomFocus(true);
+            Sfx::Play(Sfx::Hover);
+        }
+    }
 
     /// @brief Handle home strip navigation input.
-    /// @param nd Gamestrip node (reserved).
-    /// @param down Buttons pressed.
-    /// @param held Buttons held.
-    void Input(const LayoutNode &nd, u64 down, u64 held)
-{
-    (void)nd;
+    /// @param layoutNode Gamestrip node (reserved).
+    /// @param buttonsDown Buttons pressed.
+    /// @param buttonsHeld Buttons held.
+    void Input(const LayoutNode &layoutNode, u64 buttonsDown, u64 buttonsHeld)
+    {
+        (void)layoutNode;
 
-    if (App::TopFocus() || App::Menu() != Tabs::FindById("home"))
-        return;
+        switch (CurrentPhase()) {
+            case StripPhase::Hidden:
+                return;
 
-    /* Dont input during a transition. */
-    if (App::HomeShiftBusy())
-        return;
+            case StripPhase::Folders:
+                HandleFoldersInput(buttonsDown);
+                return;
 
-    /* Folders / VGC submenus. */
-    if (App::HomeSub() == HOMESUB_FOLDERS) {
-        if (down & HidNpadButton_A) {
-            App::SetHomeSub(HOMESUB_GAMES);
-            Sfx::Play(Sfx::Click);
-        } else if (down & (HidNpadButton_B | HidNpadButton_AnyUp)) {
-            App::SetHomeSub(HOMESUB_GAMES);
-            Sfx::Play(Sfx::Back);
+            case StripPhase::VirtualCards:
+                HandleVirtualCardsInput(buttonsDown, buttonsHeld);
+                return;
+
+            case StripPhase::Games:
+                HandleGamesInput(buttonsDown, buttonsHeld);
+                return;
         }
-        return;
     }
 
-    if (App::HomeSub() == HOMESUB_VGC) {
-        u64 vgcDown = down;
-        s_state.repeat.Poll(vgcDown, held, HidNpadButton_AnyLeft | HidNpadButton_AnyRight, StripRepeat());
-
-        if (vgcDown & HidNpadButton_AnyLeft) {
-            StepSel(-1, (down & HidNpadButton_AnyLeft) != 0);
-            return;
-        }
-
-        if (vgcDown & HidNpadButton_AnyRight) {
-            StepSel(1, (down & HidNpadButton_AnyRight) != 0);
-            return;
-        }
-
-        if (down & (HidNpadButton_B | HidNpadButton_AnyUp)) {
-            App::SetHomeSub(HOMESUB_GAMES);
-            Sfx::Play(Sfx::Back);
-        }
-        return;
+    /// @brief Describe the Home tab for the transplantable tab registry.
+    /// @return MenuTab descriptor for Home.
+    MenuTab DescribeTab()
+    {
+        MenuTab tabDescriptor = {};
+        snprintf(tabDescriptor.id, sizeof(tabDescriptor.id), "home");
+        snprintf(tabDescriptor.title, sizeof(tabDescriptor.title), "Home");
+        tabDescriptor.glyph = 0xE044;
+        snprintf(tabDescriptor.jingle, sizeof(tabDescriptor.jingle), "home_jingle");
+        tabDescriptor.draw = nullptr;
+        tabDescriptor.input = nullptr;
+        tabDescriptor.onEnter = nullptr;
+        tabDescriptor.onExit = nullptr;
+        return tabDescriptor;
     }
-
-    if (App::BottomFocus())
-        return;
-
-    u64 repDown = down;
-    s_state.repeat.Poll(repDown, held, HidNpadButton_AnyLeft | HidNpadButton_AnyRight, StripRepeat());
-
-    /* No repeat reset on steps: fresh presses already reset the counter
-       in Poll, and resetting here would re-arm the full hold delay for
-       every step, so a hold would never actually auto-repeat. */
-    if (repDown & HidNpadButton_AnyLeft) {
-        StepSel(-1, (down & HidNpadButton_AnyLeft) != 0);
-    }
-
-    if (repDown & HidNpadButton_AnyRight) {
-        StepSel(1, (down & HidNpadButton_AnyRight) != 0);
-    }
-
-    if (down & HidNpadButton_AnyUp) {
-        App::SetTopSel(App::Menu());
-        App::SetTopFocus(true);
-        Sfx::Play(Sfx::Hover);
-    }
-
-    if (down & HidNpadButton_AnyDown) {
-        App::SetBottomSel(1);
-        App::SetBottomFocus(true);
-        Sfx::Play(Sfx::Hover);
-    }
-}
 
 } /* namespace WStrip */

@@ -19,6 +19,8 @@ By default sdmc:/qlaunch-ext/menus/menu.dnro is booted.
 Menus have neko3d or SDL3 available to them, and the stock menu uses SDL3
 So it is your choice which one to use, and you can interact with neko3d even when using SDL3 (as SDL3 uses neko3d as backend)
 
+Another option is to use the dynamic widget feature in NekoMenu (default menu)
+
 ## Theming
 
 You have two options: Create your own menu, or theme a existing menu

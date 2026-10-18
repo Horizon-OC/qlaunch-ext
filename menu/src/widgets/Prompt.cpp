@@ -16,43 +16,58 @@ namespace WPrompt {
 
     namespace {
 
-        constexpr int kTextMax = 192;
+        constexpr int kPromptTextMax = 192;
+        constexpr int kPromptButtonConfirm = 0;
+        constexpr int kPromptButtonCancel = 1;
 
-        /// @brief Modal prompt state
-        struct State {
-            bool open = false;
-            u64 ignoreMask = 0;
-            int sel = 1;
-            u64 pendingTid = 0;
-            char title[kTextMax];
-            char message[kTextMax];
+        /// @brief Modal prompt phase state machine.
+        enum class PromptPhase {
+            Closed,
+            Open,
         };
 
-        static State s_state = {};
+        /// @brief Modal prompt state, single global.
+        struct PromptState {
+            bool isOpen = false;
+            u64 ignoreMask = 0;
+            int selectedButton = 1;
+            u64 pendingTitleId = 0;
+            char dialogTitle[kPromptTextMax];
+            char dialogMessage[kPromptTextMax];
+        };
+
+        static PromptState s_state = {};
+
+        /// @brief Current prompt phase derived from state.
+        /// @return Closed when dismissed, Open when covering the screen.
+        PromptPhase CurrentPhase()
+        {
+            return s_state.isOpen ? PromptPhase::Open : PromptPhase::Closed;
+        }
 
         /// @brief Copy text with a fallback when null/empty.
-        /// @param dst Destination buffer.
-        /// @param src Source text (may be null).
-        /// @param fallback Used when src is null or empty.
-        static void CopyText(char *dst, const char *src, const char *fallback)
+        /// @param destinationText Destination buffer.
+        /// @param sourceText Source text (may be null).
+        /// @param fallbackText Used when source is null or empty.
+        static void CopyText(char *destinationText, const char *sourceText, const char *fallbackText)
         {
-            if (!src || !src[0]) {
-                src = fallback;
+            if (!sourceText || !sourceText[0]) {
+                sourceText = fallbackText;
             }
 
-            if (!src) {
-                dst[0] = 0;
+            if (!sourceText) {
+                destinationText[0] = 0;
                 return;
             }
 
-            unsigned i = 0;
+            unsigned charIndex = 0;
 
-            while (src[i] != 0 && i + 1 < kTextMax) {
-                dst[i] = src[i];
-                i++;
+            while (sourceText[charIndex] != 0 && charIndex + 1 < kPromptTextMax) {
+                destinationText[charIndex] = sourceText[charIndex];
+                charIndex++;
             }
 
-            dst[i] = 0;
+            destinationText[charIndex] = 0;
         }
 
     } // namespace
@@ -61,38 +76,38 @@ namespace WPrompt {
     /// @return True when open.
     bool IsOpen()
     {
-        return s_state.open;
+        return CurrentPhase() == PromptPhase::Open;
     }
 
     /// @brief Give the selected button (0 = left/confirm, 1 = right/cancel).
     /// @return Selection index.
     int Sel()
     {
-        return s_state.sel;
+        return s_state.selectedButton;
     }
 
     /// @brief Open a generic two-button prompt.
-    /// @param title Title line (copied).
-    /// @param message Subtitle line (copied).
-    /// @param held Buttons currently held; disarmed until released so
+    /// @param dialogTitle Title line (copied).
+    /// @param dialogMessage Subtitle line (copied).
+    /// @param heldButtons Buttons currently held; disarmed until released so
     /// the opening press can never confirm or dismiss.
-    void Open(const char *title, const char *message, u64 held)
+    void Open(const char *dialogTitle, const char *dialogMessage, u64 heldButtons)
     {
-        CopyText(s_state.title, title, "Are you sure?");
-        CopyText(s_state.message, message, "");
-        s_state.sel = 1;
-        s_state.pendingTid = 0;
-        s_state.ignoreMask = held;
-        s_state.open = true;
+        CopyText(s_state.dialogTitle, dialogTitle, "Are you sure?");
+        CopyText(s_state.dialogMessage, dialogMessage, "");
+        s_state.selectedButton = kPromptButtonCancel;
+        s_state.pendingTitleId = 0;
+        s_state.ignoreMask = heldButtons;
+        s_state.isOpen = true;
         Sfx::Play(Sfx::Hover);
     }
 
     /// @brief Open the close-game confirm for the running title.
-    /// @param held Buttons currently held (see Open).
-    /// @param launchTid Title to launch when Close is confirmed, 0 for close only.
-    void OpenCloseGame(u64 held, u64 launchTid)
+    /// @param heldButtons Buttons currently held (see Open).
+    /// @param launchTitleId Title to launch when Close is confirmed, 0 for close only.
+    void OpenCloseGame(u64 heldButtons, u64 launchTitleId)
     {
-        if (s_state.open) {
+        if (CurrentPhase() == PromptPhase::Open) {
             return;
         }
 
@@ -100,129 +115,148 @@ namespace WPrompt {
             return;
         }
 
-        const char *name = 0;
-        u64 susp = qext_suspended_title();
+        const char *gameName = 0;
+        u64 suspendedTitleId = qext_suspended_title();
 
-        for (int i = 0; i < App::RowCount(); i++) {
-            const AppRow &r = App::Row(i);
+        for (int rowIndex = 0; rowIndex < App::RowCount(); rowIndex++) {
+            const AppRow &row = App::Row(rowIndex);
 
-            if (r.isGame && r.tid == susp && r.name[0] != 0) {
-                name = r.name;
+            if (row.isGame && row.tid == suspendedTitleId && row.name[0] != 0) {
+                gameName = row.name;
                 break;
             }
         }
 
-        if (!name) {
-            int sel = App::Sel();
+        if (!gameName) {
+            int selectedRow = App::Sel();
 
-            if (sel >= 0 && sel < App::RowCount()) {
-                const AppRow &r = App::Row(sel);
+            if (selectedRow >= 0 && selectedRow < App::RowCount()) {
+                const AppRow &row = App::Row(selectedRow);
 
-                if (r.isGame && r.name[0] != 0) {
-                    name = r.name;
+                if (row.isGame && row.name[0] != 0) {
+                    gameName = row.name;
                 }
             }
         }
 
-        char title[kTextMax];
+        char dialogTitleBuffer[kPromptTextMax];
 
-        if (name && name[0] != 0) {
-            snprintf(title, sizeof(title), "Close %s?", name);
-            title[sizeof(title) - 1] = 0;
+        if (gameName && gameName[0] != 0) {
+            snprintf(dialogTitleBuffer, sizeof(dialogTitleBuffer), "Close %s?", gameName);
+            dialogTitleBuffer[sizeof(dialogTitleBuffer) - 1] = 0;
         } else {
-            snprintf(title, sizeof(title), "Close software?");
-            title[sizeof(title) - 1] = 0;
+            snprintf(dialogTitleBuffer, sizeof(dialogTitleBuffer), "Close software?");
+            dialogTitleBuffer[sizeof(dialogTitleBuffer) - 1] = 0;
         }
 
-        Open(title, "Unsaved progress may be lost.", held);
-        s_state.pendingTid = launchTid;
-        logging::LogLine("[menu] prompt open: %s", title);
+        Open(dialogTitleBuffer, "Unsaved progress may be lost.", heldButtons);
+        s_state.pendingTitleId = launchTitleId;
+        logging::LogLine("[menu] prompt open: %s", dialogTitleBuffer);
     }
 
     /// @brief Dismiss the prompt without acting.
     void Close()
     {
-        s_state.open = false;
+        s_state.isOpen = false;
         s_state.ignoreMask = 0;
-        s_state.pendingTid = 0;
-        s_state.sel = 1;
+        s_state.pendingTitleId = 0;
+        s_state.selectedButton = kPromptButtonCancel;
     }
 
     /// @brief Draw the dim + centered dialog.
     void Draw()
     {
-        if (!s_state.open) {
+        if (CurrentPhase() == PromptPhase::Closed) {
             return;
         }
 
-        float barR, barG, barB;
-        Theme::Color("menubar", &barR, &barG, &barB);
+        float menuBarRed = 0.0f;
+        float menuBarGreen = 0.0f;
+        float menuBarBlue = 0.0f;
+        Theme::Color("menubar", &menuBarRed, &menuBarGreen, &menuBarBlue);
 
-        float bgR, bgG, bgB;
-        Theme::Color("bg", &bgR, &bgG, &bgB);
+        float backgroundRed = 0.0f;
+        float backgroundGreen = 0.0f;
+        float backgroundBlue = 0.0f;
+        Theme::Color("bg", &backgroundRed, &backgroundGreen, &backgroundBlue);
 
-        float inkR, inkG, inkB;
-        Theme::Color("ink", &inkR, &inkG, &inkB);
+        float inkRed = 0.0f;
+        float inkGreen = 0.0f;
+        float inkBlue = 0.0f;
+        Theme::Color("ink", &inkRed, &inkGreen, &inkBlue);
 
-        float dimR, dimG, dimB;
-        Theme::Color("dim", &dimR, &dimG, &dimB);
+        float dimRed = 0.0f;
+        float dimGreen = 0.0f;
+        float dimBlue = 0.0f;
+        Theme::Color("dim", &dimRed, &dimGreen, &dimBlue);
 
         Gfx::PushOverlayQuad(0.0f, 0.0f, 1920.0f, 1080.0f, 0.0f, 0.0f, 0.0f, 0.6f);
 
-        float x = 580.0f, y = 340.0f, w = 760.0f, h = 400.0f, o = 8.0f;
-        Gfx::PushOverlayPanel(x - o, y - o, w + o * 2.0f, h + o * 2.0f, 24.0f + o,
-                              barR, barG, barB, 1.0f);
-        Gfx::PushOverlayPanel(x, y, w, h, 24.0f, bgR, bgG, bgB, 1.0f);
+        float dialogX = 580.0f;
+        float dialogY = 340.0f;
+        float dialogWidth = 760.0f;
+        float dialogHeight = 400.0f;
+        float dialogOutline = 8.0f;
+        Gfx::PushOverlayPanel(dialogX - dialogOutline, dialogY - dialogOutline, dialogWidth + dialogOutline * 2.0f, dialogHeight + dialogOutline * 2.0f, 24.0f + dialogOutline,
+                              menuBarRed, menuBarGreen, menuBarBlue, 1.0f);
+        Gfx::PushOverlayPanel(dialogX, dialogY, dialogWidth, dialogHeight, 24.0f, backgroundRed, backgroundGreen, backgroundBlue, 1.0f);
 
-        Font::Centered(s_state.title, 960.0f, 440.0f, 40.0f, 700.0f, inkR, inkG, inkB);
-        Font::Centered(s_state.message, 960.0f, 500.0f, 30.0f, 700.0f, dimR, dimG, dimB);
+        Font::Centered(s_state.dialogTitle, 960.0f, 440.0f, 40.0f, 700.0f, inkRed, inkGreen, inkBlue);
+        Font::Centered(s_state.dialogMessage, 960.0f, 500.0f, 30.0f, 700.0f, dimRed, dimGreen, dimBlue);
 
-        float bw = 280.0f, bh = 80.0f, by = 580.0f, bo = 6.0f;
-        float bx[2] = { 660.0f, 980.0f };
-        const char *labels[2] = { "Close", "Cancel" };
+        float buttonWidth = 280.0f;
+        float buttonHeight = 80.0f;
+        float buttonY = 580.0f;
+        float buttonOutline = 6.0f;
+        float buttonX[2] = { 660.0f, 980.0f };
+        const char *buttonLabels[2] = { "Close", "Cancel" };
 
-        for (int i = 0; i < 2; i++) {
-            Gfx::PushOverlayPanel(bx[i] - bo, by - bo, bw + bo * 2.0f, bh + bo * 2.0f,
-                                  16.0f + bo, barR, barG, barB, 1.0f);
-            Gfx::PushOverlayPanel(bx[i], by, bw, bh, 16.0f, bgR, bgG, bgB, 1.0f);
+        for (int buttonIndex = 0; buttonIndex < 2; buttonIndex++) {
+            Gfx::PushOverlayPanel(buttonX[buttonIndex] - buttonOutline, buttonY - buttonOutline, buttonWidth + buttonOutline * 2.0f, buttonHeight + buttonOutline * 2.0f,
+                                  16.0f + buttonOutline, menuBarRed, menuBarGreen, menuBarBlue, 1.0f);
+            Gfx::PushOverlayPanel(buttonX[buttonIndex], buttonY, buttonWidth, buttonHeight, 16.0f, backgroundRed, backgroundGreen, backgroundBlue, 1.0f);
 
-            if (s_state.sel == i) {
-                Gfx::PushOverlayRing(bx[i] - 6.0f, by - 6.0f, bw + 12.0f, bh + 12.0f,
+            if (s_state.selectedButton == buttonIndex) {
+                Gfx::PushOverlayRing(buttonX[buttonIndex] - 6.0f, buttonY - 6.0f, buttonWidth + 12.0f, buttonHeight + 12.0f,
                                      20.0f, 8.0f);
             }
 
-            Font::Centered(labels[i], bx[i] + bw * 0.5f, by + 52.0f, 32.0f, 260.0f,
-                            inkR, inkG, inkB);
+            Font::Centered(buttonLabels[buttonIndex], buttonX[buttonIndex] + buttonWidth * 0.5f, buttonY + 52.0f, 32.0f, 260.0f,
+                            inkRed, inkGreen, inkBlue);
         }
     }
 
     /// @brief Handle prompt navigation input.
-    /// @param down Buttons pressed.
-    /// @param held Buttons held.
+    /// @param buttonsDown Buttons pressed.
+    /// @param buttonsHeld Buttons held.
     /// @return True when the input was consumed.
-    bool Input(u64 down, u64 held)
+    bool Input(u64 buttonsDown, u64 buttonsHeld)
     {
-        if (!s_state.open) {
-            return false;
+        switch (CurrentPhase()) {
+            case PromptPhase::Closed:
+                return false;
+
+            case PromptPhase::Open:
+                break;
         }
 
-        s_state.ignoreMask &= held;
-        u64 edge = down & ~s_state.ignoreMask;
+        s_state.ignoreMask &= buttonsHeld;
+        u64 freshPress = buttonsDown & ~s_state.ignoreMask;
 
-        if (edge & (HidNpadButton_AnyLeft | HidNpadButton_AnyRight)) {
-            s_state.sel ^= 1;
+        if (freshPress & (HidNpadButton_AnyLeft | HidNpadButton_AnyRight)) {
+            s_state.selectedButton ^= 1;
             Sfx::Play(Sfx::Hover);
             return true;
         }
 
-        if (edge & HidNpadButton_A) {
-            if (s_state.sel == 0) {
+        if (freshPress & HidNpadButton_A) {
+            if (s_state.selectedButton == kPromptButtonConfirm) {
                 qext_terminate_game();
-                u64 launch = s_state.pendingTid;
+                u64 pendingLaunchId = s_state.pendingTitleId;
                 Close();
 
-                if (launch != 0) {
-                    App::LaunchGame(launch);
+                if (pendingLaunchId != 0) {
+                    App::LaunchGame(pendingLaunchId);
                 } else {
                     Sfx::Play(Sfx::Click);
                 }
@@ -234,7 +268,7 @@ namespace WPrompt {
             return true;
         }
 
-        if (edge & (HidNpadButton_B | HidNpadButton_X)) {
+        if (freshPress & (HidNpadButton_B | HidNpadButton_X)) {
             Close();
             Sfx::Play(Sfx::Back);
             return true;

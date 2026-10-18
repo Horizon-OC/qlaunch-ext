@@ -45,7 +45,7 @@ namespace Jx {
     jsmn_parser p;
     jsmn_init(&p);
     int r = jsmn_parse(&p, text, len, NULL, 0);
-    if (r < 0 || r > JX_MAX_TOKS)
+    if (r < 0 || r > kJsonMaxTokens)
         return false;
     jsmntok_t *tmp = (jsmntok_t *)malloc(sizeof(jsmntok_t) * (unsigned)r);
     if (!tmp)
@@ -56,19 +56,31 @@ namespace Jx {
         free(tmp);
         return false;
     }
-    for (int i = 0; i < r; i++) {
-        int ty = 0;
-        switch (tmp[i].type) {
-        case JSMN_OBJECT: ty = 1; break;
-        case JSMN_ARRAY: ty = 2; break;
-        case JSMN_STRING: ty = 3; break;
-        case JSMN_PRIMITIVE: ty = 4; break;
-        default: ty = 0; break;
+    for (int tokenIndex = 0; tokenIndex < r; tokenIndex++) {
+        int tokenType = 0;
+
+        switch (tmp[tokenIndex].type) {
+            case JSMN_OBJECT:
+                tokenType = 1;
+                break;
+            case JSMN_ARRAY:
+                tokenType = 2;
+                break;
+            case JSMN_STRING:
+                tokenType = 3;
+                break;
+            case JSMN_PRIMITIVE:
+                tokenType = 4;
+                break;
+            default:
+                tokenType = 0;
+                break;
         }
-        d.toks[i].type = ty;
-        d.toks[i].start = tmp[i].start;
-        d.toks[i].end = tmp[i].end;
-        d.toks[i].size = tmp[i].size;
+
+        d.toks[tokenIndex].type = tokenType;
+        d.toks[tokenIndex].start = tmp[tokenIndex].start;
+        d.toks[tokenIndex].end = tmp[tokenIndex].end;
+        d.toks[tokenIndex].size = tmp[tokenIndex].size;
     }
     d.count = r;
     free(tmp);

@@ -8,40 +8,40 @@
 
 /* Fixed LRU budget for title icons. Rows outside the budget keep
    fallback tiles until scrolling brings them near the focus. */
-constexpr int ICONS_MAX = 16;
+constexpr int kIconsMax = 16;
 
-constexpr int HUD_USER = 0;
-constexpr int HUD_BTN_A = 1;
-constexpr int HUD_BTN_PLUS = 2;
-constexpr int HUD_FOLDER = 3;
-constexpr int HUD_VGCCARD = 4;
-constexpr int HUD_TOPSEL_HOME = 5;
-constexpr int HUD_TOPSEL_CONNECT = 6;
-constexpr int HUD_TOPSEL_ESHOP = 7;
-constexpr int HUD_TOPSEL_ALBUM = 8;
-constexpr int HUD_TOPSEL_SETTINGS = 9;
-constexpr int HUD_TOPDES_HOME = 10;
-constexpr int HUD_TOPDES_CONNECT = 11;
-constexpr int HUD_TOPDES_ESHOP = 12;
-constexpr int HUD_TOPDES_ALBUM = 13;
-constexpr int HUD_TOPDES_SETTINGS = 14;
-constexpr int HUD_MARKER_STRIP = 15;
-constexpr int HUD_WIFI_0 = 16;
-constexpr int HUD_WIFI_1 = 17;
-constexpr int HUD_WIFI_2 = 18;
-constexpr int HUD_WIFI_3 = 19;
-constexpr int HUD_WIFI_NONE = 20;
-constexpr int HUD_AIRPLANE = 21;
-constexpr int HUD_COUNT = 22;
+constexpr int kHudUser = 0;
+constexpr int kHudButtonA = 1;
+constexpr int kHudButtonPlus = 2;
+constexpr int kHudFolder = 3;
+constexpr int kHudVgcCard = 4;
+constexpr int kHudTopSelHome = 5;
+constexpr int kHudTopSelConnect = 6;
+constexpr int kHudTopSelEshop = 7;
+constexpr int kHudTopSelAlbum = 8;
+constexpr int kHudTopSelSettings = 9;
+constexpr int kHudTopDesHome = 10;
+constexpr int kHudTopDesConnect = 11;
+constexpr int kHudTopDesEshop = 12;
+constexpr int kHudTopDesAlbum = 13;
+constexpr int kHudTopDesSettings = 14;
+constexpr int kHudMarkerStrip = 15;
+constexpr int kHudWifi0 = 16;
+constexpr int kHudWifi1 = 17;
+constexpr int kHudWifi2 = 18;
+constexpr int kHudWifi3 = 19;
+constexpr int kHudWifiNone = 20;
+constexpr int kHudAirplane = 21;
+constexpr int kHudCount = 22;
 
 struct IconReq {
-    u64 tid;
+    u64 titleId;
     int rowIndex; /* row to write the slot into */
 };
 
 namespace Icons {
     /// @brief One HUD icon asset for the engine to decode and upload.
-    /// New icons only need a row in the caller's table (index = HUD_* id).
+    /// New icons only need a row in the caller's table (index = kHud* id).
     struct HudDef {
         const uint8_t *png;   ///< PNG bytes (bin2s symbol).
         const uint32_t *size; ///< PNG byte size (bin2s symbol).
@@ -53,11 +53,11 @@ namespace Icons {
     /// owns the fixed budget and scrolling rebalances it. Uncached
     /// rows keep slot -1 (fallback tile) until a later pass loads
     /// them; at most a full budget of icons loads per call.
-    /// @param tids Title ids per row.
-    /// @param slots Output slots per row.
-    /// @param n Row count.
-    /// @param focus Selected row the budget centers on.
-    void Sync(const u64 *tids, int *slots, int n, int focus);
+    /// @param titleIds Title ids per row.
+    /// @param outputSlots Output slots per row.
+    /// @param rowCount Row count.
+    /// @param focusedRow Selected row the budget centers on.
+    void Sync(const u64 *titleIds, int *outputSlots, int rowCount, int focusedRow);
 
     /// @brief Free all title icons.
     void FreeAll();
@@ -66,32 +66,40 @@ namespace Icons {
     void ResetHud();
 
     /// @brief Load HUD icons for the current theme from a caller table.
-    /// @param defs Asset table (index = HUD_* id), or null for none.
-    /// @param count Table length (clamped to HUD_COUNT).
+    /// @param assetDefs Asset table (index = kHud* id), or null for none.
+    /// @param assetCount Table length (clamped to kHudCount).
     /// @return True when at least one icon loaded.
-    bool InitHud(const HudDef *defs, int count);
+    bool InitHud(const HudDef *assetDefs, int assetCount);
 
     /// @brief Look up a HUD icon slot.
-    /// @param which HUD_* id.
+    /// @param hudId kHud* id.
     /// @return Icon slot, or <= 0 when missing.
-    int HudSlot(int which);
+    int HudSlot(int hudId);
 
     struct Entry {
-        u64 tid;
-        bool used;
-        u64 seq;
-        int slot;
+        u64 titleId;
+        bool isUsed;
+        u64 sequence;
+        int textureSlot;
     };
 
     /// @brief Upload RGBA pixels into an icon entry.
-    /// @param e Entry receiving the image.
-    /// @param rgba Pixel data.
-    /// @param w Width.
-    /// @param h Height.
+    /// @param iconEntry Entry receiving the image.
+    /// @param pixelData Pixel data.
+    /// @param imageWidth Width.
+    /// @param imageHeight Height.
     /// @return True on success.
-    bool Upload(Entry *e, const uint8_t *rgba, int w, int h);
+    bool Upload(Entry *iconEntry, const uint8_t *pixelData, int imageWidth, int imageHeight);
+
+    /// @brief Decode a PNG and upload it to a fresh texture slot.
+    /// @param pngData PNG bytes.
+    /// @param pngSize Byte size (64KB max).
+    /// @param downscale True to shrink art larger than 256px, like core art.
+    /// @param textureSlotOut Output texture slot, or -1 on failure.
+    /// @return True on success.
+    bool UploadPng(const uint8_t *pngData, unsigned pngSize, bool downscale, int *textureSlotOut);
 
     /// @brief Free an icon entry's GPU resources.
-    /// @param e Entry to free.
-    void Free(Entry *e);
+    /// @param iconEntry Entry to free.
+    void Free(Entry *iconEntry);
 } /* namespace Icons */

@@ -114,6 +114,7 @@ static bool g_winLive = false;
 /* Pointers to dynamic libraries */
 static void *g_neko;
 static void *g_sdl;
+static void *g_ffmpeg;
 static void *g_menu;
 static void *g_miniini;
 static void *g_json;
@@ -300,6 +301,10 @@ static void menu_unload(void)
         dlclose(g_sdl);
         g_sdl = nullptr;
     }
+    if (g_ffmpeg) {
+        dlclose(g_ffmpeg);
+        g_ffmpeg = nullptr;
+    }
     if (g_neko) {
         dlclose(g_neko);
         g_neko = nullptr;
@@ -344,6 +349,7 @@ enum BootStage {
     BootStage_Plugins,
     BootStage_Neko,
     BootStage_Sdl,
+    BootStage_Ffmpeg,
     BootStage_Menu,
     BootStage_Syms,
     BootStage_OnBoot,
@@ -432,6 +438,17 @@ static Result boot_step(void)
                 logging::LogLine("[qlaunch-ext] opening sdl3 at %p (dlerr=%s)", g_sdl,
                                  g_sdl ? "NONE" : dlerror());
                 if (!g_sdl)
+                    return boot_fail(MAKERESULT(Module_Libnx, LibnxError_NotFound));
+            }
+            g_bootStage = BootStage_Ffmpeg;
+            break;
+        case BootStage_Ffmpeg:
+            dlink_set_library_dir(NULL);
+            if (!g_ffmpeg) {
+                g_ffmpeg = dlopen("ffmpeg", RTLD_GLOBAL);
+                logging::LogLine("[qlaunch-ext] opening ffmpeg at %p (dlerr=%s)", g_ffmpeg,
+                                 g_ffmpeg ? "NONE" : dlerror());
+                if (!g_ffmpeg)
                     return boot_fail(MAKERESULT(Module_Libnx, LibnxError_NotFound));
             }
             g_bootStage = BootStage_Menu;

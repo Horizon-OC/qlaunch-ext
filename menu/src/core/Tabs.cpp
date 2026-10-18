@@ -3,130 +3,149 @@
 /* Pain... and suffering.           */
 
 #include "Tabs.hpp"
-#include "../widgets/Widgets.hpp"
 #include <cstring>
 
 namespace Tabs {
 
     namespace {
 
-        /// @brief Backing store for the tab registry.
-        MenuTab s_tabs[TAB_MAX];
+        /// @brief Tab registry, single global for all menu tabs.
+        struct TabRegistry {
+            MenuTab tabList[kTabMax];
+            int tabCount;
+        };
 
-        /// @brief Number of live entries in s_tabs.
-        int s_count = 0;
+        static TabRegistry s_registry = {};
 
         /// @brief Fill a MenuTab with safe defaults.
-        /// @param out Tab to initialize.
-        void ClearTab(MenuTab &out)
+        /// @param tabDescriptor Tab to initialize.
+        void ClearTab(MenuTab &tabDescriptor)
         {
-            memset(&out, 0, sizeof(out));
-            out.glyph = 0;
-            out.hudSel = -1;
-            out.hudDesel = -1;
-            out.jingle[0] = 0;
-            out.draw = NULL;
-            out.input = NULL;
-            out.onEnter = NULL;
-            out.onExit = NULL;
+            memset(&tabDescriptor, 0, sizeof(tabDescriptor));
+            tabDescriptor.glyph = 0;
+            tabDescriptor.hudSel = -1;
+            tabDescriptor.hudDesel = -1;
+            tabDescriptor.jingle[0] = 0;
+            tabDescriptor.draw = NULL;
+            tabDescriptor.input = NULL;
+            tabDescriptor.onEnter = NULL;
+            tabDescriptor.onExit = NULL;
         }
 
         /// @brief Copy a C string with truncation safety.
-        /// @param out Destination buffer.
-        /// @param outcap Size of the destination buffer.
-        /// @param src Source string.
-        static void CopyStr(char *out, unsigned outcap, const char *src) {
-            if (!out || !outcap) {
+        /// @param destinationBuffer Destination buffer.
+        /// @param destinationCapacity Size of the destination buffer.
+        /// @param sourceText Source string.
+        static void CopyStr(char *destinationBuffer, unsigned destinationCapacity, const char *sourceText)
+        {
+            if (!destinationBuffer || !destinationCapacity) {
                 return;
             }
 
-            if (!src) {
-                out[0] = 0;
+            if (!sourceText) {
+                destinationBuffer[0] = 0;
                 return;
             }
 
-            size_t len = strlen(src);
+            size_t sourceLength = strlen(sourceText);
 
-            if (len > (size_t)(outcap - 1)) {
-                len = (size_t)(outcap - 1);
+            if (sourceLength > (size_t)(destinationCapacity - 1)) {
+                sourceLength = (size_t)(destinationCapacity - 1);
             }
 
-            memcpy(out, src, len);
-            out[len] = 0;
+            memcpy(destinationBuffer, sourceText, sourceLength);
+            destinationBuffer[sourceLength] = 0;
         }
 
         /// @brief Copy a jingle clip name with truncation safety.
-        /// @param out Destination tab receiving the jingle.
-        /// @param jingle SFX clip name, or null/empty to mute.
-        void CopyJingle(MenuTab &out, const char *jingle)
+        /// @param destinationTab Destination tab receiving the jingle.
+        /// @param jingleName SFX clip name, or null/empty to mute.
+        void CopyJingle(MenuTab &destinationTab, const char *jingleName)
         {
-            if (!jingle || !jingle[0]) {
-                out.jingle[0] = 0;
+            if (!jingleName || !jingleName[0]) {
+                destinationTab.jingle[0] = 0;
                 return;
             }
 
-            CopyStr(out.jingle, sizeof(out.jingle), jingle);
+            CopyStr(destinationTab.jingle, sizeof(destinationTab.jingle), jingleName);
+        }
+
+        // Transplant: copy MakeHomeTab + its widget namespace to reuse this tab elsewhere.
+
+        /// @brief Build the Home tab descriptor.
+        /// @return MenuTab for Home (draw owned by Layout strip node).
+        MenuTab MakeHomeTab()
+        {
+            MenuTab tabDescriptor;
+            ClearTab(tabDescriptor);
+            CopyStr(tabDescriptor.id, sizeof(tabDescriptor.id), "home");
+            CopyStr(tabDescriptor.title, sizeof(tabDescriptor.title), "Home");
+            tabDescriptor.glyph = 0xE044;
+            CopyJingle(tabDescriptor, "home_jingle");
+            tabDescriptor.draw = NULL;
+            tabDescriptor.input = NULL;
+            return tabDescriptor;
         }
 
     } // namespace
 
     /// @brief Register a tab. Returns its index, or -1 when full.
-    /// @param tab Descriptor to copy into the registry.
+    /// @param sourceTab Descriptor to copy into the registry.
     /// @return Index of the tab, or -1 on failure.
-    int Register(const MenuTab &tab)
+    int Register(const MenuTab &sourceTab)
     {
-        if (s_count < 0 || s_count >= TAB_MAX) {
+        if (s_registry.tabCount < 0 || s_registry.tabCount >= kTabMax) {
             return -1;
         }
 
         /* Note: draw may be null (home renders via the gamestrip node). */
-        if (tab.id[0] == 0) {
+        if (sourceTab.id[0] == 0) {
             return -1;
         }
 
-        for (int i = 0; i < s_count; i++) {
-            if (strncmp(s_tabs[i].id, tab.id, TAB_ID_MAX) == 0) {
+        for (int tabIndex = 0; tabIndex < s_registry.tabCount; tabIndex++) {
+            if (strncmp(s_registry.tabList[tabIndex].id, sourceTab.id, kTabIdMax) == 0) {
                 return -1;
             }
         }
 
-        s_tabs[s_count] = tab;
-        s_tabs[s_count].id[TAB_ID_MAX - 1] = 0;
-        s_tabs[s_count].title[TAB_TITLE_MAX - 1] = 0;
-        return s_count++;
+        s_registry.tabList[s_registry.tabCount] = sourceTab;
+        s_registry.tabList[s_registry.tabCount].id[kTabIdMax - 1] = 0;
+        s_registry.tabList[s_registry.tabCount].title[kTabTitleMax - 1] = 0;
+        return s_registry.tabCount++;
     }
 
     /// @brief Number of registered tabs.
     /// @return Tab count.
     int Count()
     {
-        return s_count;
+        return s_registry.tabCount;
     }
 
     /// @brief Look up a tab by index.
-    /// @param i Tab index.
+    /// @param tabIndex Tab index.
     /// @return Pointer to the tab, or null when out of range.
-    const MenuTab *Get(int i)
+    const MenuTab *Get(int tabIndex)
     {
-        if (i < 0 || i >= s_count) {
+        if (tabIndex < 0 || tabIndex >= s_registry.tabCount) {
             return NULL;
         }
 
-        return &s_tabs[i];
+        return &s_registry.tabList[tabIndex];
     }
 
     /// @brief Look up a tab by string id.
-    /// @param id Tab id (for example "home").
+    /// @param tabId Tab id (for example "home").
     /// @return Index of the tab, or -1 when missing.
-    int FindById(const char *id)
+    int FindById(const char *tabId)
     {
-        if (!id || !id[0]) {
+        if (!tabId || !tabId[0]) {
             return -1;
         }
 
-        for (int i = 0; i < s_count; i++) {
-            if (strncmp(s_tabs[i].id, id, TAB_ID_MAX) == 0) {
-                return i;
+        for (int tabIndex = 0; tabIndex < s_registry.tabCount; tabIndex++) {
+            if (strncmp(s_registry.tabList[tabIndex].id, tabId, kTabIdMax) == 0) {
+                return tabIndex;
             }
         }
 
@@ -134,83 +153,70 @@ namespace Tabs {
     }
 
     /// @brief Override the jingle clip for a registered tab.
-    /// @param i Tab index from Register() or FindById().
-    /// @param jingle SFX clip name (for example "home_jingle"), or null/empty to mute.
+    /// @param tabIndex Tab index from Register() or FindById().
+    /// @param jingleName SFX clip name (for example "home_jingle"), or null/empty to mute.
     /// @return True on success.
-    bool SetJingle(int i, const char *jingle)
+    bool SetJingle(int tabIndex, const char *jingleName)
     {
-        if (i < 0 || i >= s_count) {
+        if (tabIndex < 0 || tabIndex >= s_registry.tabCount) {
             return false;
         }
 
-        CopyJingle(s_tabs[i], jingle);
+        CopyJingle(s_registry.tabList[tabIndex], jingleName);
         return true;
     }
 
     /// @brief Clear the registry. Used by tests and reboot.
     void Clear()
     {
-        for (int i = 0; i < TAB_MAX; i++) {
-            ClearTab(s_tabs[i]);
+        for (int tabIndex = 0; tabIndex < kTabMax; tabIndex++) {
+            ClearTab(s_registry.tabList[tabIndex]);
         }
 
-        s_count = 0;
+        s_registry.tabCount = 0;
     }
 
-    /// @brief Register the builtin tabs (home/connect/eshop/album/settings).
+    /// @brief Remove the tab at an index, shifting later tabs down.
+    /// @param tabIndex Tab index to remove.
+    /// @return True on success.
+    bool RemoveAt(int tabIndex)
+    {
+        if (tabIndex < 0 || tabIndex >= s_registry.tabCount) {
+            return false;
+        }
+
+        for (int moveIndex = tabIndex; moveIndex + 1 < s_registry.tabCount; moveIndex++) {
+            s_registry.tabList[moveIndex] = s_registry.tabList[moveIndex + 1];
+        }
+
+        ClearTab(s_registry.tabList[s_registry.tabCount - 1]);
+        s_registry.tabCount--;
+        return true;
+    }
+
+    /// @brief Override the icon slots for a registered tab.
+    /// @param tabIndex Tab index from Register() or FindById().
+    /// @param selectedSlot HUD icon slot when selected.
+    /// @param deselectedSlot HUD icon slot when deselected.
+    /// @return True on success.
+    bool SetIconSlots(int tabIndex, int selectedSlot, int deselectedSlot)
+    {
+        if (tabIndex < 0 || tabIndex >= s_registry.tabCount) {
+            return false;
+        }
+
+        s_registry.tabList[tabIndex].hudSel = selectedSlot;
+        s_registry.tabList[tabIndex].hudDesel = deselectedSlot;
+        return true;
+    }
+
+    /// @brief Register the builtin tabs (home only; everything else is a dynamic submenu).
     void RegisterBuiltin()
     {
         Clear();
 
-        MenuTab tab;
-        ClearTab(tab);
-
-        CopyStr(tab.id, sizeof(tab.id), "home");
-        CopyStr(tab.title, sizeof(tab.title), "Home");
-        tab.glyph = 0xE044;
-        CopyJingle(tab, "home_jingle");
-        tab.draw = NULL; /* Home draws via the gamestrip node. */
-        tab.input = NULL;
         /* Home keeps a null draw/input so Layout owns the strip node. */
-        Register(tab);
-
-        ClearTab(tab);
-        CopyStr(tab.id, sizeof(tab.id), "connect");
-        CopyStr(tab.title, sizeof(tab.title), "Friends");
-        tab.glyph = 0xE132;
-        CopyJingle(tab, "chat_jingle");
-        tab.draw = WConnect::Draw;
-        tab.input = WConnect::Input;
-        Register(tab);
-
-        ClearTab(tab);
-        CopyStr(tab.id, sizeof(tab.id), "eshop");
-        CopyStr(tab.title, sizeof(tab.title), "Shop");
-        tab.glyph = 0xE133;
-        CopyJingle(tab, "eshop_jingle");
-        tab.draw = WEShop::Draw;
-        tab.input = WEShop::Input;
-        Register(tab);
-
-        ClearTab(tab);
-        CopyStr(tab.id, sizeof(tab.id), "album");
-        CopyStr(tab.title, sizeof(tab.title), "Album");
-        tab.glyph = 0xE134;
-        CopyJingle(tab, "album_jingle");
-        tab.draw = WAlbum::Draw;
-        tab.input = NULL; /* Album input returns bool; routed by Layout. */
-        tab.onEnter = WAlbum::Open;
-        tab.onExit = WAlbum::Close;
-        Register(tab);
-
-        ClearTab(tab);
-        CopyStr(tab.id, sizeof(tab.id), "settings");
-        CopyStr(tab.title, sizeof(tab.title), "Settings");
-        tab.glyph = 0xE130;
-        CopyJingle(tab, "settings_jingle");
-        tab.draw = WSettings::Draw;
-        tab.input = WSettings::Input;
-        Register(tab);
+        Register(MakeHomeTab());
     }
 
 } // namespace Tabs

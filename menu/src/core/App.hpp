@@ -5,13 +5,13 @@
 #include <switch.h>
 #include "Theme.hpp"
 
-constexpr int APP_MAX_TITLES = 256;
-constexpr int APP_NAME_MAX = 192;
-constexpr int APP_APPLETS = 2;
+constexpr int kAppMaxTitles = 256;
+constexpr int kAppNameMax = 192;
+constexpr int kAppAppletCount = 2;
 
-constexpr int HOMESUB_GAMES = 0;
-constexpr int HOMESUB_FOLDERS = 1;
-constexpr int HOMESUB_VGC = 2;
+constexpr int kHomeSubGames = 0;
+constexpr int kHomeSubFolders = 1;
+constexpr int kHomeSubVgc = 2;
 
 /// @brief One row in the home game strip.
 struct AppRow {
@@ -20,7 +20,7 @@ struct AppRow {
     int applet; /* 0 album, 1 controllers */
     int iconSlot;
     bool ejected;
-    char name[APP_NAME_MAX];
+    char name[kAppNameMax];
 };
 
 /// @brief Phase of the menu slide transition.
@@ -51,15 +51,11 @@ struct FocusState {
 struct HomeState {
     int sub;
     float shiftY;
-    int settingsPage;
-    int settingsRow;
-    bool eshopNews;
-    int friendSel;
 };
 
 /// @brief Whole menu runtime state. Single global instead of ~20 loose ones.
 struct AppState {
-    AppRow rows[APP_MAX_TITLES + APP_APPLETS];
+    AppRow rows[kAppMaxTitles + kAppAppletCount];
     int rowCount;
     int sel;
     MenuTransition menu;
@@ -102,9 +98,9 @@ namespace App {
     void RefreshTitles();
 
     /// @brief Activate whatever is focused (top bar, bottom bar, title).
-    /// @param held Buttons currently held (forwarded to prompts).
+    /// @param buttonsHeld Buttons currently held (forwarded to prompts).
     /// @return True when the A press was consumed.
-    bool Activate(u64 held);
+    bool Activate(u64 heldButtons);
 
     /// @brief Launch a game title with blackout and jingles.
     /// @param tid Title id to launch.
@@ -226,38 +222,6 @@ namespace App {
 
     /// @brief Tick the home shift spring toward its target.
     void UpdateHomeShift();
-
-    /// @brief Give the settings page (-1 = option list).
-    /// @return Page index.
-    int SettingsPage();
-
-    /// @brief Set the settings page and reset the row cursor.
-    /// @param p New page.
-    void SetSettingsPage(int p);
-
-    /// @brief Give the settings row cursor.
-    /// @return Row index.
-    int SettingsRow();
-
-    /// @brief Set the settings row cursor.
-    /// @param r New row.
-    void SetSettingsRow(int r);
-
-    /// @brief Whether the shop shows news instead of the grid.
-    /// @return True for news.
-    bool EShopNews();
-
-    /// @brief Set the shop news flag.
-    /// @param n New flag.
-    void SetEShopNews(bool n);
-
-    /// @brief Give the friends selection cursor.
-    /// @return Index.
-    int FriendSel();
-
-    /// @brief Set the friends selection cursor.
-    /// @param s New index.
-    void SetFriendSel(int s);
 
     /// @brief Give menu time in seconds (60Hz ticks).
     /// @return Seconds.

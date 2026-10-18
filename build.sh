@@ -18,6 +18,7 @@ fi
 
 NEKOMOD="$ROOT/extern/SDL-dlink/extern/neko3d/neko3d-module"
 NEKOSRC="$ROOT/extern/SDL-dlink/extern/neko3d"
+FFDIR="$ROOT/extern/FFmpeg-dlink"
 
 # newer <target> <roots...>: true when target is missing or any file under
 # roots is newer. Pure mtime vs real artifacts (no state files), so slow
@@ -46,11 +47,24 @@ make -C "$ROOT/lib/miniini-module" -j"$(nproc)"
 make -C "$ROOT/lib/json-module" -j"$(nproc)"
 # Shared hashing for menus and plugins.
 make -C "$ROOT/lib/xxhash-module" -j"$(nproc)"
-# ffmpeg libs for the menu (built once from extern/ffmpeg, gitignored).
-if [ ! -f "$ROOT/extern/ffmpeg-install/lib/libavcodec.a" ]; then
+# ffmpeg static archives for headers + dnro link (built once, gitignored).
+if [ ! -f "$FFDIR/install/lib/libavcodec.a" ]; then
     sh "$ROOT/build-ffmpeg.sh"
 fi
+# ffmpeg shared module for sdmc:/lib (album submenu imports av_* from it).
+if [ ! -d "$FFDIR/dnro" ]; then
+    echo "error: $FFDIR/dnro missing; run: git submodule update --init extern/FFmpeg-dlink" >&2
+    exit 1
+fi
+make -C "$FFDIR/dnro" -j"$(nproc)" FFPREFIX="$FFDIR/install" DLINK="$ROOT/extern/libnx-dlink"
 make -C "$ROOT/menu" -j"$(nproc)"
+if [ -d "$ROOT/menu/submenus" ]; then
+    for p in "$ROOT"/menu/submenus/*/; do
+        if [ -f "${p}Makefile" ]; then
+            make -C "$p" -j"$(nproc)"
+        fi
+    done
+fi
 if [ -d "$ROOT/plugins" ]; then
     for p in "$ROOT"/plugins/*/; do
         if [ -f "${p}Makefile" ]; then
@@ -68,6 +82,7 @@ make -C "$ROOT/loader" -j"$(nproc)"
 HOST_ELF="$ROOT/loader/loader.elf" sh "$ROOT/extern/SDL-dlink/build.sh"
 
 NM="$DEVKITPRO/devkitA64/bin/aarch64-none-elf-nm"
+FFDEF="$FFDIR/dnro/ffmpeg.def"
 # Menu ABI check: every menu import (including SDL_*) must resolve from the
 # loader, sdl3, neko3d, or the lib modules. A menu that imports what nobody
 # provides dies at dlopen with a bare dlink COULD_NOT_RESOLVE.
@@ -75,7 +90,7 @@ NM="$DEVKITPRO/devkitA64/bin/aarch64-none-elf-nm"
 { "$NM" -D --defined-only "$ROOT/loader/loader.elf" | awk "{print \$NF}"
   cat "$ROOT/extern/SDL-dlink/dnro/sdl3.def" "$NEKOMOD/neko3d.def" \
       "$ROOT/lib/miniini-module/miniini.def" "$ROOT/lib/json-module/json.def" \
-      "$ROOT/lib/xxhash-module/xxhash.def"
+      "$ROOT/lib/xxhash-module/xxhash.def" "$FFDEF"
 } | tr -d '\r' | sort -u > "$ROOT/build.menuhave"
 MMISSING=$(comm -23 "$ROOT/build.menuneed" "$ROOT/build.menuhave" || true)
 rm -f "$ROOT/build.menuneed" "$ROOT/build.menuhave"
@@ -85,12 +100,26 @@ if [ -n "$MMISSING" ]; then
     exit 1
 fi
 echo "menu import check passed"
-for p in "$ROOT"/plugins/*/*.elf; do
+# ffmpeg ABI check: the shared module may only import what the loader host
+# provides (libc/libnx/pthreads/nv). Anything else dies at dlopen.
+"$NM" -D -u "$FFDIR/dnro/ffmpeg.elf" | awk "{print \$NF}" | sort -u > "$ROOT/build.ffneed"
+{ "$NM" -D --defined-only "$ROOT/loader/loader.elf" | awk "{print \$NF}"
+} | tr -d '\r' | sort -u > "$ROOT/build.ffhave"
+FMISSING=$(comm -23 "$ROOT/build.ffneed" "$ROOT/build.ffhave" || true)
+rm -f "$ROOT/build.ffneed" "$ROOT/build.ffhave"
+if [ -n "$FMISSING" ]; then
+    echo "error: $FFDIR/dnro/ffmpeg.elf bad imports:" >&2
+    echo "$FMISSING" >&2
+    exit 1
+fi
+echo "ffmpeg import check passed"
+for p in "$ROOT"/plugins/*/*.elf "$ROOT"/menu/submenus/*/*.elf; do
     [ -f "$p" ] || continue
     "$NM" -D -u "$p" | awk "{print \$NF}" | sort -u > "$ROOT/build.plugneed"
     { "$NM" -D --defined-only "$ROOT/loader/loader.elf" | awk "{print \$NF}"
       cat "$NEKOMOD/neko3d.def" "$ROOT/lib/miniini-module/miniini.def" \
-          "$ROOT/lib/json-module/json.def" "$ROOT/lib/xxhash-module/xxhash.def"
+          "$ROOT/lib/json-module/json.def" "$ROOT/lib/xxhash-module/xxhash.def" \
+          "$FFDEF"
     } | sort -u > "$ROOT/build.plughave"
     PMISSING=$(comm -23 "$ROOT/build.plugneed" "$ROOT/build.plughave" || true)
     rm -f "$ROOT/build.plugneed" "$ROOT/build.plughave"
@@ -114,8 +143,16 @@ cp "$ROOT/extern/SDL-dlink/dist/lib/sdl3.dnro" "$PKG/lib/sdl3.dnro"
 cp "$ROOT/lib/miniini-module/miniini.dnro" "$PKG/lib/miniini.dnro"
 cp "$ROOT/lib/json-module/json.dnro" "$PKG/lib/json.dnro"
 cp "$ROOT/lib/xxhash-module/xxhash.dnro" "$PKG/lib/xxhash.dnro"
+cp "$FFDIR/dnro/ffmpeg.dnro" "$PKG/lib/ffmpeg.dnro"
 mkdir -p "$PKG/qlaunch-ext/menus"
 cp "$ROOT/menu/menu.dnro" "$PKG/qlaunch-ext/menus/menu.dnro"
+mkdir -p "$PKG/qlaunch-ext/NekoMenu/submenus"
+for f in "$ROOT"/menu/submenus/*/*.dnro; do
+    if [ -f "$f" ]; then
+        cp "$f" "$PKG/qlaunch-ext/NekoMenu/submenus/"
+    fi
+done
+mkdir -p "$PKG/qlaunch-ext/NekoMenu/widgets"
 for f in "$ROOT"/plugins/*/*.dnro; do
     if [ -f "$f" ]; then
         cp "$f" "$PKG/qlaunch-ext/plugins/"

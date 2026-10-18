@@ -5,16 +5,16 @@
 #pragma once
 #include <switch.h>
 
-constexpr int TAB_MAX = 8;
-constexpr int TAB_ID_MAX = 24;
-constexpr int TAB_TITLE_MAX = 48;
-constexpr int TAB_JINGLE_MAX = 32;
+constexpr int kTabMax = 12;
+constexpr int kTabIdMax = 24;
+constexpr int kTabTitleMax = 48;
+constexpr int kTabJingleMax = 32;
 
 /// @brief Draw callback for a menu tab.
 typedef void (*TabDrawFn)(void);
 
 /// @brief Input callback for a menu tab.
-typedef void (*TabInputFn)(u64 down, u64 held);
+typedef void (*TabInputFn)(u64 buttonsDown, u64 buttonsHeld);
 
 /// @brief Lifecycle callback for a menu tab.
 typedef void (*TabLifeFn)(void);
@@ -25,12 +25,12 @@ typedef void (*TabLifeFn)(void);
 /// layout.json may override it per tab, and App plays it via
 /// Sfx::PlayByName() when the tab becomes active.
 struct MenuTab {
-    char id[TAB_ID_MAX];
-    char title[TAB_TITLE_MAX];
+    char id[kTabIdMax];
+    char title[kTabTitleMax];
     unsigned glyph;
     int hudSel;
     int hudDesel;
-    char jingle[TAB_JINGLE_MAX];
+    char jingle[kTabJingleMax];
     TabDrawFn draw;
     TabInputFn input;
     TabLifeFn onEnter;
@@ -67,7 +67,19 @@ namespace Tabs {
     /// @brief Clear the registry. Used by tests and reboot.
     void Clear();
 
-    /// @brief Register the builtin tabs (home/connect/eshop/album/settings).
+    /// @brief Remove the tab at an index, shifting later tabs down.
+    /// @param tabIndex Tab index to remove.
+    /// @return True on success.
+    bool RemoveAt(int tabIndex);
+
+    /// @brief Override the icon slots for a registered tab.
+    /// @param tabIndex Tab index from Register() or FindById().
+    /// @param selectedSlot HUD icon slot when selected.
+    /// @param deselectedSlot HUD icon slot when deselected.
+    /// @return True on success.
+    bool SetIconSlots(int tabIndex, int selectedSlot, int deselectedSlot);
+
+    /// @brief Register the builtin tabs (home only; everything else is a dynamic submenu).
     void RegisterBuiltin();
 
 } /* namespace Tabs */
