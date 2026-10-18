@@ -793,6 +793,7 @@ namespace WStrip {
     /// @param layoutNode Gamestrip node carrying tile geometry.
     void Draw(const LayoutNode &layoutNode)
     {
+        Gfx::PushLayer(Gfx::GfxLayer::GameStrip);
         float cornerRadius = 24.0f;
         float frameWidth = 6.0f;
         float tileSize = layoutNode.tile > 0.0f ? layoutNode.tile : 384.0f;
@@ -944,11 +945,13 @@ namespace WStrip {
             }
         }
 
+        Gfx::PopLayer();
     }
 
     /// @brief Draw folders/VGC sub-screens under the strip.
     void DrawSubs()
     {
+        Gfx::PushLayer(Gfx::GfxLayer::GameStrip);
         float slideOffsetX = Layout::ShiftX();
         float shiftOffsetY = App::HomeShiftY();
 
@@ -1096,6 +1099,7 @@ namespace WStrip {
                 }
             }
         }
+        Gfx::PopLayer();
     }
 
     /// @brief Step the strip selection.

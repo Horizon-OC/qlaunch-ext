@@ -69,11 +69,15 @@ namespace WBottomBar {
     /// @brief Draw the bottom bar (pad icon + home shortcuts).
     void Draw()
     {
+        Gfx::PushLayer(Gfx::GfxLayer::MenuBar);
         float menuBarRed = 0.0f;
         float menuBarGreen = 0.0f;
         float menuBarBlue = 0.0f;
         Theme::Color("menubar", &menuBarRed, &menuBarGreen, &menuBarBlue);
         Gfx::PushPanel(0.0f, kBottomBarY, 1920.0f, kBottomBarHeight, 0.0f, menuBarRed, menuBarGreen, menuBarBlue, 1.0f);
+        Gfx::PopLayer();
+
+        Gfx::PushLayer(Gfx::GfxLayer::MenuBarItems);
 
         float inkRed = 0.0f;
         float inkGreen = 0.0f;
@@ -137,6 +141,8 @@ namespace WBottomBar {
                 }
             }
         }
+
+        Gfx::PopLayer();
     }
 
     /// @brief Handle bottom-bar navigation input.

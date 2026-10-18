@@ -48,20 +48,25 @@ namespace Gfx {
 
         struct CQ {
             float x, y, r, g, b, a;
+            int layer;
         };
         struct TQ {
             float x, y, u, v, r, g, b, a;
+            int layer;
         };
         struct PQ {
             float x, y, w, h, rTL, rTR, rBR, rBL, r, g, b, a;
+            int layer;
         };
         struct IQ {
             float x, y, w, h, rTL, rTR, rBR, rBL, u0, v0, u1, v1, r, g, b, a;
             int slot;
+            int layer;
         };
         struct HQ {
             float x, y, w, h, rad, thick, rot;
             float c0[4], c1[4], c2[4], c3[4];
+            int layer;
         };
 
         /// @brief Queued draw commands, part of the single graphics state.
@@ -70,8 +75,6 @@ namespace Gfx {
             int colorCount;
             TQ textQueue[3][kGfxTextMax];
             int textCount[3];
-            TQ textQueueBack[3][kGfxTextMax];
-            int textCountBack[3];
             PQ panelQueue[kGfxPanelMax];
             int panelCount;
             IQ iconQueue[kGfxIconQueueMax];
@@ -96,6 +99,10 @@ namespace Gfx {
 
         static GfxQueues s_queues = {};
         static GfxBatch s_batch = {};
+
+        /// @brief Active draw-layer stack (Base at depth 0).
+        static int s_layerStack[kGfxLayerStackMax] = { 0 };
+        static int s_layerDepth = 0;
 
         static void Submit(SDL_Texture *textureSlot, SDL_Vertex *v, int n);
 
@@ -726,23 +733,11 @@ namespace Gfx {
         FlushRun();
     }
 
-    void DrawPanelsBg()
+    void DrawPanels(int layer)
     {
-        int n = 0;
-        if (s_queues.panelCount <= 0)
-            return;
-        n = TessRRectCorners(s_batch.scratch, kGfxTempVertices, s_queues.panelQueue[0].x, s_queues.panelQueue[0].y,
-                      s_queues.panelQueue[0].w, s_queues.panelQueue[0].h,
-                      s_queues.panelQueue[0].rTL, s_queues.panelQueue[0].rTR,
-                      s_queues.panelQueue[0].rBR, s_queues.panelQueue[0].rBL,
-                      s_queues.panelQueue[0].r, s_queues.panelQueue[0].g, s_queues.panelQueue[0].b, s_queues.panelQueue[0].a);
-        EmitRun(NULL, s_batch.scratch, n);
-        FlushRun();
-    }
-
-    void DrawPanels()
-    {
-        for (int i = 1; i < s_queues.panelCount; i++) {
+        for (int i = 0; i < s_queues.panelCount; i++) {
+            if (s_queues.panelQueue[i].layer != layer)
+                continue;
             int n = TessRRectCorners(s_batch.scratch, kGfxTempVertices, s_queues.panelQueue[i].x, s_queues.panelQueue[i].y,
                               s_queues.panelQueue[i].w, s_queues.panelQueue[i].h,
                               s_queues.panelQueue[i].rTL, s_queues.panelQueue[i].rTR,
@@ -753,9 +748,11 @@ namespace Gfx {
         FlushRun();
     }
 
-    void DrawHighlights()
+    void DrawHighlights(int layer)
     {
         for (int i = 0; i < s_queues.highlightCount; i++) {
+            if (s_queues.highlightQueue[i].layer != layer)
+                continue;
             HQ *q = &s_queues.highlightQueue[i];
             int n = TessRing(s_batch.scratch, kGfxTempVertices, q->x, q->y, q->w, q->h, q->rad,
                              q->thick, q->c0, q->c1, q->c2, q->c3, q->rot);
@@ -764,11 +761,13 @@ namespace Gfx {
         FlushRun();
     }
 
-    void DrawIcons()
+    void DrawIcons(int layer)
     {
         for (int i = 0; i < s_queues.iconCount; i++) {
             IQ *q = &s_queues.iconQueue[i];
             int n;
+            if (q->layer != layer)
+                continue;
             if (!TexValid(q->slot) || q->slot >= kGfxTextureSlotMax || !s_textureStore.handles[q->slot])
                 continue;
             n = TessRRectTex(s_batch.scratch, kGfxTempVertices, q->x, q->y, q->w, q->h,
@@ -825,12 +824,14 @@ namespace Gfx {
     /// @param texSlot Texture slot.
     /// @param queue Quad queue.
     /// @param count Queued vertex count.
-    static void EmitTextBuf(int texSlot, const TQ *queue, int count)
+    static void EmitTextBuf(int texSlot, const TQ *queue, int count, int layer)
     {
         int n = 0;
         if (texSlot < 0 || texSlot >= kGfxTextureSlotMax || !s_textureStore.handles[texSlot])
             return;
         for (int i = 0; i + 6 <= count; i += 6) {
+            if (queue[i].layer != layer)
+                continue;
             if (n + 6 > kGfxTempVertices) {
                 EmitRun(s_textureStore.handles[texSlot], s_batch.scratch, n);
                 n = 0;
@@ -851,18 +852,11 @@ namespace Gfx {
         FlushRun();
     }
 
-    void DrawTextBuf(int texSlot, int buf)
+    void DrawTextBuf(int texSlot, int buf, int layer)
     {
         if (buf < 0 || buf > 2)
             return;
-        EmitTextBuf(texSlot, s_queues.textQueue[buf], s_queues.textCount[buf]);
-    }
-
-    void DrawTextBufBack(int texSlot, int buf)
-    {
-        if (buf < 0 || buf > 2)
-            return;
-        EmitTextBuf(texSlot, s_queues.textQueueBack[buf], s_queues.textCountBack[buf]);
+        EmitTextBuf(texSlot, s_queues.textQueue[buf], s_queues.textCount[buf], layer);
     }
 
     void EndFrame()
@@ -984,6 +978,21 @@ namespace Gfx {
         SDL_UnlockTexture(s_textureStore.handles[slot]);
     }
 
+    void PushLayer(GfxLayer layer)
+    {
+        if (s_layerDepth + 1 >= kGfxLayerStackMax)
+            return;
+        s_layerDepth++;
+        s_layerStack[s_layerDepth] = (int)layer;
+    }
+
+    void PopLayer()
+    {
+        if (s_layerDepth <= 0)
+            return;
+        s_layerDepth--;
+    }
+
     void PushQuad(float positionX, float positionY, float width, float height,
                   float red, float green, float blue, float alpha)
     {
@@ -1016,6 +1025,7 @@ namespace Gfx {
             quadVertices[vertexIndex].g = green;
             quadVertices[vertexIndex].b = blue;
             quadVertices[vertexIndex].a = alpha;
+            quadVertices[vertexIndex].layer = s_layerStack[s_layerDepth];
         }
 
         s_queues.colorCount += 6;
@@ -1047,6 +1057,7 @@ namespace Gfx {
         panelQuad->g = green;
         panelQuad->b = blue;
         panelQuad->a = alpha;
+        panelQuad->layer = s_layerStack[s_layerDepth];
         s_queues.panelCount++;
     }
 
@@ -1077,6 +1088,7 @@ namespace Gfx {
         panelQuad->g = green;
         panelQuad->b = blue;
         panelQuad->a = alpha;
+        panelQuad->layer = s_layerStack[s_layerDepth];
         s_queues.panelCount++;
     }
 
@@ -1117,6 +1129,7 @@ namespace Gfx {
         iconQuad->b = blue;
         iconQuad->a = alpha;
         iconQuad->slot = textureSlot;
+        iconQuad->layer = s_layerStack[s_layerDepth];
         s_queues.iconCount++;
         return quadId;
     }
@@ -1155,6 +1168,7 @@ namespace Gfx {
             v[i].g = g;
             v[i].b = b;
             v[i].a = a;
+            v[i].layer = s_layerStack[s_layerDepth];
         }
         s_queues.overlayColorCount += 6;
     }
@@ -1180,6 +1194,7 @@ namespace Gfx {
         q->g = g;
         q->b = b;
         q->a = a;
+        q->layer = s_layerStack[s_layerDepth];
         s_queues.overlayPanelCount++;
     }
 
@@ -1208,6 +1223,7 @@ namespace Gfx {
             q->c2[i] = c2[i];
             q->c3[i] = c3[i];
         }
+        q->layer = s_layerStack[s_layerDepth];
         s_queues.overlayHighlightCount++;
     }
 
@@ -1234,24 +1250,21 @@ namespace Gfx {
             q->c2[i] = c2[i];
             q->c3[i] = c3[i];
         }
+        q->layer = s_layerStack[s_layerDepth];
         s_queues.highlightCount++;
     }
 
     void PushText(int buf, float x0, float y0, float x1, float y1,
                   float s0, float t0, float s1, float t1,
-                  float r, float g, float b, float a, bool behindOverlay)
+                  float r, float g, float b, float a)
     {
         TQ *v;
         float X0 = X(x0), Y0 = Y(y0), X1 = X(x1), Y1 = Y(y1);
-        if (buf < 0 || buf > 2)
-            return;
-        TQ *queue = behindOverlay ? s_queues.textQueueBack[buf] : s_queues.textQueue[buf];
-        int queueCount = behindOverlay ? s_queues.textCountBack[buf] : s_queues.textCount[buf];
-        if (queueCount + 6 > kGfxTextMax)
+        if (buf < 0 || buf > 2 || s_queues.textCount[buf] + 6 > kGfxTextMax)
             return;
         if (x1 <= x0 || y1 <= y0)
             return;
-        v = &queue[queueCount];
+        v = &s_queues.textQueue[buf][s_queues.textCount[buf]];
         v[0].x = X0;
         v[0].y = Y0;
         v[0].u = s0;
@@ -1281,11 +1294,9 @@ namespace Gfx {
             v[i].g = g;
             v[i].b = b;
             v[i].a = a;
+            v[i].layer = s_layerStack[s_layerDepth];
         }
-        if (behindOverlay)
-            s_queues.textCountBack[buf] += 6;
-        else
-            s_queues.textCount[buf] += 6;
+        s_queues.textCount[buf] += 6;
     }
 
     void ResetCounts()
@@ -1299,9 +1310,8 @@ namespace Gfx {
         s_queues.textCount[0] = 0;
         s_queues.textCount[1] = 0;
         s_queues.textCount[2] = 0;
-        s_queues.textCountBack[0] = 0;
-        s_queues.textCountBack[1] = 0;
-        s_queues.textCountBack[2] = 0;
+        s_layerDepth = 0;
+        s_layerStack[0] = 0;
         s_queues.panelCount = 0;
         s_queues.iconCount = 0;
         s_queues.highlightCount = 0;

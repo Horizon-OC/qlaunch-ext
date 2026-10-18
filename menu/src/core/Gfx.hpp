@@ -17,8 +17,20 @@ constexpr int kGfxOverlayPanelMax = 32;
 constexpr int kGfxOverlayHighlightMax = 16;
 
 constexpr int kGfxMaxTextures = 256;
+constexpr int kGfxLayerStackMax = 8;
 
 namespace Gfx {
+
+    /// @brief Draw layers, flushed in order once per frame.
+    enum class GfxLayer : int {
+        Base,
+        GameStrip,
+        MenuBar,
+        MenuBarItems,
+        Overlay,
+    };
+
+    constexpr int kGfxLayerCount = 5;
 
     /// @brief Pixel source format for TexUpload.
     enum class TexFormat {
@@ -47,17 +59,25 @@ namespace Gfx {
     /// @brief Render queued solid-color quads.
     void DrawColor();
 
-    /// @brief Render the fullscreen background quad.
-    void DrawPanelsBg();
+    /// @brief Push a draw layer; primitives queue onto it until popped.
+    /// Unbalanced pushes reset every frame, so pair each push with a pop.
+    /// @param layer Layer to draw onto.
+    void PushLayer(GfxLayer layer);
 
-    /// @brief Render queued rounded panels.
-    void DrawPanels();
+    /// @brief Pop back to the previous draw layer (Base when empty).
+    void PopLayer();
 
-    /// @brief Render queued highlight rings.
-    void DrawHighlights();
+    /// @brief Render one layer of queued rounded panels.
+    /// @param layer Layer index.
+    void DrawPanels(int layer);
 
-    /// @brief Render queued icon quads.
-    void DrawIcons();
+    /// @brief Render one layer of queued highlight rings.
+    /// @param layer Layer index.
+    void DrawHighlights(int layer);
+
+    /// @brief Render one layer of queued icon quads.
+    /// @param layer Layer index.
+    void DrawIcons(int layer);
 
     /// @brief Render queued overlay quads, panels, and rings above icons.
     void DrawOverlay();
@@ -260,20 +280,15 @@ namespace Gfx {
     /// @param green Green 0-1.
     /// @param blue Blue 0-1.
     /// @param alpha Alpha 0-1.
-    /// @param behindOverlay True for the pre-overlay layer.
     void PushText(int buf, float x0, float y0, float x1, float y1,
                   float s0, float t0, float s1, float t1,
-                  float r, float g, float b, float a = 1.0f, bool behindOverlay = true);
+                  float r, float g, float b, float a = 1.0f);
 
-    /// @brief Render a text buffer through a texture slot.
+    /// @brief Render one layer of a text buffer through a texture slot.
     /// @param texSlot Texture slot.
     /// @param buf Text buffer id.
-    void DrawTextBuf(int texSlot, int buf);
-
-    /// @brief Render the behind-overlay text layer through a slot.
-    /// @param texSlot Texture slot.
-    /// @param buf Text buffer id.
-    void DrawTextBufBack(int texSlot, int buf);
+    /// @param layer Layer index.
+    void DrawTextBuf(int texSlot, int buf, int layer);
 
     /// @brief Reset per-frame queue counts.
     void ResetCounts();

@@ -426,6 +426,7 @@ namespace WTopBar {
     void Draw(const LayoutNode &layoutNode)
     {
         (void)layoutNode;
+        Gfx::PushLayer(Gfx::GfxLayer::MenuBar);
 
         int focusedTabIndex = App::TopFocus() ? App::TopSel() : -1;
 
@@ -445,10 +446,13 @@ namespace WTopBar {
         float menuBarBlue = 0.0f;
         Theme::Color("menubar", &menuBarRed, &menuBarGreen, &menuBarBlue);
         Gfx::PushPanel(0.0f, 0.0f, 1920.0f, kTopBarHeight, 0.0f, menuBarRed, menuBarGreen, menuBarBlue, 1.0f);
+        Gfx::PopLayer();
 
+        Gfx::PushLayer(Gfx::GfxLayer::MenuBarItems);
         DrawAvatars();
         DrawTabStrip(App::Menu());
         DrawStatusCluster();
+        Gfx::PopLayer();
     }
 
     /// @brief Handle top-bar navigation input.

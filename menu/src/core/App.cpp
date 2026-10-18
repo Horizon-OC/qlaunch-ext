@@ -313,17 +313,21 @@ namespace App {
             }
 
             Gfx::DrawColor();
-            Gfx::DrawPanelsBg();
-            Gfx::DrawPanels();
-            Gfx::DrawHighlights();
-            Gfx::DrawIcons();
-            Gfx::DrawTextBufBack(Font::Slot(kFontBufLatin), kFontBufLatin);
-            Gfx::DrawTextBufBack(Font::Slot(kFontBufKana), kFontBufKana);
-            Gfx::DrawTextBufBack(Font::Slot(kFontBufIcon), kFontBufIcon);
-            Gfx::DrawOverlay();
-            Gfx::DrawTextBuf(Font::Slot(kFontBufLatin), kFontBufLatin);
-            Gfx::DrawTextBuf(Font::Slot(kFontBufKana), kFontBufKana);
-            Gfx::DrawTextBuf(Font::Slot(kFontBufIcon), kFontBufIcon);
+
+            for (int layerIndex = 0; layerIndex < Gfx::kGfxLayerCount; layerIndex++) {
+                Gfx::DrawPanels(layerIndex);
+                Gfx::DrawHighlights(layerIndex);
+                Gfx::DrawIcons(layerIndex);
+
+                if (layerIndex == (int)Gfx::GfxLayer::Overlay) {
+                    Gfx::DrawOverlay();
+                }
+
+                Gfx::DrawTextBuf(Font::Slot(kFontBufLatin), kFontBufLatin, layerIndex);
+                Gfx::DrawTextBuf(Font::Slot(kFontBufKana), kFontBufKana, layerIndex);
+                Gfx::DrawTextBuf(Font::Slot(kFontBufIcon), kFontBufIcon, layerIndex);
+            }
+
             Gfx::EndFrame();
         }
 

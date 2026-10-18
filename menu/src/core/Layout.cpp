@@ -436,7 +436,9 @@ namespace Layout {
 
         if (fullTab >= 0) {
             Gfx::PushPanel(0.0f, 0.0f, 1920.0f, 1080.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f);
+            Gfx::PushLayer(Gfx::GfxLayer::GameStrip);
             Submenus::DrawDynamicTab(fullTab);
+            Gfx::PopLayer();
             if (WPopup::IsOpen()) {
                 WPopup::Draw();
             }
@@ -450,6 +452,8 @@ namespace Layout {
         }
 
         float transitionProgress = App::MenuT();
+
+        Gfx::PushLayer(Gfx::GfxLayer::GameStrip);
 
         switch (App::MenuPhaseOf()) {
             case MenuPhase_Idle:
@@ -472,6 +476,8 @@ namespace Layout {
                 }
                 break;
         }
+
+        Gfx::PopLayer();
 
         for (int nodeIndex = 0; nodeIndex < s_doc.nodeCount; nodeIndex++) {
             if (strcmp(s_doc.nodes[nodeIndex].type, "topbar") == 0) {

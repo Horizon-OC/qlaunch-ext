@@ -219,7 +219,7 @@ namespace Font {
         /// @param a Alpha 0-1.
         /// @return End pen position.
         static float Pen(const char *s, float x, float y, float px, bool dry,
-                        float r, float g, float b, float alpha, bool behindOverlay)
+                        float r, float g, float b, float alpha)
     {
         if (!s || !s_state.isInitialized)
             return x;
@@ -259,7 +259,7 @@ namespace Font {
             pen = before + (xpos - before) * scale;
             if (!dry && x1 > x0 && y1 > y0)
                 Gfx::PushText(buf, x0, y0, x1, y1, q.s0, q.t0, q.s1, q.t1,
-                            r, g, b, alpha, behindOverlay);
+                            r, g, b, alpha);
         }
         return pen;
     }
@@ -275,9 +275,9 @@ namespace Font {
         /// @param a Alpha 0-1.
         /// @return Advance width drawn.
         float Draw(const char *s, float x, float y, float px,
-                float r, float g, float b, float a, bool behindOverlay)
+                float r, float g, float b, float a)
     {
-        return Pen(s, x, y, px, false, r, g, b, a, behindOverlay);
+        return Pen(s, x, y, px, false, r, g, b, a);
     }
 
         /// @brief Measure a string without drawing.
@@ -286,7 +286,7 @@ namespace Font {
         /// @return Advance width.
         float Measure(const char *s, float px)
     {
-        return Pen(s, 0.0f, 0.0f, px, true, 0.0f, 0.0f, 0.0f, 1.0f, true);
+        return Pen(s, 0.0f, 0.0f, px, true, 0.0f, 0.0f, 0.0f, 1.0f);
     }
 
         /// @brief Draw a string centered on X with a max width.
@@ -300,14 +300,14 @@ namespace Font {
         /// @param b Blue 0-1.
         /// @param a Alpha 0-1.
         void Centered(const char *s, float cx, float y, float px, float maxW,
-                    float r, float g, float b, float a, bool behindOverlay)
+                    float r, float g, float b, float a)
     {
         float w = Measure(s, px);
         while (w > maxW && px > 14.0f) {
             px -= 2.0f;
             w = Measure(s, px);
         }
-        Draw(s, cx - w * 0.5f, y, px, r, g, b, a, behindOverlay);
+        Draw(s, cx - w * 0.5f, y, px, r, g, b, a);
     }
 } /* namespace Font */
 

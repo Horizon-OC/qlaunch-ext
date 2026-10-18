@@ -116,7 +116,7 @@ namespace WPopup {
             }
 
             Font::Centered(labelText, itemX + itemWidth * 0.5f, labelBaselineY, labelPx, labelMaxW,
-                            inkRed, inkGreen, inkBlue, 1.0f, false);
+                            inkRed, inkGreen, inkBlue);
         }
 
     } // namespace
@@ -220,6 +220,8 @@ namespace WPopup {
             return;
         }
 
+        Gfx::PushLayer(Gfx::GfxLayer::Overlay);
+
         float menuBarRed = 0.0f;
         float menuBarGreen = 0.0f;
         float menuBarBlue = 0.0f;
@@ -252,8 +254,8 @@ namespace WPopup {
             Gfx::PushOverlayPanel(panelX, panelY, kPopupRowWidth, kPopupRowHeight, 24.0f,
                                    backgroundRed, backgroundGreen, backgroundBlue, 1.0f);
 
-            Font::Centered(s_state.title, 960.0f, panelY + 100.0f, 40.0f, 700.0f, inkRed, inkGreen, inkBlue, 1.0f, false);
-            Font::Centered(s_state.message, 960.0f, panelY + 160.0f, 30.0f, 700.0f, dimRed, dimGreen, dimBlue, 1.0f, false);
+            Font::Centered(s_state.title, 960.0f, panelY + 100.0f, 40.0f, 700.0f, inkRed, inkGreen, inkBlue);
+            Font::Centered(s_state.message, 960.0f, panelY + 160.0f, 30.0f, 700.0f, dimRed, dimGreen, dimBlue);
 
             float totalWidth = (float)s_state.itemCount * kPopupRowButtonWidth +
                 (float)(s_state.itemCount - 1) * kPopupRowButtonGap;
@@ -267,6 +269,7 @@ namespace WPopup {
                               buttonY + 52.0f, 0, itemIndex == s_state.selection);
             }
 
+            Gfx::PopLayer();
             return;
         }
 
@@ -297,11 +300,11 @@ namespace WPopup {
         Gfx::PushOverlayPanel(panelX, panelY, kPopupListWidth, panelHeight, 24.0f,
                                backgroundRed, backgroundGreen, backgroundBlue, 1.0f);
 
-        Font::Centered(s_state.title, 960.0f, panelY + 68.0f, 40.0f, 600.0f, inkRed, inkGreen, inkBlue, 1.0f, false);
+        Font::Centered(s_state.title, 960.0f, panelY + 68.0f, 40.0f, 600.0f, inkRed, inkGreen, inkBlue);
 
         if (hasMessage) {
             Font::Centered(s_state.message, 960.0f, panelY + 110.0f, 30.0f, 600.0f,
-                            dimRed, dimGreen, dimBlue, 1.0f, false);
+                            dimRed, dimGreen, dimBlue);
         }
 
         float itemWidth = (kPopupListWidth - kPopupListItemInset * 2.0f - (float)(gridColumns - 1) * columnGap) / (float)gridColumns;
@@ -317,6 +320,7 @@ namespace WPopup {
                           itemY + 46.0f, s_state.hasSwatches ? s_state.swatches[itemIndex] : 0,
                           itemIndex == s_state.selection);
         }
+        Gfx::PopLayer();
     }
 
     /// @brief Handle popup navigation input.
