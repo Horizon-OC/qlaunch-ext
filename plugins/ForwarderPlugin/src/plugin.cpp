@@ -24,6 +24,7 @@ namespace fwd {
 
     constexpr char kPluginConfigDir[] = "sdmc:/qlaunch-ext/config/plugin/forwarder.ini";
     constexpr char kForwarderConfigDir[] = "sdmc:/qlaunch-ext/forwarders";
+    constexpr char kIconCacheDir[] = "sdmc:/qlaunch-ext/cache/nroicon";
     constexpr u64 kVirtualBit = 0x8000000000000000ULL;
     constexpr unsigned kIconCap = 0x40000;
     constexpr int kMaxFiles = 64;
@@ -107,6 +108,10 @@ namespace fwd {
                (ext[3] == 'i' || ext[3] == 'I');
     }
 
+    /// @brief Fill a tile entry from the NRO when INI values are blank.
+    /// @param out Entry to fill
+    static void FillFromNro(Forwarder *out);
+
     /// @brief Parse one tile INI into an entry.
     /// @param path INI path.
     /// @param out Entry to populate.
@@ -119,9 +124,186 @@ namespace fwd {
         ini_gets("forwarder", "icon", "", out->icon, (int)sizeof(out->icon), path);
         ini_gets("forwarder", "version", "", out->version, (int)sizeof(out->version), path);
         ini_gets("forwarder", "publisher", "", out->publisher, (int)sizeof(out->publisher), path);
+        
         if (out->publisher[0] == 0)
             ini_gets("forwarder", "author", "", out->publisher, (int)sizeof(out->publisher), path);
-        return out->name[0] != 0 && out->nro[0] != 0;
+        
+        if (out->name[0] == 0 || out->nro[0] == 0)
+            return false;
+        
+        FillFromNro(out);
+        return true;
+    }
+
+    /// @brief Read an NRO asset section (icon or NACP) into a buffer.
+    /// @param nroPath NRO file path.
+    /// @param wantIcon True for the icon section, false for NACP.
+    /// @param out Output buffer.
+    /// @param cap Buffer capacity.
+    /// @return Bytes read (<0 on error).
+    static int ReadNroAsset(const char *nroPath, bool wantIcon, void *out, unsigned cap)
+    {
+        if (nroPath == nullptr || nroPath[0] == 0 || out == nullptr || cap == 0) {
+            return -1;
+        }
+
+        FILE *nroFile = fopen(nroPath, "rb");
+
+        if (nroFile == nullptr) {
+            return -1;
+        }
+
+        NroHeader nroHeader;
+        NroAssetHeader assetHeader;
+
+        if (fseek(nroFile, (long)sizeof(NroStart), SEEK_SET) != 0) {
+            fclose(nroFile);
+            return -1;
+        }
+
+        if (fread(&nroHeader, sizeof(nroHeader), 1, nroFile) != 1) {
+            fclose(nroFile);
+            return -1;
+        }
+
+        if (nroHeader.magic != NROHEADER_MAGIC) {
+            fclose(nroFile);
+            return -1;
+        }
+
+        if (fseek(nroFile, (long)nroHeader.size, SEEK_SET) != 0) {
+            fclose(nroFile);
+            return -1;
+        }
+
+        if (fread(&assetHeader, sizeof(assetHeader), 1, nroFile) != 1) {
+            fclose(nroFile);
+            return -1;
+        }
+
+        if (assetHeader.magic != NROASSETHEADER_MAGIC || assetHeader.version > NROASSETHEADER_VERSION) {
+            fclose(nroFile);
+            return -1;
+        }
+
+        const NroAssetSection &section = wantIcon ? assetHeader.icon : assetHeader.nacp;
+
+        if (section.offset == 0 || section.size == 0 || section.size > cap) {
+            fclose(nroFile);
+            return -1;
+        }
+
+        if (fseek(nroFile, (long)(nroHeader.size + section.offset), SEEK_SET) != 0) {
+            fclose(nroFile);
+            return -1;
+        }
+
+        size_t sectionSize = (size_t)section.size;
+
+        if (fread(out, sectionSize, 1, nroFile) != 1) {
+            fclose(nroFile);
+            return -1;
+        }
+
+        fclose(nroFile);
+        return (int)section.size;
+    }
+
+    /// @brief Copy a possibly unterminated NACP string into a NUL-capped field.
+    /// @param dst Destination buffer.
+    /// @param dstCap Destination capacity.
+    /// @param src NACP bytes (may lack NUL).
+    /// @param srcCap Source byte limit.
+    /// @return True when anything was copied.
+    static bool CopyNacpString(char *dst, unsigned dstCap, const char *src, unsigned srcCap)
+    {
+        if (dst == nullptr || dstCap == 0 || src == nullptr || srcCap == 0) {
+            return false;
+        }
+
+        unsigned copyLength = 0;
+
+        while (copyLength + 1 < dstCap && copyLength < srcCap && src[copyLength] != 0) {
+            copyLength++;
+        }
+
+        memcpy(dst, src, copyLength);
+        dst[copyLength] = 0;
+        return copyLength > 0;
+    }
+
+    /// @brief Extract the NRO icon into the SD cache, pointing the entry at it.
+    /// @param entry Entry missing an icon (updated in place).
+    static void CacheNroIcon(Forwarder *entry)
+    {
+        unsigned char *iconBytes = (unsigned char *)malloc(kIconCap);
+
+        if (iconBytes == nullptr) {
+            return;
+        }
+
+        int iconSize = ReadNroAsset(entry->nro, true, iconBytes, kIconCap);
+
+        if (iconSize > 2) {
+            mkdir("sdmc:/qlaunch-ext/cache", 0777);
+            mkdir(kIconCacheDir, 0777);
+
+            char cachePath[320];
+            int pathLength = snprintf(cachePath, sizeof(cachePath), "%s/fwd_%016llX.jpg", kIconCacheDir,
+                                      (unsigned long long)HashName(entry->nro));
+
+            if (pathLength > 0 && (unsigned)pathLength < sizeof(cachePath)) {
+                FILE *cacheFile = fopen(cachePath, "wb");
+
+                if (cacheFile != nullptr) {
+                    size_t writtenBytes = fwrite(iconBytes, 1, (unsigned)iconSize, cacheFile);
+                    fclose(cacheFile);
+
+                    if (writtenBytes == (unsigned)iconSize) {
+                        snprintf(entry->icon, sizeof(entry->icon), "%s", cachePath);
+                    }
+                }
+            }
+        }
+
+        free(iconBytes);
+    }
+
+    /// @brief Fill blank version/publisher from the NRO NACP, icon from the NRO.
+    /// INI values always win; entries are updated in place.
+    /// @param entry Entry to fill.
+    static void FillFromNro(Forwarder *entry)
+    {
+        if (entry->icon[0] == 0)
+            CacheNroIcon(entry);
+
+        if (entry->version[0] != 0 && entry->publisher[0] != 0)
+            return;
+
+        NacpStruct *nacp = (NacpStruct *)malloc(sizeof(NacpStruct));
+        if (!nacp)
+            return;
+
+        int nacpSize = ReadNroAsset(entry->nro, false, nacp, sizeof(NacpStruct));
+        if (nacpSize >= (int)sizeof(NacpStruct)) {
+            if (entry->version[0] == 0) {
+                CopyNacpString(entry->version, sizeof(entry->version),
+                               nacp->display_version, sizeof(nacp->display_version));
+            }
+
+            if (entry->publisher[0] == 0 && nacp->titles_data_format == 0) {
+                NacpLanguageEntry *langEntry = nullptr;
+                if (R_FAILED(nacpGetLanguageEntry(nacp, &langEntry)) || !langEntry)
+                    langEntry = &nacp->lang_data.lang[0];
+
+                if (langEntry) {
+                    CopyNacpString(entry->publisher, sizeof(entry->publisher),
+                                   langEntry->author, sizeof(langEntry->author));
+                }
+            }
+        }
+
+        free(nacp);
     }
 
     /// @brief Re-read the donor config and all tile INIs.
