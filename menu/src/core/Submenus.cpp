@@ -18,11 +18,11 @@ namespace Submenus {
 
     namespace {
 
-        constexpr char kSubmenuBase[] = "sdmc:/qlaunch-ext/NekoMenu";
-        constexpr char kSubmenuDir[] = "sdmc:/qlaunch-ext/NekoMenu/submenus";
+        constexpr char kNekoMenuBase[] = "sdmc:/qlaunch-ext/NekoMenu";
         constexpr int kSubmenuMax = 7;
         constexpr int kSubmenuFileCap = 63;
         constexpr int kSubmenuScanCap = 16;
+        constexpr int kSubmenuDirMax = 160;
 
         enum class SubmenuPhase {
             Empty,
@@ -58,6 +58,7 @@ namespace Submenus {
         static int s_instanceCount = 0;
         static const MenuHostApi *s_hostApi = nullptr;
         static bool s_booted = false;
+        static char s_submenuDir[kSubmenuDirMax] = { 0 };
 
         /// @brief Whether a suffix is dnro (case-insensitive).
         /// @param suffix Four-char suffix without dot.
@@ -147,7 +148,7 @@ namespace Submenus {
                 return false;
             }
 
-            size_t dirLength = strlen(kSubmenuDir);
+            size_t dirLength = strlen(s_submenuDir);
             size_t nameLength = strlen(fileName);
 
             if (nameLength == 0 || nameLength > (size_t)kSubmenuFileCap) {
@@ -158,7 +159,7 @@ namespace Submenus {
                 return false;
             }
 
-            memcpy(outputBuffer, kSubmenuDir, dirLength);
+            memcpy(outputBuffer, s_submenuDir, dirLength);
             outputBuffer[dirLength] = '/';
             memcpy(outputBuffer + dirLength + 1, fileName, nameLength + 1);
             return true;
@@ -171,7 +172,7 @@ namespace Submenus {
         int ScanSubmenuDir(char fileNames[][kSubmenuFileCap + 1], int fileCapacity)
         {
             int fileCount = 0;
-            DIR *directory = opendir(kSubmenuDir);
+            DIR *directory = opendir(s_submenuDir);
 
             if (!directory) {
                 return 0;
@@ -452,20 +453,27 @@ namespace Submenus {
 
     } // namespace
 
-    /// @brief Boot dynamic submenus from the NekoMenu directory.
+    /// @brief Boot dynamic submenus from a theme pack directory.
     /// @param hostApi Host table with menu functions plus qext.
-    void Boot(const MenuHostApi *hostApi)
+    /// @param submenuDir Pack submenus dir (for example "sdmc:/qlaunch-ext/NekoMenu/default/submenus").
+    void Boot(const MenuHostApi *hostApi, const char *submenuDir)
     {
         if (s_booted) {
+            return;
+        }
+
+        if (!submenuDir || !submenuDir[0] || strlen(submenuDir) >= (size_t)kSubmenuDirMax) {
             return;
         }
 
         s_booted = true;
         s_hostApi = hostApi;
         s_instanceCount = 0;
+        snprintf(s_submenuDir, sizeof(s_submenuDir), "%s", submenuDir);
+        s_submenuDir[sizeof(s_submenuDir) - 1] = 0;
 
-        mkdir(kSubmenuBase, 0777);
-        mkdir(kSubmenuDir, 0777);
+        mkdir(kNekoMenuBase, 0777);
+        mkdir(s_submenuDir, 0777);
 
         char fileNames[kSubmenuScanCap][kSubmenuFileCap + 1];
         int fileCount = ScanSubmenuDir(fileNames, kSubmenuScanCap);
@@ -518,6 +526,7 @@ namespace Submenus {
         s_instanceCount = 0;
         s_hostApi = nullptr;
         s_booted = false;
+        s_submenuDir[0] = 0;
     }
 
     /// @brief Tick loaded submenus once per frame.

@@ -3,13 +3,12 @@
 /* Pain... and suffering.           */
 
 #include "Widgets.hpp"
-#include "../core/Gfx.hpp"
-#include "../core/Font.hpp"
-#include "../core/Theme.hpp"
-#include "../core/App.hpp"
-#include "../core/Icons.hpp"
-#include "../core/Layout.hpp"
-#include "../core/Tabs.hpp"
+#include "MenuHost.hpp"
+#include "LayoutHost.hpp"
+#include "Gfx.hpp"
+#include "Icons.hpp"
+#include "Layout.hpp"
+#include "App.hpp"
 #include <string.h>
 
 /* TODO: Do we remove this or keep it somewhere? (alternate mode?)*/
@@ -63,27 +62,31 @@ namespace WHints {
         /// @return Number of hints written.
         int FallbackHints(ResolvedHint *outputHints)
         {
+            const MenuHostApi *hostApi = GetLayoutHost();
             int hintCount = 0;
-            int homeTabIndex = Tabs::FindById("home");
-            int settingsTabIndex = Tabs::FindById("settings");
+            int homeTabIndex = hostApi->tabFindById("home");
+            int settingsTabIndex = hostApi->tabFindById("settings");
+            int selectedRow = hostApi->appSelection();
+            const AppRow *selectedRowData = selectedRow >= 0 && selectedRow < hostApi->rowCount() ?
+                hostApi->rowAt(selectedRow) : nullptr;
 
-            if (App::TopFocus()) {
+            if (hostApi->topFocus()) {
                 outputHints[hintCount++] = { "A", "OK" };
                 outputHints[hintCount++] = { "B", "Back" };
-            } else if (App::Menu() == settingsTabIndex) {
+            } else if (hostApi->appMenu() == settingsTabIndex) {
                 outputHints[hintCount++] = { "A", "OK" };
                 outputHints[hintCount++] = { "B", "Back" };
-            } else if (App::Menu() == homeTabIndex && App::BottomFocus()) {
+            } else if (hostApi->appMenu() == homeTabIndex && hostApi->bottomFocus()) {
                 outputHints[hintCount++] = { "A", "OK" };
                 outputHints[hintCount++] = { "B", "Back" };
-            } else if (App::Menu() == homeTabIndex && App::HomeSub() != kHomeSubGames) {
+            } else if (hostApi->appMenu() == homeTabIndex && hostApi->homeSub() != kHomeSubGames) {
                 outputHints[hintCount++] = { "A", "Start" };
                 outputHints[hintCount++] = { "Y", "Options" };
                 outputHints[hintCount++] = { "B", "Back" };
-            } else if (WStrip::OptionsOpen()) {
+            } else if (hostApi->popupIsOpen()) {
                 outputHints[hintCount++] = { "A", "OK" };
                 outputHints[hintCount++] = { "B", "Back" };
-            } else if (App::Sel() >= 0 && App::Sel() < App::RowCount() && App::Row(App::Sel()).isFolder) {
+            } else if (selectedRowData && selectedRowData->isFolder) {
                 outputHints[hintCount++] = { "A", "Open" };
                 outputHints[hintCount++] = { "Y", "Rename" };
             } else {
@@ -100,18 +103,19 @@ namespace WHints {
     /// @param layoutNode Layout node carrying optional hint items.
     void Draw(const LayoutNode &layoutNode)
     {
+        const MenuHostApi *hostApi = GetLayoutHost();
         float inkRed = 0.0f;
         float inkGreen = 0.0f;
         float inkBlue = 0.0f;
-        Theme::Color("ink", &inkRed, &inkGreen, &inkBlue);
+        hostApi->themeColor("ink", &inkRed, &inkGreen, &inkBlue);
 
         float dimRed = 0.0f;
         float dimGreen = 0.0f;
         float dimBlue = 0.0f;
-        Theme::Color("dim", &dimRed, &dimGreen, &dimBlue);
+        hostApi->themeColor("dim", &dimRed, &dimGreen, &dimBlue);
 
         /* Footer divider. */
-        Gfx::PushPanel(60.0f, 940.0f, 1680.0f, 3.0f, 0.0f, dimRed, dimGreen, dimBlue, 1.0f);
+        hostApi->gfxPushPanel(60.0f, 940.0f, 1680.0f, 3.0f, 0.0f, dimRed, dimGreen, dimBlue, 1.0f);
 
         ResolvedHint resolvedHints[kHintsMax];
         int resolvedCount = 0;
@@ -133,24 +137,24 @@ namespace WHints {
             const char *button = resolvedHints[hintIndex].button;
             const char *label = resolvedHints[hintIndex].label;
 
-            float labelWidth = Font::Measure(label, 36.0f);
-            Font::Draw(label, cursorX - labelWidth, baselineY, 36.0f, dimRed, dimGreen, dimBlue);
+            float labelWidth = hostApi->fontMeasure(label, 36.0f);
+            hostApi->fontDraw(label, cursorX - labelWidth, baselineY, 36.0f, dimRed, dimGreen, dimBlue, 1.0f);
 
             cursorX -= labelWidth + 14.0f;
             int iconSlot = -1;
 
             if (strcmp(button, "A") == 0) {
-                iconSlot = Icons::HudSlot(kHudButtonA);
+                iconSlot = hostApi->iconsHudSlot(kHudButtonA);
             } else if (strcmp(button, "+") == 0) {
-                iconSlot = Icons::HudSlot(kHudButtonPlus);
+                iconSlot = hostApi->iconsHudSlot(kHudButtonPlus);
             }
 
-            if (Gfx::TexValid(iconSlot)) {
+            if (hostApi->gfxTexValid(iconSlot)) {
                 float menuBarRed = 0.0f;
                 float menuBarGreen = 0.0f;
                 float menuBarBlue = 0.0f;
-                Theme::Color("menubar", &menuBarRed, &menuBarGreen, &menuBarBlue);
-                Gfx::PushIcon(cursorX - 40.0f, baselineY - 34.0f, 40.0f, 40.0f, 0.0f, 0.0f, 0.0f, 0.0f, menuBarRed, menuBarGreen, menuBarBlue, 0.0f, iconSlot);
+                hostApi->themeColor("menubar", &menuBarRed, &menuBarGreen, &menuBarBlue);
+                hostApi->gfxPushIcon(cursorX - 40.0f, baselineY - 34.0f, 40.0f, 40.0f, 0.0f, 0.0f, 0.0f, 0.0f, menuBarRed, menuBarGreen, menuBarBlue, 0.0f, iconSlot, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f);
                 cursorX -= 40.0f + 40.0f;
             } else {
                 unsigned glyphCodepoint = ButtonGlyph(button);
@@ -158,12 +162,12 @@ namespace WHints {
                 if (glyphCodepoint) {
                     char glyphText[4] = { 0 };
                     GlyphUTF8(glyphCodepoint, glyphText);
-                    float glyphWidth = Font::Measure(glyphText, 38.0f);
-                    Font::Draw(glyphText, cursorX - glyphWidth, baselineY - 2.0f, 38.0f, dimRed, dimGreen, dimBlue);
+                    float glyphWidth = hostApi->fontMeasure(glyphText, 38.0f);
+                    hostApi->fontDraw(glyphText, cursorX - glyphWidth, baselineY - 2.0f, 38.0f, dimRed, dimGreen, dimBlue, 1.0f);
                     cursorX -= glyphWidth + 40.0f;
                 } else {
-                    float buttonWidth = Font::Measure(button, 36.0f);
-                    Font::Draw(button, cursorX - buttonWidth, baselineY, 36.0f, dimRed, dimGreen, dimBlue);
+                    float buttonWidth = hostApi->fontMeasure(button, 36.0f);
+                    hostApi->fontDraw(button, cursorX - buttonWidth, baselineY, 36.0f, dimRed, dimGreen, dimBlue, 1.0f);
                     cursorX -= buttonWidth + 40.0f;
                 }
             }

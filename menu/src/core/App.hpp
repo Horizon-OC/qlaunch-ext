@@ -4,9 +4,9 @@
 #pragma once
 #include <switch.h>
 #include "Theme.hpp"
+#include "MenuHost.hpp"
 
 constexpr int kAppMaxTitles = 256;
-constexpr int kAppNameMax = 192;
 constexpr int kAppAppletCount = 2;
 constexpr int kFolderStripMax = 8;
 constexpr int kFolderStripGames = 24;
@@ -15,19 +15,6 @@ constexpr int kFolderColorCount = 10;
 constexpr int kHomeSubGames = 0;
 constexpr int kHomeSubFolders = 1;
 constexpr int kHomeSubVgc = 2;
-
-/// @brief One row in the home game strip.
-struct AppRow {
-    bool isGame;
-    bool isFolder;
-    u64 tid;
-    u64 folderId;
-    int folderColor;
-    int applet; /* 0 album, 1 controllers */
-    int iconSlot;
-    bool ejected;
-    char name[kAppNameMax];
-};
 
 /// @brief Phase of the menu slide transition.
 enum MenuPhase {
@@ -109,6 +96,10 @@ namespace App {
     /// @param buttonsHeld Buttons currently held (forwarded to prompts).
     /// @return True when the A press was consumed.
     bool Activate(u64 heldButtons);
+
+    /// @brief Step the top-bar tab switch with debounce.
+    /// @param delta -1 for left, +1 for right.
+    void TopSwitch(int delta);
 
     /// @brief Launch a game title with blackout and jingles.
     /// @param tid Title id to launch.

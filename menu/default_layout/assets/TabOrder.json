@@ -1,0 +1,7 @@
+{"tabs": [
+ {"id": "home", "jingle": "home_jingle"},
+ {"id": "connect", "jingle": "chat_jingle"},
+ {"id": "eshop", "jingle": "eshop_jingle"},
+ {"id": "album", "jingle": "album_jingle"},
+ {"id": "settings", "jingle": "settings_jingle"}
+]}

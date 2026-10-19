@@ -6,6 +6,7 @@
 #include "Assets.hpp"
 #include "Json.hpp"
 #include "Qext.hpp"
+#include "Packs.hpp"
 #include <SDL3/SDL.h>
 #include <pthread.h>
 #include <string.h>
@@ -309,6 +310,29 @@ namespace Sfx {
             return s_registryCount++;
         }
 
+        /// @brief Decode one WAV blob and store it under a clip id.
+        /// @param id Clip id.
+        /// @param wavData WAV bytes.
+        /// @param wavSize Byte count.
+        /// @param db Gain in decibels.
+        /// @param jitter True to enable pitch shimmer.
+        void StoreDecoded(const char *id, const unsigned char *wavData, unsigned wavSize,
+                          float db, bool jitter)
+        {
+            Clip c;
+            c.gain = 1.0f;
+
+            if (ParseWav(wavData, wavSize, c) && c.rate >= 8000 && c.rate <= 96000) {
+                c.gain = powf(10.0f, db / 20.0f);
+
+                if (StoreClip(id, c, jitter) >= 0) {
+                    logging::LogLine("[sfx] clip '%s': %u frames %u ch %u Hz", id, c.frames, c.ch, c.rate);
+                }
+            } else {
+                logging::LogLine("[sfx] bad clip '%s'", id ? id : "?");
+            }
+        }
+
         /// @brief Decode one asset blob and store it under a clip id.
         /// @param id Clip id.
         /// @param asset Asset name resolving via FindAsset().
@@ -324,18 +348,56 @@ namespace Sfx {
                 return;
             }
 
-            Clip c;
-            c.gain = 1.0f;
+            StoreDecoded(id, d, n, db, jitter);
+        }
 
-            if (ParseWav(d, n, c) && c.rate >= 8000 && c.rate <= 96000) {
-                c.gain = powf(10.0f, db / 20.0f);
-
-                if (StoreClip(id, c, jitter) >= 0) {
-                    logging::LogLine("[sfx] clip '%s': %u frames %u ch %u Hz", id, c.frames, c.ch, c.rate);
-                }
-            } else {
-                logging::LogLine("[sfx] bad clip '%s'", id ? id : "?");
+        /// @brief Whether an sfx asset name is safe to join into a pack path.
+        /// @param assetName Asset name from sfx.json.
+        /// @return True when separator/traversal free.
+        bool IsAssetNameUsable(const char *assetName)
+        {
+            if (!assetName || !assetName[0] || strlen(assetName) > 31) {
+                return false;
             }
+
+            for (const char *cursor = assetName; *cursor; cursor++) {
+                char current = *cursor;
+                bool lower = current >= 'a' && current <= 'z';
+                bool digit = current >= '0' && current <= '9';
+
+                if (!lower && !digit && current != '_') {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        /// @brief Load one clip from a pack wav file, else the embedded asset.
+        /// @param id Clip id.
+        /// @param asset Asset name (pack sfx/<asset>.wav, else embedded).
+        /// @param db Gain in decibels.
+        /// @param jitter True to enable pitch shimmer.
+        /// @param packDir Theme pack directory (may be null).
+        void LoadOnePack(const char *id, const char *asset, float db, bool jitter,
+                         const char *packDir)
+        {
+            if (packDir && packDir[0] && IsAssetNameUsable(asset)) {
+                char wavPath[256];
+                snprintf(wavPath, sizeof(wavPath), "%s/sfx/%s.wav", packDir, asset);
+                wavPath[sizeof(wavPath) - 1] = 0;
+
+                unsigned wavSize = 0;
+                unsigned char *wavData = Packs::ReadFile(wavPath, 4 * 1024 * 1024, &wavSize);
+
+                if (wavData) {
+                    StoreDecoded(id, wavData, wavSize, db, jitter);
+                    free(wavData);
+                    return;
+                }
+            }
+
+            LoadOneNamed(id, asset, db, jitter);
         }
 
         /// @brief Load the hardcoded legacy table (fallback path).
@@ -468,8 +530,10 @@ namespace Sfx {
     } // namespace
 
     /// @brief Initialize SDL audio output and load the clip registry.
+    /// Pack sfx.json/sfx/*.wav override the embedded clips when present.
+    /// @param packDir Theme pack directory (may be null).
     /// @return True when audio is ready (registry still loads on failure).
-    bool Init()
+    bool Init(const char *packDir)
     {
         if (s_isReady) {
             return true;
@@ -478,7 +542,7 @@ namespace Sfx {
         memset(s_voices, 0, sizeof(s_voices));
         memset(s_mixBuffer, 0, sizeof(s_mixBuffer));
 
-        if (!LoadAuto()) {
+        if (!LoadAuto(packDir)) {
             LoadLegacy();
         }
 
@@ -635,6 +699,56 @@ namespace Sfx {
         return s_registryCount > 0;
     }
 
+    /// @brief Load the clip registry from a JSON buffer with pack wav lookup.
+    /// @param json JSON text with a "clips" array.
+    /// @param len Text length in bytes.
+    /// @param packDir Theme pack directory for sfx/*.wav (may be null).
+    /// @return True when at least one clip loaded.
+    bool LoadJsonPack(const char *json, unsigned len, const char *packDir)
+    {
+        JxDoc doc;
+
+        if (!Jx::Parse(doc, json, len)) {
+            return false;
+        }
+
+        if (Jx::TokType(doc, 0) != 1) {
+            return false;
+        }
+
+        int clips = Jx::ObjGet(doc, 0, "clips");
+
+        if (Jx::TokType(doc, clips) != 2) {
+            return false;
+        }
+
+        ClearReg();
+        int n = Jx::ArrSize(doc, clips);
+
+        for (int i = 0; i < n; i++) {
+            int on = Jx::ArrAt(doc, clips, i);
+
+            if (Jx::TokType(doc, on) != 1) {
+                continue;
+            }
+
+            char id[kIdMax] = { 0 };
+            char asset[32] = { 0 };
+            JName(doc, on, "id", id, sizeof(id));
+            JName(doc, on, "asset", asset, sizeof(asset));
+
+            if (!id[0] || !asset[0]) {
+                continue;
+            }
+
+            float db = JFloat(doc, on, "db", 0.0f);
+            bool jitter = JFlag(doc, on, "jitter", false);
+            LoadOnePack(id, asset, db, jitter, packDir);
+        }
+
+        return s_registryCount > 0;
+    }
+
     /// @brief Load the embedded sfx.json registry.
     /// @return True on success.
     bool LoadBuiltin()
@@ -642,47 +756,27 @@ namespace Sfx {
         return LoadJson(sfx_json, sfx_json_size);
     }
 
-    /// @brief Load a registry override from an SD file.
-    /// @param path Filesystem path to sfx.json.
+    /// @brief Load the pack sfx.json registry, else the embedded one.
+    /// @param packDir Theme pack directory (may be null).
     /// @return True on success.
-    bool LoadFile(const char *path)
+    bool LoadAuto(const char *packDir)
     {
-        FILE *f = fopen(path, "rb");
+        if (packDir && packDir[0]) {
+            char jsonPath[256];
+            snprintf(jsonPath, sizeof(jsonPath), "%s/sfx.json", packDir);
+            jsonPath[sizeof(jsonPath) - 1] = 0;
 
-        if (!f) {
-            return false;
-        }
+            unsigned jsonSize = 0;
+            unsigned char *jsonData = Packs::ReadFile(jsonPath, 65536, &jsonSize);
 
-        fseek(f, 0, SEEK_END);
-        long sz = ftell(f);
-        fseek(f, 0, SEEK_SET);
+            if (jsonData) {
+                bool jsonOk = LoadJsonPack((const char *)jsonData, jsonSize, packDir);
+                free(jsonData);
 
-        if (sz <= 0 || sz > 65536) {
-            fclose(f);
-            return false;
-        }
-
-        char *buf = (char *)malloc((unsigned)sz);
-
-        if (!buf) {
-            fclose(f);
-            return false;
-        }
-
-        size_t got = fread(buf, 1, (unsigned)sz, f);
-        fclose(f);
-
-        bool ok = (got == (unsigned)sz) && LoadJson(buf, (unsigned)sz);
-        free(buf);
-        return ok;
-    }
-
-    /// @brief Load the SD override, else the embedded registry.
-    /// @return True on success.
-    bool LoadAuto()
-    {
-        if (LoadFile("sdmc:/qlaunch-ext/sfx.json")) {
-            return true;
+                if (jsonOk) {
+                    return true;
+                }
+            }
         }
 
         return LoadBuiltin();

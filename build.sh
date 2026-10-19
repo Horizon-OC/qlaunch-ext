@@ -58,8 +58,9 @@ if [ ! -d "$FFDIR/dnro" ]; then
 fi
 make -C "$FFDIR/dnro" -j"$(nproc)" FFPREFIX="$FFDIR/install" DLINK="$ROOT/extern/libnx-dlink"
 make -C "$ROOT/menu" -j"$(nproc)"
-if [ -d "$ROOT/menu/submenus" ]; then
-    for p in "$ROOT"/menu/submenus/*/; do
+make -C "$ROOT/menu/default_layout/layout" -j"$(nproc)"
+if [ -d "$ROOT/menu/default_layout/submenus" ]; then
+    for p in "$ROOT"/menu/default_layout/submenus/*/; do
         if [ -f "${p}Makefile" ]; then
             make -C "$p" -j"$(nproc)"
         fi
@@ -113,7 +114,7 @@ if [ -n "$FMISSING" ]; then
     exit 1
 fi
 echo "ffmpeg import check passed"
-for p in "$ROOT"/plugins/*/*.elf "$ROOT"/menu/submenus/*/*.elf; do
+for p in "$ROOT"/plugins/*/*.elf "$ROOT"/menu/default_layout/submenus/*/*.elf "$ROOT"/menu/default_layout/layout/*.elf; do
     [ -f "$p" ] || continue
     "$NM" -D -u "$p" | awk "{print \$NF}" | sort -u > "$ROOT/build.plugneed"
     { "$NM" -D --defined-only "$ROOT/loader/loader.elf" | awk "{print \$NF}"
@@ -146,10 +147,15 @@ cp "$ROOT/lib/xxhash-module/xxhash.dnro" "$PKG/lib/xxhash.dnro"
 cp "$FFDIR/dnro/ffmpeg.dnro" "$PKG/lib/ffmpeg.dnro"
 mkdir -p "$PKG/qlaunch-ext/menus"
 cp "$ROOT/menu/menu.dnro" "$PKG/qlaunch-ext/menus/menu.dnro"
-mkdir -p "$PKG/qlaunch-ext/NekoMenu/submenus"
-for f in "$ROOT"/menu/submenus/*/*.dnro; do
+mkdir -p "$PKG/qlaunch-ext/NekoMenu/default/submenus"
+cp "$ROOT/menu/default_layout/theme.ini" "$PKG/qlaunch-ext/NekoMenu/theme.ini"
+cp "$ROOT/menu/default_layout/layout/layout.dnro" "$PKG/qlaunch-ext/NekoMenu/default/layout.dnro"
+cp "$ROOT/menu/default_layout/assets/TabOrder.json" "$PKG/qlaunch-ext/NekoMenu/default/TabOrder.json"
+cp "$ROOT/menu/src/assets/themes.json" "$PKG/qlaunch-ext/NekoMenu/default/themes.json"
+cp "$ROOT/menu/src/assets/sfx.json" "$PKG/qlaunch-ext/NekoMenu/default/sfx.json"
+for f in "$ROOT"/menu/default_layout/submenus/*/*.dnro; do
     if [ -f "$f" ]; then
-        cp "$f" "$PKG/qlaunch-ext/NekoMenu/submenus/"
+        cp "$f" "$PKG/qlaunch-ext/NekoMenu/default/submenus/"
     fi
 done
 mkdir -p "$PKG/qlaunch-ext/NekoMenu/widgets"

@@ -5,7 +5,10 @@
 #include "Font.hpp"
 #include "Gfx.hpp"
 #include "Log.hpp"
+#include "Packs.hpp"
 #include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 #define STBTT_assert(x)
 #define STB_TRUETYPE_IMPLEMENTATION
@@ -32,9 +35,52 @@ namespace Font {
         uint8_t bitmap[kFontAtlasWidth * kFontAtlasHeight];
         Atlas atlases[3];
         bool isInitialized;
+        const uint8_t *latinData;
+        unsigned latinSize;
+        const uint8_t *iconData;
+        unsigned iconSize;
+        uint8_t *latinOwned;
+        uint8_t *iconOwned;
     };
 
     static FontState s_state = {};
+    static constexpr unsigned kFontFileMax = 8 * 1024 * 1024;
+
+        /// @brief Load a pack font file, else the embedded fallback.
+        /// @param packDir Theme pack directory (may be null).
+        /// @param fileName Pack-relative file name.
+        /// @param fallbackData Embedded bytes.
+        /// @param fallbackSize Embedded byte size.
+        /// @param ownedOut Output owned buffer (free with free()).
+        /// @param sizeOut Output byte size.
+        /// @return Bytes to bake (owned or embedded).
+        static const uint8_t *ResolveFontFile(const char *packDir, const char *fileName,
+                                              const uint8_t *fallbackData, unsigned fallbackSize,
+                                              uint8_t **ownedOut, unsigned *sizeOut)
+        {
+            *ownedOut = nullptr;
+            *sizeOut = fallbackSize;
+
+            if (packDir && packDir[0] && fileName && fileName[0]) {
+                char fontPath[256];
+                snprintf(fontPath, sizeof(fontPath), "%s/%s", packDir, fileName);
+                fontPath[sizeof(fontPath) - 1] = 0;
+
+                unsigned packSize = 0;
+                unsigned char *packData = Packs::ReadFile(fontPath, kFontFileMax, &packSize);
+
+                if (packData && packSize > 0) {
+                    *ownedOut = packData;
+                    *sizeOut = packSize;
+                    Log::Line("[menu] pack font '%s'", fileName);
+                    return packData;
+                }
+
+                free(packData);
+            }
+
+            return fallbackData;
+        }
 
         /// @brief Bake one glyph range into the scratch atlas.
         /// @param atlas Atlas receiving the bake.
@@ -76,13 +122,20 @@ namespace Font {
             if (!s_state.isInitialized)
                 return;
             s_state.isInitialized = false;
-            
+
             /* TODO: Dynamically load the atlases? */
             for (int i = 0; i < 3; i++) {
                 s_state.atlases[i].ok = false;
                 Gfx::TexFree(s_state.atlases[i].slot);
                 s_state.atlases[i].slot = -1;
             }
+
+            free(s_state.latinOwned);
+            free(s_state.iconOwned);
+            s_state.latinOwned = nullptr;
+            s_state.iconOwned = nullptr;
+            s_state.latinData = nullptr;
+            s_state.iconData = nullptr;
         }
 
         /// @brief Initialize font atlases and text buffers.
@@ -94,7 +147,11 @@ namespace Font {
             return s_state.atlases[buf].slot;
         }
 
-        bool Init() {
+        /// @brief Initialize font atlases and text buffers.
+        /// Pack fonts override the embedded ones when present.
+        /// @param packDir Theme pack directory (may be null).
+        /// @return True on success.
+        bool Init(const char *packDir) {
             static const float big[] = { 64.0f, 56.0f, 48.0f, 40.0f };
             static const float sml[] = { 48.0f, 40.0f, 32.0f };
             s_state.atlases[0].first = 32;
@@ -114,19 +171,42 @@ namespace Font {
 
             if (s_state.atlases[0].slot < 0 || s_state.atlases[1].slot < 0 || s_state.atlases[2].slot < 0)
                 return false;
-            
-            if (!BakeOne(&s_state.atlases[0], font_otf, big, 4))
-                return false;
-            
+
+            s_state.latinData = ResolveFontFile(packDir, "font.otf", font_otf, font_otf_size,
+                                                &s_state.latinOwned, &s_state.latinSize);
+            s_state.iconData = ResolveFontFile(packDir, "switch_icons.ttf", switch_icons_ttf,
+                                               switch_icons_ttf_size, &s_state.iconOwned, &s_state.iconSize);
+
+            if (!BakeOne(&s_state.atlases[0], s_state.latinData, big, 4)) {
+                free(s_state.latinOwned);
+                s_state.latinOwned = nullptr;
+                s_state.latinData = font_otf;
+                s_state.latinSize = font_otf_size;
+
+                if (!BakeOne(&s_state.atlases[0], s_state.latinData, big, 4)) {
+                    return false;
+                }
+            }
+
             if (!UploadOne(&s_state.atlases[0]))
                 return false;
-            
-            if (BakeOne(&s_state.atlases[1], font_otf, big, 4))
+
+            if (BakeOne(&s_state.atlases[1], s_state.latinData, big, 4))
                 UploadOne(&s_state.atlases[1]);
-            
-            if (BakeOne(&s_state.atlases[2], switch_icons_ttf, sml, 3))
+
+            if (!BakeOne(&s_state.atlases[2], s_state.iconData, sml, 3)) {
+                free(s_state.iconOwned);
+                s_state.iconOwned = nullptr;
+                s_state.iconData = switch_icons_ttf;
+                s_state.iconSize = switch_icons_ttf_size;
+
+                if (BakeOne(&s_state.atlases[2], s_state.iconData, sml, 3)) {
+                    UploadOne(&s_state.atlases[2]);
+                }
+            } else {
                 UploadOne(&s_state.atlases[2]);
-            
+            }
+
             s_state.isInitialized = true;
             return true;
         }
@@ -153,9 +233,9 @@ namespace Font {
             static const float big[] = { 64.0f, 56.0f, 48.0f, 40.0f };
             static const float sml[] = { 48.0f, 40.0f, 32.0f };
 
-            RebakeOne(&s_state.atlases[0], font_otf, big, 4);
-            RebakeOne(&s_state.atlases[1], font_otf, big, 4);
-            RebakeOne(&s_state.atlases[2], switch_icons_ttf, sml, 3);
+            RebakeOne(&s_state.atlases[0], s_state.latinData, big, 4);
+            RebakeOne(&s_state.atlases[1], s_state.latinData, big, 4);
+            RebakeOne(&s_state.atlases[2], s_state.iconData, sml, 3);
         }
 
         /// @brief Whether font rendering is usable.

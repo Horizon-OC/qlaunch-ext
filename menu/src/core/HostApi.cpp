@@ -12,6 +12,13 @@
 #include "Sfx.hpp"
 #include "Qext.hpp"
 #include "Log.hpp"
+#include "Tabs.hpp"
+#include "Avatars.hpp"
+#include "PadIcon.hpp"
+#include "Submenus.hpp"
+#include "DynamicWidgets.hpp"
+#include "LayoutMod.hpp"
+#include "../widgets/Widgets.hpp"
 #include <cstdio>
 
 namespace HostApi {
@@ -111,7 +118,7 @@ namespace HostApi {
 
         float LayoutShiftXThunk(void)
         {
-            return Layout::ShiftX();
+            return LayoutMod::ShiftX();
         }
 
         int AppMenuThunk(void)
@@ -414,6 +421,383 @@ namespace HostApi {
             Gfx::PushOverlayPanel(positionX, positionY, width, height, cornerRadius, red, green, blue, alpha);
         }
 
+        int TopSelectionThunk(void)
+        {
+            return App::TopSel();
+        }
+
+        int BottomFocusThunk(void)
+        {
+            return App::BottomFocus() ? 1 : 0;
+        }
+
+        void SetBottomFocusThunk(int focused)
+        {
+            App::SetBottomFocus(focused != 0);
+        }
+
+        int BottomSelectionThunk(void)
+        {
+            return App::BottomSel();
+        }
+
+        void SetBottomSelectionThunk(int selection)
+        {
+            App::SetBottomSel(selection);
+        }
+
+        int MenuFromThunk(void)
+        {
+            return App::MenuFrom();
+        }
+
+        float MenuTThunk(void)
+        {
+            return App::MenuT();
+        }
+
+        int MenuDirThunk(void)
+        {
+            return App::MenuDir();
+        }
+
+        int MenuPhaseThunk(void)
+        {
+            return (int)App::MenuPhaseOf();
+        }
+
+        float MenuSlideXThunk(void)
+        {
+            if (App::MenuPhaseOf() != MenuPhase_Animating || App::MenuT() >= 1.0f) {
+                return 0.0f;
+            }
+
+            float progress = App::MenuT();
+
+            if (progress < 0.0f) {
+                progress = 0.0f;
+            }
+
+            if (progress > 1.0f) {
+                progress = 1.0f;
+            }
+
+            float eased = 1.0f - (1.0f - progress) * (1.0f - progress) * (1.0f - progress);
+            return -eased * (float)App::MenuDir() * 1920.0f;
+        }
+
+        void MenuJingleThunk(int tabIndex)
+        {
+            App::MenuJingle(tabIndex);
+        }
+
+        int HomeSubThunk(void)
+        {
+            return App::HomeSub();
+        }
+
+        void SetHomeSubThunk(int sub)
+        {
+            App::SetHomeSub(sub);
+        }
+
+        float HomeShiftYThunk(void)
+        {
+            return App::HomeShiftY();
+        }
+
+        int HomeShiftBusyThunk(void)
+        {
+            return App::HomeShiftBusy() ? 1 : 0;
+        }
+
+        int RowCountThunk(void)
+        {
+            return App::RowCount();
+        }
+
+        const AppRow *RowAtThunk(int rowIndex)
+        {
+            return &App::Row(rowIndex);
+        }
+
+        int AppSelectionThunk(void)
+        {
+            return App::Sel();
+        }
+
+        void AppSetSelectionThunk(int selection)
+        {
+            App::SetSel(selection);
+        }
+
+        int AppTopSwitchThunk(int delta)
+        {
+            App::TopSwitch(delta);
+            return 1;
+        }
+
+        int AppActivateBottomThunk(void)
+        {
+            App::ActivateBottom();
+            return 1;
+        }
+
+        int AppActivateThunk(unsigned long long heldButtons)
+        {
+            return App::Activate(heldButtons) ? 1 : 0;
+        }
+
+        int PromptOpenGameThunk(unsigned long long heldButtons, unsigned long long launchTid)
+        {
+            WPrompt::OpenCloseGame(heldButtons, launchTid);
+            return 1;
+        }
+
+        void OpenFolderViewThunk(unsigned long long folderId)
+        {
+            App::OpenFolderView(folderId);
+        }
+
+        void CloseFolderViewThunk(void)
+        {
+            App::CloseFolderView();
+        }
+
+        unsigned long long OpenFolderThunk(void)
+        {
+            return App::OpenFolder();
+        }
+
+        int FolderSelThunk(void)
+        {
+            return App::FolderSel();
+        }
+
+        void SetFolderSelThunk(int selection)
+        {
+            App::SetFolderSel(selection);
+        }
+
+        void SelectFolderRowThunk(unsigned long long folderId)
+        {
+            App::SelectFolderRow(folderId);
+        }
+
+        int TabFindByIdThunk(const char *tabId)
+        {
+            return Tabs::FindById(tabId);
+        }
+
+        int TabCountThunk(void)
+        {
+            return Tabs::Count();
+        }
+
+        int TabGlyphThunk(int tabIndex)
+        {
+            const MenuTab *tab = Tabs::Get(tabIndex);
+            return tab ? (int)tab->glyph : 0;
+        }
+
+        int TabHudSelectThunk(int tabIndex)
+        {
+            const MenuTab *tab = Tabs::Get(tabIndex);
+            return tab ? tab->hudSel : -1;
+        }
+
+        int TabHudDeselectThunk(int tabIndex)
+        {
+            const MenuTab *tab = Tabs::Get(tabIndex);
+            return tab ? tab->hudDesel : -1;
+        }
+
+        const char *TabIdAtThunk(int tabIndex)
+        {
+            const MenuTab *tab = Tabs::Get(tabIndex);
+            return tab ? tab->id : "";
+        }
+
+        const char *ClockAmPmThunk(void)
+        {
+            return Clock::AmPm();
+        }
+
+        int AvatarCountThunk(void)
+        {
+            return Avatars::Count();
+        }
+
+        int AvatarSlotThunk(int avatarIndex)
+        {
+            return Avatars::Slot(avatarIndex);
+        }
+
+        unsigned PadGlyphThunk(void)
+        {
+            return PadIcon::Glyph();
+        }
+
+        void PadIconColorThunk(float *redOut, float *greenOut, float *blueOut)
+        {
+            PadIcon::Color(redOut, greenOut, blueOut);
+        }
+
+        int SubmenuIsDynamicTabThunk(int tabIndex)
+        {
+            return Submenus::IsDynamicTab(tabIndex) ? 1 : 0;
+        }
+
+        int SubmenuTabColorThunk(int tabIndex, float *redOut, float *greenOut, float *blueOut)
+        {
+            return Submenus::TabColor(tabIndex, redOut, greenOut, blueOut) ? 1 : 0;
+        }
+
+        int WidgetHasThunk(const char *widgetName)
+        {
+            return DynamicWidgets::HasWidget(widgetName) ? 1 : 0;
+        }
+
+        void WidgetDrawAllThunk(void)
+        {
+            DynamicWidgets::DrawAll();
+        }
+
+        void IconsSyncTitleThunk(const u64 *titleIds, int *outputSlots, int rowCount, int focus)
+        {
+            Icons::Sync(titleIds, outputSlots, rowCount, focus);
+        }
+
+        unsigned FontNextThunk(const char **textCursor)
+        {
+            return Font::Next(textCursor);
+        }
+
+        void SfxPlayThunk(int clipId)
+        {
+            Sfx::Play((Sfx::Id)clipId);
+        }
+
+        int ThemeTryColorThunk(const char *key, float *redOut, float *greenOut, float *blueOut)
+        {
+            return Theme::TryColor(key, redOut, greenOut, blueOut) ? 1 : 0;
+        }
+
+        void PopupOpenThunk(int layout, const char *titleText, const char *messageText, const char *const *labels,
+                            const float *swatches, int labelCount, int initialSelection, unsigned long long heldButtons)
+        {
+            WPopup::Open((WPopup::PopupLayout)layout, titleText, messageText, labels, swatches, labelCount,
+                         initialSelection, heldButtons);
+        }
+
+        void PopupCloseThunk(void)
+        {
+            WPopup::Close();
+        }
+
+        int PopupIsOpenThunk(void)
+        {
+            return WPopup::IsOpen() ? 1 : 0;
+        }
+
+        int PopupSelectionThunk(void)
+        {
+            return WPopup::Selection();
+        }
+
+        int PopupInputThunk(unsigned long long buttonsDown, unsigned long long buttonsHeld)
+        {
+            return (int)WPopup::Input(buttonsDown, buttonsHeld);
+        }
+
+        void PopupSetGridColumnsThunk(int columns)
+        {
+            WPopup::SetGridColumns(columns);
+        }
+
+        void RefreshTitlesThunk(void)
+        {
+            App::RefreshTitles();
+        }
+
+        int LaunchGameRowThunk(unsigned long long titleId, int ejected, unsigned long long heldButtons)
+        {
+            return App::LaunchGameRow(titleId, ejected != 0, heldButtons) ? 1 : 0;
+        }
+
+        void GfxPushLayerThunk(int layer)
+        {
+            Gfx::PushLayer((Gfx::GfxLayer)layer);
+        }
+
+        void GfxPopLayerThunk(void)
+        {
+            Gfx::PopLayer();
+        }
+
+        void GfxPushPanelCornersThunk(float positionX, float positionY, float width, float height,
+                                      float cornerTopLeft, float cornerTopRight, float cornerBottomRight, float cornerBottomLeft,
+                                      float red, float green, float blue, float alpha)
+        {
+            Gfx::PushPanelCorners(positionX, positionY, width, height,
+                                  cornerTopLeft, cornerTopRight, cornerBottomRight, cornerBottomLeft,
+                                  red, green, blue, alpha);
+        }
+
+        void GfxPushOverlayQuadThunk(float positionX, float positionY, float width, float height,
+                                     float red, float green, float blue, float alpha)
+        {
+            Gfx::PushOverlayQuad(positionX, positionY, width, height, red, green, blue, alpha);
+        }
+
+        void GfxPushOverlayRingThunk(float positionX, float positionY, float width, float height,
+                                     float cornerRadius, float thickness)
+        {
+            Gfx::PushOverlayRing(positionX, positionY, width, height, cornerRadius, thickness);
+        }
+
+        int SubmenuDrawTabThunk(int tabIndex)
+        {
+            Submenus::DrawDynamicTab(tabIndex);
+            return 1;
+        }
+
+        int SubmenuInputTabThunk(int tabIndex, unsigned long long buttonsDown, unsigned long long buttonsHeld)
+        {
+            Submenus::InputDynamicTab(tabIndex, buttonsDown, buttonsHeld);
+            return 1;
+        }
+
+        int SubmenuFullTabIndexThunk(void)
+        {
+            return Submenus::FullTabIndex();
+        }
+
+        int SubmenuTabBackgroundColorThunk(int tabIndex, float *redOut, float *greenOut, float *blueOut)
+        {
+            return Submenus::TabBackgroundColor(tabIndex, redOut, greenOut, blueOut) ? 1 : 0;
+        }
+
+        int TabSetJingleThunk(int tabIndex, const char *jingle)
+        {
+            return Tabs::SetJingle(tabIndex, jingle) ? 1 : 0;
+        }
+
+        int LayoutFindNodeThunk(const char *type, struct LayoutNode *nodeOut)
+        {
+            return LayoutMod::FindNode(type, nodeOut) ? 1 : 0;
+        }
+
+        int LayoutTabCountThunk(void)
+        {
+            return LayoutMod::TabCount();
+        }
+
+        int LayoutTabAtThunk(int slot)
+        {
+            return LayoutMod::TabAt(slot);
+        }
+
         static const MenuHostApi s_hostApi = {
             kMenuHostApiVersion,
             GfxPushPanelThunk,
@@ -492,6 +876,75 @@ namespace HostApi {
             QextAlbumMovieCloseThunk,
             QextAlbumGrowThunk,
             GfxPushOverlayPanelThunk,
+            TopSelectionThunk,
+            BottomFocusThunk,
+            SetBottomFocusThunk,
+            BottomSelectionThunk,
+            SetBottomSelectionThunk,
+            MenuFromThunk,
+            MenuTThunk,
+            MenuDirThunk,
+            MenuPhaseThunk,
+            MenuJingleThunk,
+            HomeSubThunk,
+            SetHomeSubThunk,
+            HomeShiftYThunk,
+            HomeShiftBusyThunk,
+            RowCountThunk,
+            RowAtThunk,
+            AppSelectionThunk,
+            AppSetSelectionThunk,
+            TabFindByIdThunk,
+            TabCountThunk,
+            TabGlyphThunk,
+            TabHudSelectThunk,
+            TabHudDeselectThunk,
+            TabIdAtThunk,
+            ClockAmPmThunk,
+            AvatarCountThunk,
+            AvatarSlotThunk,
+            PadGlyphThunk,
+            PadIconColorThunk,
+            SubmenuIsDynamicTabThunk,
+            SubmenuTabColorThunk,
+            WidgetHasThunk,
+            WidgetDrawAllThunk,
+            IconsSyncTitleThunk,
+            FontNextThunk,
+            SfxPlayThunk,
+            ThemeTryColorThunk,
+            PopupOpenThunk,
+            PopupCloseThunk,
+            PopupIsOpenThunk,
+            PopupSelectionThunk,
+            PopupInputThunk,
+            PopupSetGridColumnsThunk,
+            RefreshTitlesThunk,
+            LaunchGameRowThunk,
+            GfxPushLayerThunk,
+            GfxPopLayerThunk,
+            GfxPushPanelCornersThunk,
+            GfxPushOverlayQuadThunk,
+            GfxPushOverlayRingThunk,
+            SubmenuDrawTabThunk,
+            SubmenuInputTabThunk,
+            SubmenuFullTabIndexThunk,
+            SubmenuTabBackgroundColorThunk,
+            TabSetJingleThunk,
+            LayoutFindNodeThunk,
+            AppTopSwitchThunk,
+            AppActivateBottomThunk,
+            AppActivateThunk,
+            PromptOpenGameThunk,
+            OpenFolderViewThunk,
+            CloseFolderViewThunk,
+            OpenFolderThunk,
+            FolderSelThunk,
+            SetFolderSelThunk,
+            SelectFolderRowThunk,
+            LayoutTabCountThunk,
+            LayoutTabAtThunk,
+            MenuSlideXThunk,
         };
 
     } // namespace

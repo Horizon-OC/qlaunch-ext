@@ -12,7 +12,7 @@ PY := python3
 UAM := $(DEVKITPRO)/tools/bin/uam
 
 ARCH := -march=armv8-a -mtune=cortex-a57 -mtp=soft -fPIC
-BASEFLAGS := -g -O2 -ffunction-sections -fdata-sections $(ARCH) -D__SWITCH__ -I$(SDLDIR)/include -I$(DEVKITPRO)/libnx/include -I$(DLINK)/include -I$(TOP)/src
+BASEFLAGS := -g -O2 -ffunction-sections -fdata-sections $(ARCH) -D__SWITCH__ -DINI_READONLY -DINI_NOBROWSE -I$(SDLDIR)/include -I$(DEVKITPRO)/libnx/include -I$(DLINK)/include -I$(TOP)/../extern/miniini -I$(TOP)/src
 CFLAGS := $(BASEFLAGS)
 CXXFLAGS := $(BASEFLAGS) -std=c++17 -fno-exceptions -fno-rtti -fno-threadsafe-statics -MMD -MP
 ASFLAGS := -g $(ARCH)

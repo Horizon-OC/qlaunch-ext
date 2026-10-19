@@ -79,7 +79,4 @@ namespace Tabs {
     /// @return True on success.
     bool SetIconSlots(int tabIndex, int selectedSlot, int deselectedSlot);
 
-    /// @brief Register the builtin tabs (home only; everything else is a dynamic submenu).
-    void RegisterBuiltin();
-
 } /* namespace Tabs */

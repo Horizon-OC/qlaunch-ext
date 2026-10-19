@@ -21,8 +21,10 @@ namespace Font {
     /// @return Texture slot, or < 0 when unavailable.
     int Slot(int buf);
     /// @brief Initialize font atlases and text buffers.
+    /// Pack fonts (font.otf, switch_icons.ttf) override embedded ones.
+    /// @param packDir Theme pack directory (may be null).
     /// @return True on success.
-    bool Init();
+    bool Init(const char *packDir);
 
     /// @brief Shut down font rendering.
     void Shutdown();

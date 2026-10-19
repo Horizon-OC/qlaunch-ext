@@ -4,6 +4,7 @@
 
 #include "Gfx.hpp"
 #include "Log.hpp"
+#include "Theme.hpp"
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 #include <string.h>
@@ -1134,12 +1135,35 @@ namespace Gfx {
         return quadId;
     }
 
+    /// @brief Resolve the select-ring gradient stops (theme or builtin).
+    /// TryColor leaves missing stops at their fallback values.
+    /// @param stops Output RGB triples.
+    static void RingColors(float stops[4][3])
+    {
+        static const char *keys[4] = { "ring0", "ring1", "ring2", "ring3" };
+        static const float fallback[4][3] = {
+            { 0.537f, 0.584f, 0.945f },
+            { 0.384f, 0.588f, 0.949f },
+            { 0.863f, 0.722f, 0.875f },
+            { 1.0f, 1.0f, 1.0f },
+        };
+
+        for (int stop = 0; stop < 4; stop++) {
+            stops[stop][0] = fallback[stop][0];
+            stops[stop][1] = fallback[stop][1];
+            stops[stop][2] = fallback[stop][2];
+            Theme::TryColor(keys[stop], &stops[stop][0], &stops[stop][1], &stops[stop][2]);
+        }
+    }
+
     void PushSelectRing(float positionX, float positionY, float width, float height, float cornerRadius, float ringThickness)
     {
-        static const float ringColor0[4] = { 0.537f, 0.584f, 0.945f, 1.0f };
-        static const float ringColor1[4] = { 0.384f, 0.588f, 0.949f, 1.0f };
-        static const float ringColor2[4] = { 0.863f, 0.722f, 0.875f, 1.0f };
-        static const float ringColor3[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+        float stops[4][3];
+        RingColors(stops);
+        float ringColor0[4] = { stops[0][0], stops[0][1], stops[0][2], 1.0f };
+        float ringColor1[4] = { stops[1][0], stops[1][1], stops[1][2], 1.0f };
+        float ringColor2[4] = { stops[2][0], stops[2][1], stops[2][2], 1.0f };
+        float ringColor3[4] = { stops[3][0], stops[3][1], stops[3][2], 1.0f };
         PushHighlight(positionX, positionY, width, height, cornerRadius, ringThickness, ringColor0, ringColor1, ringColor2, ringColor3, s_device.ringRotation);
     }
 
@@ -1200,10 +1224,8 @@ namespace Gfx {
 
     void PushOverlayRing(float x, float y, float w, float h, float cornerRadius, float thick)
     {
-        static const float c0[4] = { 0.537f, 0.584f, 0.945f, 1.0f };
-        static const float c1[4] = { 0.384f, 0.588f, 0.949f, 1.0f };
-        static const float c2[4] = { 0.863f, 0.722f, 0.875f, 1.0f };
-        static const float c3[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+        float stops[4][3];
+        RingColors(stops);
         HQ *q;
         if (s_queues.overlayHighlightCount + 1 > kGfxOverlayHighlightMax)
             return;
@@ -1217,12 +1239,22 @@ namespace Gfx {
         q->rad = SC(cornerRadius);
         q->thick = SC(thick);
         q->rot = s_device.ringRotation;
-        for (int i = 0; i < 4; i++) {
-            q->c0[i] = c0[i];
-            q->c1[i] = c1[i];
-            q->c2[i] = c2[i];
-            q->c3[i] = c3[i];
-        }
+        q->c0[0] = stops[0][0];
+        q->c0[1] = stops[0][1];
+        q->c0[2] = stops[0][2];
+        q->c0[3] = 1.0f;
+        q->c1[0] = stops[1][0];
+        q->c1[1] = stops[1][1];
+        q->c1[2] = stops[1][2];
+        q->c1[3] = 1.0f;
+        q->c2[0] = stops[2][0];
+        q->c2[1] = stops[2][1];
+        q->c2[2] = stops[2][2];
+        q->c2[3] = 1.0f;
+        q->c3[0] = stops[3][0];
+        q->c3[1] = stops[3][1];
+        q->c3[2] = stops[3][2];
+        q->c3[3] = 1.0f;
         q->layer = s_layerStack[s_layerDepth];
         s_queues.overlayHighlightCount++;
     }

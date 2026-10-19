@@ -6,7 +6,9 @@
 #include "Font.hpp"
 #include "Theme.hpp"
 #include "Qext.hpp"
+#include "Packs.hpp"
 #include <string.h>
+#include <stdio.h>
 #include <stdlib.h>
 
 static void *stb_realloc_sized(void *p, size_t oldsz, size_t newsz)
@@ -41,6 +43,7 @@ namespace {
         bool hudReady[kHudCount];
         int hudTextures[kHudCount];
         bool slotsInitialized;
+        char packDir[192];
     };
 
     static IconsState s_state = {};
@@ -235,6 +238,65 @@ static uint8_t *Downscale(uint8_t *px, int *w, int *h)
         return pixelData;
     }
 
+    /// @brief Pack file stems per HUD id (matches menu/assets/hud names).
+    const char *HudFileStem(int hudId)
+    {
+        static const char *kStems[kHudCount] = {
+            "hud_user", "hud_btn_a", "hud_btn_plus", "hud_folder", "hud_vgccard",
+            "top_sel_home", "top_sel_connect", "top_sel_eshop", "top_sel_album", "top_sel_settings",
+            "top_des_home", "top_des_connect", "top_des_eshop", "top_des_album", "top_des_settings",
+            "marker_sheet", "wifi_0", "wifi_1", "wifi_2", "wifi_3", "wifi_none", "airplane",
+        };
+
+        if (hudId < 0 || hudId >= kHudCount) {
+            return nullptr;
+        }
+
+        return kStems[hudId];
+    }
+
+    /// @brief Decode pack PNG bytes into an existing HUD slot (core art policy).
+    /// @param hudIndex HUD slot receiving the image.
+    /// @param pngData PNG bytes.
+    /// @param pngSize Byte size.
+    /// @return True when the slot holds the pack image.
+    bool OverrideHudSlot(int hudIndex, const uint8_t *pngData, unsigned pngSize)
+    {
+        bool downscaleArt = hudIndex != kHudMarkerStrip;
+        int imageWidth = 0;
+        int imageHeight = 0;
+        uint8_t *pixelData = DecodePng(pngData, pngSize, downscaleArt, true,
+                                       &imageWidth, &imageHeight);
+
+        if (!pixelData) {
+            return false;
+        }
+
+        if (imageWidth > 512 && hudIndex != kHudMarkerStrip) {
+            stbi_image_free(pixelData);
+            return false;
+        }
+
+        if (s_state.hudTextures[hudIndex] < 0) {
+            s_state.hudTextures[hudIndex] = Gfx::TexAlloc();
+
+            if (s_state.hudTextures[hudIndex] < 0) {
+                stbi_image_free(pixelData);
+                return false;
+            }
+        }
+
+        if (!Gfx::TexUpload(s_state.hudTextures[hudIndex], pixelData, imageWidth, imageHeight,
+                            Gfx::TexFormat::RGBA)) {
+            stbi_image_free(pixelData);
+            return false;
+        }
+
+        stbi_image_free(pixelData);
+        s_state.hudReady[hudIndex] = true;
+        return true;
+    }
+
 } // namespace
 
 bool Icons::UploadPng(const uint8_t *pngData, unsigned pngSize, bool downscale, int *textureSlotOut)
@@ -343,6 +405,58 @@ void Icons::ResetHud()
         Gfx::TexFree(s_state.hudTextures[hudIndex]);
         s_state.hudTextures[hudIndex] = -1;
     }
+}
+
+bool Icons::InitHudPack(const char *packDir)
+{
+    EnsureSlots();
+    s_state.packDir[0] = 0;
+
+    if (!packDir || !packDir[0]) {
+        return false;
+    }
+
+    snprintf(s_state.packDir, sizeof(s_state.packDir), "%s", packDir);
+    s_state.packDir[sizeof(s_state.packDir) - 1] = 0;
+    return ReapplyPack();
+}
+
+bool Icons::ReapplyPack()
+{
+    EnsureSlots();
+
+    if (!s_state.packDir[0]) {
+        return false;
+    }
+
+    bool anyOverridden = false;
+
+    for (int hudIndex = 0; hudIndex < kHudCount; hudIndex++) {
+        const char *stem = HudFileStem(hudIndex);
+
+        if (!stem) {
+            continue;
+        }
+
+        char pngPath[256];
+        snprintf(pngPath, sizeof(pngPath), "%s/hud/%s.png", s_state.packDir, stem);
+        pngPath[sizeof(pngPath) - 1] = 0;
+
+        unsigned pngSize = 0;
+        unsigned char *pngData = Packs::ReadFile(pngPath, 0x40000, &pngSize);
+
+        if (!pngData) {
+            continue;
+        }
+
+        if (OverrideHudSlot(hudIndex, pngData, pngSize)) {
+            anyOverridden = true;
+        }
+
+        free(pngData);
+    }
+
+    return anyOverridden;
 }
 
 int Icons::HudSlot(int hudId)

@@ -101,6 +101,7 @@ extern "C" {
     /// @brief Drop cached textures after an external refresh.
     QLAUNCH_HOOK void SubmenuRefresh(void);
 
+
     /// @brief Shut down before unload.
     QLAUNCH_HOOK void SubmenuShutdown(void);
 

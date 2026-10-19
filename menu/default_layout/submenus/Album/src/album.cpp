@@ -384,7 +384,11 @@ namespace Album {
             const float trackW = 14.0f;
             const float trackTop = 240.0f;
             const float trackBottom = 830.0f;
-            g_host->gfxPushPanel(trackX, trackTop, trackW, trackBottom - trackTop, 7.0f, 0.731f, 0.731f, 0.731f, 1.0f);
+            float trackRed = 0.0f;
+            float trackGreen = 0.0f;
+            float trackBlue = 0.0f;
+            g_host->themeColor("menubar", &trackRed, &trackGreen, &trackBlue);
+            g_host->gfxPushPanel(trackX, trackTop, trackW, trackBottom - trackTop, 7.0f, trackRed, trackGreen, trackBlue, 1.0f);
 
             int maxTopRow = rowCount - kAlbumRows;
             int topRow = s_state.firstVisibleIndex / kAlbumColumns;
@@ -452,7 +456,11 @@ namespace Album {
                                         s_state.thumbnailSlots[thumbnailCell].textureSlot,
                                         0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f);
                 } else {
-                    g_host->gfxPushPanel(tileX, tileY, tileW, tileH, 8.0f, 0.25f, 0.26f, 0.30f, 1.0f);
+                    float emptyRed = 0.0f;
+                    float emptyGreen = 0.0f;
+                    float emptyBlue = 0.0f;
+                    g_host->themeColor("panel", &emptyRed, &emptyGreen, &emptyBlue);
+                    g_host->gfxPushPanel(tileX, tileY, tileW, tileH, 8.0f, emptyRed, emptyGreen, emptyBlue, 1.0f);
                 }
 
                 DrawMovieBadge(albumEntryIndex, tileX, tileY, tileW, tileH);

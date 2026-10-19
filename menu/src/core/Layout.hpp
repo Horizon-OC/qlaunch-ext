@@ -52,25 +52,6 @@ struct LayoutDoc {
 };
 
 namespace Layout {
-    /// @brief Load SD override, else builtin.
-    /// @return True on success.
-    bool LoadAuto();
-
-    /// @brief Load layout from a JSON buffer.
-    /// @param json JSON text.
-    /// @param len Text length.
-    /// @return True when at least one node parsed.
-    bool LoadJson(const char *json, unsigned len);
-
-    /// @brief Load the builtin layout blob.
-    /// @return True on success.
-    bool LoadBuiltin();
-
-    /// @brief Load layout from an SD file.
-    /// @param path Filesystem path.
-    /// @return True on success.
-    bool LoadFile(const char *path);
-
     /// @brief Draw background, active tab(s), top and bottom bars.
     void Draw();
 
@@ -78,9 +59,6 @@ namespace Layout {
     /// @param buttonsDown Buttons pressed.
     /// @param buttonsHeld Buttons held.
     void Input(u64 buttonsDown, u64 buttonsHeld);
-
-    /// @brief Activate the focused top-bar tab.
-    void ActivateTop();
 
     /// @brief Give the current horizontal slide offset.
     /// @return Offset in pixels.

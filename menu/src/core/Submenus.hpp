@@ -3,9 +3,10 @@
 
 namespace Submenus {
 
-    /// @brief Boot dynamic submenus from the NekoMenu directory.
+    /// @brief Boot dynamic submenus from a theme pack directory.
     /// @param hostApi Host table with menu functions plus qext.
-    void Boot(const MenuHostApi *hostApi);
+    /// @param submenuDir Pack submenus dir (for example "sdmc:/qlaunch-ext/NekoMenu/default/submenus").
+    void Boot(const MenuHostApi *hostApi, const char *submenuDir);
 
     /// @brief Shut down submenus, freeing icons and unloading dnro files.
     void Shutdown();
@@ -74,5 +75,6 @@ namespace Submenus {
 
     /// @brief Drop cached textures in every tab after an external refresh.
     void RefreshAll();
+
 
 } /* namespace Submenus */

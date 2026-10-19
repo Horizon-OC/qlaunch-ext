@@ -71,6 +71,16 @@ namespace Icons {
     /// @return True when at least one icon loaded.
     bool InitHud(const HudDef *assetDefs, int assetCount);
 
+    /// @brief Overlay pack hud/*.png files onto the HUD slots.
+    /// Remembers the pack so theme switches can reapply it.
+    /// @param packDir Theme pack directory (may be null).
+    /// @return True when at least one icon was overridden.
+    bool InitHudPack(const char *packDir);
+
+    /// @brief Reapply the remembered pack HUD overrides, if any.
+    /// @return True when at least one icon was overridden.
+    bool ReapplyPack();
+
     /// @brief Look up a HUD icon slot.
     /// @param hudId kHud* id.
     /// @return Icon slot, or <= 0 when missing.

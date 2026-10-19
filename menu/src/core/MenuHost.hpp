@@ -1,8 +1,37 @@
 #pragma once
+#include "Layout.hpp"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+    constexpr int kAppNameMax = 192;
+    constexpr int kPopupMaxItems = 12;
+    constexpr int kPopupTextMax = 192;
+
+    enum PopupLayout {
+        kPopupLayoutList = 0,
+        kPopupLayoutRow = 1,
+    };
+
+    enum PopupResult {
+        kPopupResultNone = 0,
+        kPopupResultConfirmed = 1,
+        kPopupResultCancelled = 2,
+    };
+
+    /// @brief One row in the home game strip (owned by menu.dnro).
+    struct AppRow {
+        bool isGame;
+        bool isFolder;
+        u64 tid;
+        u64 folderId;
+        int folderColor;
+        int applet;
+        int iconSlot;
+        bool ejected;
+        char name[kAppNameMax];
+    };
 
     enum {
         kMenuHostApiVersion = 1
@@ -100,8 +129,77 @@ extern "C" {
         int (*qextAlbumMovieRead)(unsigned long long offset, void *outputBuffer, unsigned bufferCapacity);
         void (*qextAlbumMovieClose)(void);
         int (*qextAlbumGrow)(void);
-        void (*gfxPushOverlayPanel)(float positionX, float positionY, float width, float height, float cornerRadius,
-                                    float red, float green, float blue, float alpha);
+        void (*gfxPushOverlayPanel)(float,float,float,float,float,float,float,float,float);
+        /* Layout + Home module surface (append-only additions). */
+        int (*topSelection)(void);
+        int (*bottomFocus)(void);
+        void (*setBottomFocus)(int focused);
+        int (*bottomSelection)(void);
+        void (*setBottomSelection)(int selection);
+        int (*menuFrom)(void);
+        float (*menuT)(void);
+        int (*menuDir)(void);
+        int (*menuPhase)(void);
+        void (*menuJingle)(int tabIndex);
+        int (*homeSub)(void);
+        void (*setHomeSub)(int sub);
+        float (*homeShiftY)(void);
+        int (*homeShiftBusy)(void);
+        int (*rowCount)(void);
+        const AppRow* (*rowAt)(int rowIndex);
+        int (*appSelection)(void);
+        void (*appSetSelection)(int selection);
+        int (*tabFindById)(const char *tabId);
+        int (*tabCount)(void);
+        int (*tabGlyph)(int tabIndex);
+        int (*tabHudSelect)(int tabIndex);
+        int (*tabHudDeselect)(int tabIndex);
+        const char* (*tabIdAt)(int tabIndex);
+        const char* (*clockAmPm)(void);
+        int (*avatarCount)(void);
+        int (*avatarSlot)(int avatarIndex);
+        unsigned (*padGlyph)(void);
+        void (*padIconColor)(float*, float*, float*);
+        int (*submenuIsDynamicTab)(int tabIndex);
+        int (*submenuTabColor)(int tabIndex, float*, float*, float*);
+        int (*widgetHas)(const char *widgetName);
+        void (*widgetDrawAll)(void);
+        void (*iconsSyncTitle)(const u64*, int*, int count, int focus);
+        unsigned (*fontNext)(const char**);
+        void (*sfxPlay)(int clipId);
+        int (*themeTryColor)(const char*, float*, float*, float*);
+        void (*popupOpen)(int layout, const char*, const char*, const char* const*, const float*, int, int, unsigned long long);
+        void (*popupClose)(void);
+        int (*popupIsOpen)(void);
+        int (*popupSelection)(void);
+        int (*popupInput)(unsigned long long, unsigned long long);
+        void (*popupSetGridColumns)(int columns);
+        void (*refreshTitles)(void);
+        int (*launchGameRow)(unsigned long long, int ejected, unsigned long long);
+        void (*gfxPushLayer)(int layer);
+        void (*gfxPopLayer)(void);
+        void (*gfxPushPanelCorners)(float,float,float,float, float,float,float,float, float,float,float,float);
+        void (*gfxPushOverlayQuad)(float,float,float,float, float,float,float,float);
+        void (*gfxPushOverlayRing)(float,float,float,float,float,float);
+        int (*submenuDrawTab)(int tabIndex);
+        int (*submenuInputTab)(int tabIndex, unsigned long long buttonsDown, unsigned long long buttonsHeld);
+        int (*submenuFullTabIndex)(void);
+        int (*submenuTabBackgroundColor)(int tabIndex, float*, float*, float*);
+        int (*tabSetJingle)(int tabIndex, const char *jingle);
+        int (*layoutFindNode)(const char *type, struct LayoutNode *nodeOut);
+        int (*appTopSwitch)(int delta);
+        int (*appActivateBottom)(void);
+        int (*appActivate)(unsigned long long heldButtons);
+        int (*promptOpenGame)(unsigned long long heldButtons, unsigned long long launchTid);
+        void (*openFolderView)(unsigned long long folderId);
+        void (*closeFolderView)(void);
+        unsigned long long (*openFolder)(void);
+        int (*folderSel)(void);
+        void (*setFolderSel)(int selection);
+        void (*selectFolderRow)(unsigned long long folderId);
+        int (*layoutTabCount)(void);
+        int (*layoutTabAt)(int slot);
+        float (*menuSlideX)(void);
     };
 
     /// @brief Fill background, ink, and accent colors from the theme configuration.

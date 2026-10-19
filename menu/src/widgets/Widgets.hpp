@@ -7,9 +7,8 @@
 #include "../core/Layout.hpp"
 #include "../core/Tabs.hpp"
 
-/// @brief Widget collection. Each namespace is one plugin-driven tab
-/// (or chrome). Tabs are registered in Tabs::RegisterBuiltin() and
-/// ordered by layout.json; Layout dispatches Draw/Input to them.
+/// @brief Widget collection. Popup/Prompt are generic host services;
+/// chrome and strip widgets live in layout.dnro and home.dnro.
 
 namespace WBackground {
     /// @brief Draw the fullscreen background for the active (or outgoing) tab.

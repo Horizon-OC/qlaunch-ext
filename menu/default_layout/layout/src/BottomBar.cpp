@@ -3,16 +3,12 @@
 /* Pain... and suffering.           */
 
 #include "Widgets.hpp"
-#include "../core/Gfx.hpp"
-#include "../core/Font.hpp"
-#include "../core/Theme.hpp"
-#include "../core/Icons.hpp"
-#include "../core/Layout.hpp"
-#include "../core/App.hpp"
-#include "../core/Sfx.hpp"
-#include "../core/PadIcon.hpp"
-#include "../core/Input.hpp"
-#include "../core/Tabs.hpp"
+#include "MenuHost.hpp"
+#include "LayoutHost.hpp"
+#include "Gfx.hpp"
+#include "Icons.hpp"
+#include "Sfx.hpp"
+#include "Input.hpp"
 
 namespace WBottomBar {
 
@@ -44,20 +40,21 @@ namespace WBottomBar {
         /// @return Icon slot.
         int ResolveHudSlot(int hudId)
         {
-            return Icons::HudSlot(hudId);
+            return GetLayoutHost()->iconsHudSlot(hudId);
         }
 
         /// @brief Current focus phase derived from App state.
         /// @return Unfocused when the bottom bar is hidden or busy.
         BottomFocusPhase CurrentPhase()
         {
-            int homeTabIndex = Tabs::FindById("home");
+            const MenuHostApi *hostApi = GetLayoutHost();
+            int homeTabIndex = hostApi->tabFindById("home");
 
-            if (!App::BottomFocus() || App::Menu() != homeTabIndex) {
+            if (!hostApi->bottomFocus() || hostApi->appMenu() != homeTabIndex) {
                 return BottomFocusPhase::Unfocused;
             }
 
-            if (App::HomeShiftBusy()) {
+            if (hostApi->homeShiftBusy()) {
                 return BottomFocusPhase::Unfocused;
             }
 
@@ -69,80 +66,78 @@ namespace WBottomBar {
     /// @brief Draw the bottom bar (pad icon + home shortcuts).
     void Draw()
     {
-        Gfx::PushLayer(Gfx::GfxLayer::MenuBar);
+        const MenuHostApi *hostApi = GetLayoutHost();
+        hostApi->gfxPushLayer((int)Gfx::GfxLayer::MenuBar);
         float menuBarRed = 0.0f;
         float menuBarGreen = 0.0f;
         float menuBarBlue = 0.0f;
-        Theme::Color("menubar", &menuBarRed, &menuBarGreen, &menuBarBlue);
-        Gfx::PushPanel(0.0f, kBottomBarY, 1920.0f, kBottomBarHeight, 0.0f, menuBarRed, menuBarGreen, menuBarBlue, 1.0f);
-        Gfx::PopLayer();
+        hostApi->themeColor("menubar", &menuBarRed, &menuBarGreen, &menuBarBlue);
+        hostApi->gfxPushPanel(0.0f, kBottomBarY, 1920.0f, kBottomBarHeight, 0.0f, menuBarRed, menuBarGreen, menuBarBlue, 1.0f);
+        hostApi->gfxPopLayer();
 
-        Gfx::PushLayer(Gfx::GfxLayer::MenuBarItems);
+        hostApi->gfxPushLayer((int)Gfx::GfxLayer::MenuBarItems);
 
         float inkRed = 0.0f;
         float inkGreen = 0.0f;
         float inkBlue = 0.0f;
-        Theme::Color("ink", &inkRed, &inkGreen, &inkBlue);
+        hostApi->themeColor("ink", &inkRed, &inkGreen, &inkBlue);
 
-        /* Controller symbol. TODO: add better controller detection. */
-        unsigned controllerGlyph = PadIcon::Glyph();
+        unsigned controllerGlyph = hostApi->padGlyph();
         float controllerRed = 0.0f;
         float controllerGreen = 0.0f;
         float controllerBlue = 0.0f;
-        PadIcon::Color(&controllerRed, &controllerGreen, &controllerBlue);
+        hostApi->padIconColor(&controllerRed, &controllerGreen, &controllerBlue);
 
         char glyphText[4] = { 0 };
         GlyphUTF8(controllerGlyph, glyphText);
-        float glyphWidth = Font::Measure(glyphText, 72.0f);
-        Font::Draw(glyphText, 76.0f + (100.0f - glyphWidth) * 0.5f, 957.0f + 62.0f, 72.0f, controllerRed, controllerGreen, controllerBlue);
+        float glyphWidth = hostApi->fontMeasure(glyphText, 72.0f);
+        hostApi->fontDraw(glyphText, 76.0f + (100.0f - glyphWidth) * 0.5f, 957.0f + 62.0f, 72.0f, controllerRed, controllerGreen, controllerBlue, 1.0f);
 
-        int homeTabIndex = Tabs::FindById("home");
+        int homeTabIndex = hostApi->tabFindById("home");
 
-        /* Only on the home tab. */
-        if (App::Menu() == homeTabIndex) {
-            /* M-VGC 1710, sleep 1806. */
+        if (hostApi->appMenu() == homeTabIndex) {
             float buttonRed = 1.0f;
             float buttonGreen = 1.0f;
             float buttonBlue = 1.0f;
 
-            if (Theme::IsDark()) {
+            if (hostApi->themeIsDark()) {
                 buttonRed = 0.16f;
                 buttonGreen = 0.16f;
                 buttonBlue = 0.18f;
             }
 
             for (int buttonIndex = 0; buttonIndex < kBottomButtonCount; buttonIndex++) {
-                bool isFocused = App::BottomFocus() && App::BottomSel() == buttonIndex;
+                bool isFocused = hostApi->bottomFocus() && hostApi->bottomSelection() == buttonIndex;
                 float buttonCenterX = kBottomRowStartX + (float)buttonIndex * (kBottomButtonSize + kBottomButtonGap);
                 float buttonDiameter = kBottomButtonSize + 16.0f;
-                Gfx::PushPanel(buttonCenterX - 8.0f, kBottomRowY - 8.0f, buttonDiameter, buttonDiameter, buttonDiameter * 0.5f, buttonRed, buttonGreen, buttonBlue, 1.0f);
+                hostApi->gfxPushPanel(buttonCenterX - 8.0f, kBottomRowY - 8.0f, buttonDiameter, buttonDiameter, buttonDiameter * 0.5f, buttonRed, buttonGreen, buttonBlue, 1.0f);
 
                 if (buttonIndex == 1) {
                     char powerText[4] = { 0 };
                     GlyphUTF8(GLYPH_POWER, powerText);
-                    float powerWidth = Font::Measure(powerText, 52.0f);
+                    float powerWidth = hostApi->fontMeasure(powerText, 52.0f);
 
                     float iconRed = 0.0f;
                     float iconGreen = 0.0f;
                     float iconBlue = 0.0f;
-                    Theme::Color("icon", &iconRed, &iconGreen, &iconBlue);
+                    hostApi->themeColor("icon", &iconRed, &iconGreen, &iconBlue);
 
-                    Font::Draw(powerText, buttonCenterX + (kBottomButtonSize - powerWidth) * 0.5f, kBottomRowY + kBottomButtonSize * 0.5f + 18.0f, 52.0f, iconRed, iconGreen, iconBlue);
+                    hostApi->fontDraw(powerText, buttonCenterX + (kBottomButtonSize - powerWidth) * 0.5f, kBottomRowY + kBottomButtonSize * 0.5f + 18.0f, 52.0f, iconRed, iconGreen, iconBlue, 1.0f);
                 } else {
                     int iconSlot = ResolveHudSlot(kHudVgcCard);
 
-                    if (Gfx::TexValid(iconSlot)) {
-                        Gfx::PushIcon(buttonCenterX, kBottomRowY + 8.0f, kBottomButtonSize, kBottomButtonSize, 16.0f, 16.0f, 16.0f, 16.0f, 1.0f, 1.0f, 1.0f, 0.0f, iconSlot);
+                    if (hostApi->gfxTexValid(iconSlot)) {
+                        hostApi->gfxPushIcon(buttonCenterX, kBottomRowY + 8.0f, kBottomButtonSize, kBottomButtonSize, 16.0f, 16.0f, 16.0f, 16.0f, 1.0f, 1.0f, 1.0f, 0.0f, iconSlot, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f);
                     }
                 }
 
                 if (isFocused) {
-                    Gfx::PushSelectRing(buttonCenterX - 9.0f, kBottomRowY - 9.0f, buttonDiameter + 2.0f, buttonDiameter + 2.0f, (buttonDiameter + 2.0f) * 0.5f, 10.0f);
+                    hostApi->gfxPushSelectRing(buttonCenterX - 9.0f, kBottomRowY - 9.0f, buttonDiameter + 2.0f, buttonDiameter + 2.0f, (buttonDiameter + 2.0f) * 0.5f, 10.0f);
                 }
             }
         }
 
-        Gfx::PopLayer();
+        hostApi->gfxPopLayer();
     }
 
     /// @brief Handle bottom-bar navigation input.
@@ -150,6 +145,8 @@ namespace WBottomBar {
     /// @param buttonsHeld Buttons held.
     void Input(u64 buttonsDown, u64 buttonsHeld)
     {
+        const MenuHostApi *hostApi = GetLayoutHost();
+
         switch (CurrentPhase()) {
             case BottomFocusPhase::Unfocused:
                 return;
@@ -161,31 +158,31 @@ namespace WBottomBar {
         s_state.keyRepeat.Poll(buttonsDown, buttonsHeld, HidNpadButton_AnyLeft | HidNpadButton_AnyRight, DefaultRepeat());
 
         if (buttonsDown & HidNpadButton_AnyLeft) {
-            int currentSelection = App::BottomSel();
+            int currentSelection = hostApi->bottomSelection();
 
             if (currentSelection > 0) {
-                App::SetBottomSel(currentSelection - 1);
-                Sfx::Play(Sfx::Hover);
+                hostApi->setBottomSelection(currentSelection - 1);
+                hostApi->sfxPlay((int)Sfx::Hover);
             }
         }
 
         if (buttonsDown & HidNpadButton_AnyRight) {
-            int currentSelection = App::BottomSel();
+            int currentSelection = hostApi->bottomSelection();
 
             if (currentSelection < 1) {
-                App::SetBottomSel(currentSelection + 1);
-                Sfx::Play(Sfx::Hover);
+                hostApi->setBottomSelection(currentSelection + 1);
+                hostApi->sfxPlay((int)Sfx::Hover);
             }
         }
 
         if (buttonsDown & HidNpadButton_AnyUp) {
-            App::SetBottomFocus(false);
-            Sfx::Play(Sfx::Hover);
+            hostApi->setBottomFocus(0);
+            hostApi->sfxPlay((int)Sfx::Hover);
         }
 
         if (buttonsDown & HidNpadButton_B) {
-            App::SetBottomFocus(false);
-            Sfx::Play(Sfx::Back);
+            hostApi->setBottomFocus(0);
+            hostApi->sfxPlay((int)Sfx::Back);
         }
     }
 

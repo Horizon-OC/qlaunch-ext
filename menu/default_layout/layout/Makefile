@@ -1,6 +1,7 @@
 TOP := $(CURDIR)
 DLINK := $(TOP)/../../../extern/libnx-dlink
 MENUCORE := $(TOP)/../../src/core
+WIDGETS := $(TOP)/../../src/widgets
 
 DEVKITPRO ?= /opt/devkitpro
 DKA64 := $(DEVKITPRO)/devkitA64
@@ -9,31 +10,33 @@ CXX := $(DKA64)/bin/aarch64-none-elf-g++
 PY := python3
 
 ARCH := -march=armv8-a -mtune=cortex-a57 -mtp=soft -fPIC
-BASEFLAGS := -g -O2 -ffunction-sections -fdata-sections $(ARCH) -D__SWITCH__ -I$(DEVKITPRO)/libnx/include -I$(MENUCORE)
+BASEFLAGS := -g -O2 -ffunction-sections -fdata-sections $(ARCH) -D__SWITCH__ -I$(DEVKITPRO)/libnx/include -I$(MENUCORE) -I$(WIDGETS) -I$(TOP)/src
 CFLAGS := $(BASEFLAGS) -fvisibility=hidden
 CXXFLAGS := $(BASEFLAGS) -std=c++17 -fno-exceptions -fno-rtti -fno-threadsafe-statics -fvisibility=hidden -MMD -MP
 ASFLAGS := -g $(ARCH)
-LDFLAGS := -specs=$(DLINK)/tools/module.specs -g $(ARCH) -shared -nodefaultlibs -Wl,--export-dynamic -Wl,-z,nopack-relative-relocs -Wl,-Map,$(TOP)/Settings.map
+LDFLAGS := -specs=$(DLINK)/tools/module.specs -g $(ARCH) -shared -nodefaultlibs -Wl,--export-dynamic -Wl,-z,nopack-relative-relocs -Wl,-Map,$(TOP)/layout.map
 
 SRCS := $(notdir $(wildcard $(TOP)/src/*.cpp))
 OBJS := $(patsubst %.cpp,$(TOP)/build/src/%.o,$(SRCS))
+OBJS += $(TOP)/build/core/Json.o
 OBJS += $(TOP)/build/stub/stub.o $(TOP)/build/stub/crt0.o
-OBJS += $(TOP)/build/icons/top_sel_settings.o $(TOP)/build/icons/top_des_settings.o
 
-all: $(TOP)/Settings.dnro $(TOP)/Settings.undef
+all: $(TOP)/layout.dnro $(TOP)/layout.undef
 
--include $(TOP)/build/src/*.d
-
-$(TOP)/Settings.undef: $(TOP)/Settings.elf
+$(TOP)/layout.undef: $(TOP)/layout.elf
 	$(DKA64)/bin/aarch64-none-elf-nm -u -D $< | awk '{print $$NF}' | sort -u > $@
 
-$(TOP)/Settings.dnro: $(TOP)/Settings.elf
-	$(PY) $(DLINK)/tools/elf2dnro.py $(TOP)/Settings.elf $(TOP)/Settings.dnro
+$(TOP)/layout.dnro: $(TOP)/layout.elf
+	$(PY) $(DLINK)/tools/elf2dnro.py $(TOP)/layout.elf $(TOP)/layout.dnro
 
-$(TOP)/Settings.elf: $(OBJS)
+$(TOP)/layout.elf: $(OBJS) $(TOP)/Makefile
 	$(CXX) $(LDFLAGS) -o $@ $(OBJS)
 
 $(TOP)/build/src/%.o: $(TOP)/src/%.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+$(TOP)/build/core/%.o: $(TOP)/../../src/core/%.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
@@ -45,12 +48,7 @@ $(TOP)/build/stub/crt0.o: $(TOP)/stub/crt0.s
 	@mkdir -p $(dir $@)
 	$(CC) $(ASFLAGS) -c $< -o $@
 
-$(TOP)/build/icons/%.o: $(TOP)/../../assets/hud/%.png
-	@mkdir -p $(dir $@)
-	$(DEVKITPRO)/tools/bin/bin2s $< > $(TOP)/build/icons/$*.s
-	$(CC) $(ASFLAGS) -c $(TOP)/build/icons/$*.s -o $@
-
 clean:
-	rm -rf $(TOP)/build $(TOP)/Settings.elf $(TOP)/Settings.dnro $(TOP)/Settings.map $(TOP)/Settings.undef
+	rm -rf $(TOP)/build $(TOP)/layout.elf $(TOP)/layout.dnro $(TOP)/layout.map $(TOP)/layout.undef
 
 .PHONY: all clean

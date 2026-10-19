@@ -1,8 +1,6 @@
 TOP := $(CURDIR)
-DLINK := $(TOP)/../../../extern/libnx-dlink
-MENUCORE := $(TOP)/../../src/core
-THIRDPARTY := $(TOP)/../../src/third_party
-FFINCLUDE := $(TOP)/../../../extern/FFmpeg-dlink/install/include
+DLINK := $(TOP)/../../../../extern/libnx-dlink
+MENUCORE := $(TOP)/../../../src/core
 
 DEVKITPRO ?= /opt/devkitpro
 DKA64 := $(DEVKITPRO)/devkitA64
@@ -11,31 +9,28 @@ CXX := $(DKA64)/bin/aarch64-none-elf-g++
 PY := python3
 
 ARCH := -march=armv8-a -mtune=cortex-a57 -mtp=soft -fPIC
-# stb_image auto-enables C++ thread_local, which compiles to a soft-TP
-# TLS access that has no runtime in dnro modules (first touch crashes).
-# Plain statics are safe: decoding runs on the menu thread only.
-BASEFLAGS := -g -O2 -ffunction-sections -fdata-sections $(ARCH) -D__SWITCH__ -DSTBI_NO_THREAD_LOCALS -I$(DEVKITPRO)/libnx/include -I$(MENUCORE) -I$(THIRDPARTY) -I$(FFINCLUDE)
+BASEFLAGS := -g -O2 -ffunction-sections -fdata-sections $(ARCH) -D__SWITCH__ -I$(DEVKITPRO)/libnx/include -I$(MENUCORE)
 CFLAGS := $(BASEFLAGS) -fvisibility=hidden
 CXXFLAGS := $(BASEFLAGS) -std=c++17 -fno-exceptions -fno-rtti -fno-threadsafe-statics -fvisibility=hidden -MMD -MP
 ASFLAGS := -g $(ARCH)
-LDFLAGS := -specs=$(DLINK)/tools/module.specs -g $(ARCH) -shared -nodefaultlibs -Wl,--export-dynamic -Wl,-z,nopack-relative-relocs -Wl,-Map,$(TOP)/Album.map
+LDFLAGS := -specs=$(DLINK)/tools/module.specs -g $(ARCH) -shared -nodefaultlibs -Wl,--export-dynamic -Wl,-z,nopack-relative-relocs -Wl,-Map,$(TOP)/Settings.map
 
 SRCS := $(notdir $(wildcard $(TOP)/src/*.cpp))
 OBJS := $(patsubst %.cpp,$(TOP)/build/src/%.o,$(SRCS))
 OBJS += $(TOP)/build/stub/stub.o $(TOP)/build/stub/crt0.o
-OBJS += $(TOP)/build/icons/top_sel_album.o $(TOP)/build/icons/top_des_album.o
+OBJS += $(TOP)/build/icons/top_sel_settings.o $(TOP)/build/icons/top_des_settings.o
 
-all: $(TOP)/Album.dnro $(TOP)/Album.undef
+all: $(TOP)/Settings.dnro $(TOP)/Settings.undef
 
 -include $(TOP)/build/src/*.d
 
-$(TOP)/Album.undef: $(TOP)/Album.elf
+$(TOP)/Settings.undef: $(TOP)/Settings.elf
 	$(DKA64)/bin/aarch64-none-elf-nm -u -D $< | awk '{print $$NF}' | sort -u > $@
 
-$(TOP)/Album.dnro: $(TOP)/Album.elf
-	$(PY) $(DLINK)/tools/elf2dnro.py $(TOP)/Album.elf $(TOP)/Album.dnro
+$(TOP)/Settings.dnro: $(TOP)/Settings.elf
+	$(PY) $(DLINK)/tools/elf2dnro.py $(TOP)/Settings.elf $(TOP)/Settings.dnro
 
-$(TOP)/Album.elf: $(OBJS)
+$(TOP)/Settings.elf: $(OBJS)
 	$(CXX) $(LDFLAGS) -o $@ $(OBJS)
 
 $(TOP)/build/src/%.o: $(TOP)/src/%.cpp
@@ -50,12 +45,12 @@ $(TOP)/build/stub/crt0.o: $(TOP)/stub/crt0.s
 	@mkdir -p $(dir $@)
 	$(CC) $(ASFLAGS) -c $< -o $@
 
-$(TOP)/build/icons/%.o: $(TOP)/../../assets/hud/%.png
+$(TOP)/build/icons/%.o: $(TOP)/../../../assets/hud/%.png
 	@mkdir -p $(dir $@)
 	$(DEVKITPRO)/tools/bin/bin2s $< > $(TOP)/build/icons/$*.s
 	$(CC) $(ASFLAGS) -c $(TOP)/build/icons/$*.s -o $@
 
 clean:
-	rm -rf $(TOP)/build $(TOP)/Album.elf $(TOP)/Album.dnro $(TOP)/Album.map $(TOP)/Album.undef
+	rm -rf $(TOP)/build $(TOP)/Settings.elf $(TOP)/Settings.dnro $(TOP)/Settings.map $(TOP)/Settings.undef
 
 .PHONY: all clean

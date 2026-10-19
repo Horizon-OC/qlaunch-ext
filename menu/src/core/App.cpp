@@ -8,7 +8,8 @@
 #include "Icons.hpp"
 #include "HudAssets.hpp"
 #include "Theme.hpp"
-#include "Layout.hpp"
+#include "LayoutMod.hpp"
+#include "Packs.hpp"
 #include "Clock.hpp"
 #include "Sfx.hpp"
 #include "PadIcon.hpp"
@@ -305,7 +306,11 @@ namespace App {
             if (black) {
                 Gfx::PushQuad(0.0f, 0.0f, 1920.0f, 1080.0f, 0.0f, 0.0f, 0.0f, 1.0f);
             } else {
-                Layout::Draw();
+                LayoutMod::Draw();
+
+                if (WPopup::IsOpen()) {
+                    WPopup::Draw();
+                }
             }
 
             if (!Gfx::BeginFrame()) {
@@ -329,30 +334,6 @@ namespace App {
             }
 
             Gfx::EndFrame();
-        }
-
-        /// @brief Step the top-bar tab switch with debounce.
-        /// @param delta -1 for left, +1 for right.
-        void TopSwitch(int delta)
-        {
-            AppState &appState = s_state;
-
-            if (appState.focus.topDebounce > 0) {
-                return;
-            }
-
-            appState.focus.topDebounce = 39;
-
-            int count = Tabs::Count();
-
-            if (count <= 0) {
-                return;
-            }
-
-            int m = (appState.menu.cur + delta + count) % count;
-            appState.focus.topSel = m;
-            SwitchMenu(m);
-            MenuJingle(m);
         }
 
         /// @brief Reset volatile selection state to home defaults.
@@ -416,29 +397,36 @@ namespace App {
             return false;
         }
 
-        if (!Font::Init()) {
+        char packDir[192] = { 0 };
+
+        if (!Packs::Resolve(packDir, sizeof(packDir))) {
             Shutdown();
             return false;
         }
 
-        if (!Theme::InitAuto()) {
+        if (!Font::Init(packDir)) {
+            Shutdown();
+            return false;
+        }
+
+        if (!Theme::InitAuto(packDir)) {
             Shutdown();
             return false;
         }
 
         logging::LogLine("[menu] build %s %s", __DATE__, __TIME__);
         Icons::InitHud(HudAssets::kDefs, HudAssets::kCount);
+        Icons::InitHudPack(packDir);
 
-        Tabs::RegisterBuiltin();
-        Submenus::Boot(HostApi::GetHostApi());
+        Tabs::Clear();
         DynamicWidgets::Boot(HostApi::GetHostApi());
 
-        if (!Layout::LoadAuto()) {
+        if (!LayoutMod::Boot()) {
             Shutdown();
             return false;
         }
 
-        Sfx::Init();
+        Sfx::Init(packDir);
         Sfx::PlayByName("home_boot");
 
         AppState &appState = s_state;
@@ -450,6 +438,17 @@ namespace App {
         Clock::Tick();
         Avatars::Refresh();
         ResetSelection();
+
+        /* Boot on the first TabOrder slot so the visible order leads. */
+        int firstTab = LayoutMod::TabAt(0);
+
+        if (firstTab >= 0 && firstTab < Tabs::Count()) {
+            appState.menu.cur = firstTab;
+            appState.menu.from = firstTab;
+            appState.focus.topSel = firstTab;
+            Submenus::EnterDynamicTab(firstTab);
+        }
+
         s_booted = true;
         RefreshTitles();
         return true;
@@ -459,7 +458,7 @@ namespace App {
     void Shutdown()
     {
         s_state.padReady = false;
-        Submenus::Shutdown();
+        LayoutMod::Shutdown();
         DynamicWidgets::Shutdown();
         Sfx::Shutdown();
         Icons::FreeAll();
@@ -535,7 +534,8 @@ namespace App {
         }
 
         if (appState.focus.top) {
-            Layout::ActivateTop();
+            MenuJingle(appState.focus.topSel);
+            SwitchMenu(appState.focus.topSel);
             return true;
         }
 
@@ -636,42 +636,10 @@ namespace App {
 
         if (WPrompt::IsOpen()) {
             WPrompt::Input(buttonsDown, buttonsHeld);
-        } else if (Submenus::InputLockedTabIndex() >= 0 && appState.menu.t >= 1.0f) {
-            Layout::Input(buttonsDown, buttonsHeld);
         } else if (appState.menu.t < 1.0f) {
             /* Lock input during transitions. */
-        } else if (buttonsDown & HidNpadButton_L) {
-            if (!WStrip::OptionsOpen()) {
-                TopSwitch(-1);
-            }
-        } else if (buttonsDown & HidNpadButton_R) {
-            if (!WStrip::OptionsOpen()) {
-                TopSwitch(1);
-            }
         } else {
-            int homeTabIndex = Tabs::FindById("home");
-
-            if (appState.menu.cur == homeTabIndex && !appState.focus.top && !WStrip::OptionsOpen()) {
-                if (buttonsDown & HidNpadButton_X) {
-                    if (qext_game_running()) {
-                        WPrompt::OpenCloseGame(buttonsHeld, 0);
-                    } else {
-                        Sfx::Play(Sfx::Back);
-                    }
-                }
-
-                if (buttonsDown & HidNpadButton_Plus) {
-                    RefreshTitles();
-                }
-            }
-
-            if ((buttonsDown & HidNpadButton_A) && !WStrip::OptionsOpen()) {
-                if (Activate(buttonsHeld)) {
-                    buttonsDown &= ~HidNpadButton_A;
-                }
-            }
-
-            Layout::Input(buttonsDown, buttonsHeld);
+            LayoutMod::Input(buttonsDown, buttonsHeld);
         }
 
         /* Scrolling moves the icon budget; re-sync without reloading. */
@@ -728,7 +696,7 @@ namespace App {
         AppState &appState = s_state;
 
         WPrompt::Close();
-        WStrip::CloseOptions();
+        WPopup::Close();
         Submenus::CloseFullTabs();
 
         int homeTabIndex = Tabs::FindById("home");
@@ -737,13 +705,13 @@ namespace App {
             homeTabIndex = 0;
         }
 
-        appState.menu.cur = homeTabIndex;
-        appState.menu.from = homeTabIndex;
+        SwitchMenu(homeTabIndex);
         appState.menu.t = 1.0f;
         appState.menu.phase = MenuPhase_Idle;
         appState.focus.topSel = homeTabIndex;
-        appState.sel = 0;
         appState.focus.top = false;
+        appState.focus.bottom = false;
+        appState.sel = 0;
         appState.home.sub = kHomeSubGames;
         appState.home.openFolder = 0;
         appState.home.folderSel = 0;
@@ -907,6 +875,26 @@ namespace App {
         MenuJingle(Tabs::FindById(id));
     }
 
+    /// @brief Slide direction between two tabs in visible slot order.
+    /// @param fromTab Tabs registry index leaving.
+    /// @param toTab Tabs registry index entering.
+    /// @return 1 when moving right in TabOrder, else -1.
+    static int SlideDir(int fromTab, int toTab)
+    {
+        if (fromTab == toTab) {
+            return 1;
+        }
+
+        int fromSlot = LayoutMod::SlotOfTab(fromTab);
+        int toSlot = LayoutMod::SlotOfTab(toTab);
+
+        if (fromSlot >= 0 && toSlot >= 0) {
+            return (toSlot > fromSlot) ? 1 : -1;
+        }
+
+        return (toTab > fromTab) ? 1 : -1;
+    }
+
     /// @brief Switch to a tab index, starting the slide state machine.
     /// @param menuIndex Tab index.
     void SwitchMenu(int menuIndex)
@@ -940,11 +928,7 @@ namespace App {
 
         appState.menu.from = appState.menu.cur;
         appState.menu.cur = menuIndex;
-        appState.menu.dir = (appState.menu.cur > appState.menu.from) ? 1 : -1;
-
-        if (appState.menu.cur == appState.menu.from) {
-            appState.menu.dir = 1;
-        }
+        appState.menu.dir = SlideDir(appState.menu.from, appState.menu.cur);
 
         appState.menu.t = 0.0f;
         appState.menu.phase = MenuPhase_Animating;
@@ -1155,6 +1139,50 @@ namespace App {
         }
 
         s_state.focus.bottomSel = s;
+    }
+
+    /// @brief Step the top-bar tab switch with debounce.
+    /// Steps in layout slot order so L/R follow the visible TabOrder.
+    /// @param delta -1 for left, +1 for right.
+    void TopSwitch(int delta)
+    {
+        AppState &appState = s_state;
+
+        if (appState.focus.topDebounce > 0) {
+            return;
+        }
+
+        appState.focus.topDebounce = 39;
+
+        int count = Tabs::Count();
+
+        if (count <= 0) {
+            return;
+        }
+
+        int m = appState.menu.cur;
+        int slotCount = LayoutMod::TabCount();
+
+        if (slotCount > 0) {
+            int slot = LayoutMod::SlotOfTab(m);
+
+            if (slot < 0) {
+                m = (m + delta + count) % count;
+            } else {
+                slot = (slot + delta + slotCount) % slotCount;
+                m = LayoutMod::TabAt(slot);
+
+                if (m < 0) {
+                    return;
+                }
+            }
+        } else {
+            m = (m + delta + count) % count;
+        }
+
+        appState.focus.topSel = m;
+        SwitchMenu(m);
+        MenuJingle(m);
     }
 
     /// @brief Activate the focused bottom-bar icon.

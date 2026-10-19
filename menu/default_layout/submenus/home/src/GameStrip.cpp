@@ -3,21 +3,22 @@
 /* Pain... and suffering.           */
 
 #include "Widgets.hpp"
-#include "../core/Gfx.hpp"
-#include "../core/Font.hpp"
-#include "../core/Theme.hpp"
-#include "../core/Layout.hpp"
-#include "../core/App.hpp"
-#include "../core/Sfx.hpp"
-#include "../core/Icons.hpp"
-#include "../core/Qext.hpp"
-#include "../core/Input.hpp"
-#include "../core/Tabs.hpp"
+#include "MenuHost.hpp"
+#include "SubmenuApi.hpp"
+#include "Gfx.hpp"
+#include "Icons.hpp"
+#include "Layout.hpp"
+#include "App.hpp"
+#include "Sfx.hpp"
+#include "Qext.hpp"
+#include "Input.hpp"
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
 
 namespace WStrip {
+
+    static const MenuHostApi *s_hostApi = nullptr;
 
     namespace {
 
@@ -45,19 +46,19 @@ namespace WStrip {
         /// @return Games when the strip owns input, else the sub-screen.
         StripPhase CurrentPhase()
         {
-            if (App::TopFocus() || App::Menu() != Tabs::FindById("home")) {
+            if (s_hostApi->topFocus() || s_hostApi->appMenu() != s_hostApi->tabFindById("home")) {
                 return StripPhase::Hidden;
             }
 
-            if (App::HomeShiftBusy()) {
+            if (s_hostApi->homeShiftBusy()) {
                 return StripPhase::Hidden;
             }
 
-            if (App::BottomFocus()) {
+            if (s_hostApi->bottomFocus()) {
                 return StripPhase::Hidden;
             }
 
-            switch (App::HomeSub()) {
+            switch (s_hostApi->homeSub()) {
                 case kHomeSubFolders:
                     return StripPhase::Folders;
                 case kHomeSubVgc:
@@ -87,7 +88,7 @@ namespace WStrip {
         /// @return True when the view is valid.
         static bool ResolveMembers()
         {
-            u64 folderId = App::OpenFolder();
+            u64 folderId = s_hostApi->openFolder();
 
             if (folderId == 0) {
                 return false;
@@ -239,19 +240,19 @@ namespace WStrip {
                 syncSlots[m] = -1;
             }
 
-            int sel = App::FolderSel();
+            int sel = s_hostApi->folderSel();
 
             if (sel < 0 || sel >= s_view.count) {
                 sel = 0;
             }
 
-            Icons::Sync(syncIds, syncSlots, s_view.count, sel);
+            s_hostApi->iconsSyncTitle(syncIds, syncSlots, s_view.count, sel);
 
             for (int m = 0; m < s_view.count; m++) {
                 s_view.iconSlots[m] = syncSlots[m];
             }
 
-            s_view.syncSel = App::FolderSel();
+            s_view.syncSel = s_hostApi->folderSel();
         }
 
         /// @brief Validate the folder view, rebuilding the cache as needed.
@@ -259,13 +260,13 @@ namespace WStrip {
         /// @return True when a valid view is showing.
         static bool ValidateFolderView()
         {
-            if (App::OpenFolder() == 0) {
+            if (s_hostApi->openFolder() == 0) {
                 return false;
             }
 
-            if (App::OpenFolder() != s_view.folderId) {
+            if (s_hostApi->openFolder() != s_view.folderId) {
                 if (!ResolveMembers()) {
-                    App::CloseFolderView();
+                    s_hostApi->closeFolderView();
                     return false;
                 }
 
@@ -280,7 +281,7 @@ namespace WStrip {
 
                 if (folderCount > 0) {
                     for (int i = 0; i < folderCount; i++) {
-                        if (qext_folder_id(i) == App::OpenFolder()) {
+                        if (qext_folder_id(i) == s_hostApi->openFolder()) {
                             memberCount = qext_folder_game_count(i);
 
                             if (memberCount < 0) {
@@ -295,17 +296,17 @@ namespace WStrip {
 
             if (memberCount != s_view.count) {
                 if (!ResolveMembers()) {
-                    App::CloseFolderView();
+                    s_hostApi->closeFolderView();
                     return false;
                 }
             }
 
             if (s_view.count <= 0) {
-                App::CloseFolderView();
+                s_hostApi->closeFolderView();
                 return false;
             }
 
-            if (App::FolderSel() != s_view.syncSel) {
+            if (s_hostApi->folderSel() != s_view.syncSel) {
                 SyncMemberIcons();
             }
 
@@ -337,6 +338,31 @@ namespace WStrip {
         { "Grey", 0.50f, 0.50f, 0.55f },
     };
 
+    /// @brief Resolve a folder palette entry (theme override or builtin).
+    /// Index 0 always follows the theme panel.
+    /// @param colorIndex Palette index.
+    /// @param redOut Red output.
+    /// @param greenOut Green output.
+    /// @param blueOut Blue output.
+    static void FolderPaletteColor(int colorIndex, float *redOut, float *greenOut, float *blueOut)
+    {
+        if (colorIndex > 0 && colorIndex < kFolderColorCount) {
+            char keyText[16];
+            snprintf(keyText, sizeof(keyText), "folder%d", colorIndex);
+
+            if (s_hostApi->themeTryColor(keyText, redOut, greenOut, blueOut)) {
+                return;
+            }
+
+            *redOut = kFolderColorEntries[colorIndex].red;
+            *greenOut = kFolderColorEntries[colorIndex].green;
+            *blueOut = kFolderColorEntries[colorIndex].blue;
+            return;
+        }
+
+        s_hostApi->themeColor("panel", redOut, greenOut, blueOut);
+    }
+
     /// @brief Draw a folder tile (panel plus folder art).
     /// @param tileX X position.
     /// @param tileY Y position.
@@ -354,15 +380,9 @@ namespace WStrip {
         float panelGreen = 0.0f;
         float panelBlue = 0.0f;
 
-        if (colorIndex > 0 && colorIndex < kFolderColorCount) {
-            panelRed = kFolderColorEntries[colorIndex].red;
-            panelGreen = kFolderColorEntries[colorIndex].green;
-            panelBlue = kFolderColorEntries[colorIndex].blue;
-        } else {
-            Theme::Color("panel", &panelRed, &panelGreen, &panelBlue);
-        }
+        FolderPaletteColor(colorIndex, &panelRed, &panelGreen, &panelBlue);
 
-        Gfx::PushPanelCorners(tileX, tileY, tileSize, tileSize, cornerRadius, cornerRadius, bottomRadius, bottomRadius,
+        s_hostApi->gfxPushPanelCorners(tileX, tileY, tileSize, tileSize, cornerRadius, cornerRadius, bottomRadius, bottomRadius,
                                 panelRed, panelGreen, panelBlue, opacity);
 
         float glyphRed = 1.0f;
@@ -375,12 +395,12 @@ namespace WStrip {
             glyphBlue = panelBlue * 0.45f;
         }
 
-        int folderSlot = Icons::HudSlot(kHudFolder);
+        int folderSlot = s_hostApi->iconsHudSlot(kHudFolder);
 
-        if (Gfx::TexValid(folderSlot)) {
+        if (s_hostApi->gfxTexValid(folderSlot)) {
             float iconSize = tileSize * 0.5f;
             float iconOffsetX = (tileSize - iconSize) * 0.5f;
-            Gfx::PushIcon(tileX + iconOffsetX, tileY + tileSize * 0.07f, iconSize, iconSize, cornerRadius, cornerRadius,
+            s_hostApi->gfxPushIcon(tileX + iconOffsetX, tileY + tileSize * 0.07f, iconSize, iconSize, cornerRadius, cornerRadius,
                            bottomRadius, bottomRadius, glyphRed, glyphGreen, glyphBlue, 0.0f, folderSlot, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, opacity);
         }
 
@@ -398,16 +418,16 @@ namespace WStrip {
         float menuBarRed = 0.0f;
         float menuBarGreen = 0.0f;
         float menuBarBlue = 0.0f;
-        Theme::Color("menubar", &menuBarRed, &menuBarGreen, &menuBarBlue);
+        s_hostApi->themeColor("menubar", &menuBarRed, &menuBarGreen, &menuBarBlue);
 
         for (int miniIndex = 0; miniIndex < shownCount; miniIndex++) {
             int miniSlot = previewSlots[miniIndex];
 
-            if (Gfx::TexValid(miniSlot)) {
-                Gfx::PushIcon(miniX, miniY, miniSize, miniSize, miniCorner, miniCorner, miniCorner, miniCorner,
+            if (s_hostApi->gfxTexValid(miniSlot)) {
+                s_hostApi->gfxPushIcon(miniX, miniY, miniSize, miniSize, miniCorner, miniCorner, miniCorner, miniCorner,
                                1.0f, 1.0f, 1.0f, 0.0f, miniSlot, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, opacity);
             } else {
-                Gfx::PushPanel(miniX, miniY, miniSize, miniSize, miniCorner,
+                s_hostApi->gfxPushPanel(miniX, miniY, miniSize, miniSize, miniCorner,
                                menuBarRed, menuBarGreen, menuBarBlue, opacity);
             }
 
@@ -458,7 +478,7 @@ namespace WStrip {
             syncSlots[i] = -1;
         }
 
-        Icons::Sync(syncIds, syncSlots, preview->count, App::Sel());
+        s_hostApi->iconsSyncTitle(syncIds, syncSlots, preview->count, s_hostApi->appSelection());
 
         for (int i = 0; i < preview->count; i++) {
             preview->slots[i] = syncSlots[i];
@@ -531,7 +551,7 @@ namespace WStrip {
             bool healed = false;
 
             for (int i = 0; i < preview->count; i++) {
-                if (!Gfx::TexValid(preview->slots[i])) {
+                if (!s_hostApi->gfxTexValid(preview->slots[i])) {
                     healed = true;
                     break;
                 }
@@ -570,29 +590,29 @@ namespace WStrip {
         }
 
         if (row.isGame) {
-            Theme::Color("menubar", &tileRed, &tileGreen, &tileBlue);
+            s_hostApi->themeColor("menubar", &tileRed, &tileGreen, &tileBlue);
         } else if (row.applet == 0) {
-            Theme::Color("tile_album", &tileRed, &tileGreen, &tileBlue);
+            s_hostApi->themeColor("tile_album", &tileRed, &tileGreen, &tileBlue);
             fallbackGlyph = GLYPH_ALBUM;
         } else {
-            Theme::Color("tile_ctrl", &tileRed, &tileGreen, &tileBlue);
+            s_hostApi->themeColor("tile_ctrl", &tileRed, &tileGreen, &tileBlue);
             fallbackGlyph = GLYPH_JOYCON;
         }
 
         float tileSize = tileWidth < tileHeight ? tileWidth : tileHeight;
-        Gfx::PushPanel(tileX, tileY, tileWidth, tileHeight, cornerRadius, tileRed, tileGreen, tileBlue, opacity);
+        s_hostApi->gfxPushPanel(tileX, tileY, tileWidth, tileHeight, cornerRadius, tileRed, tileGreen, tileBlue, opacity);
 
         if (fallbackGlyph) {
             char glyphText[4] = { 0 };
             GlyphUTF8(fallbackGlyph, glyphText);
             float glyphSize = tileSize * 0.45f;
-            float glyphWidth = Font::Measure(glyphText, glyphSize);
+            float glyphWidth = s_hostApi->fontMeasure(glyphText, glyphSize);
 
-            Font::Draw(glyphText, tileX + (tileSize - glyphWidth) * 0.5f, tileY + tileSize * 0.5f + glyphSize * 0.35f,
-                       glyphSize, 1.0f, 1.0f, 1.0f);
+            s_hostApi->fontDraw(glyphText, tileX + (tileSize - glyphWidth) * 0.5f, tileY + tileSize * 0.5f + glyphSize * 0.35f,
+                       glyphSize, 1.0f, 1.0f, 1.0f, 1.0f);
         } else {
             const char *nameCursor = row.name;
-            uint32_t codepoint = Font::Next(&nameCursor);
+            uint32_t codepoint = s_hostApi->fontNext(&nameCursor);
 
             if (codepoint < 32u || codepoint > 255u) {
                 codepoint = 63u;
@@ -610,10 +630,10 @@ namespace WStrip {
             }
 
             float letterSize = tileSize * 0.42f;
-            float letterWidth = Font::Measure(initialText, letterSize);
+            float letterWidth = s_hostApi->fontMeasure(initialText, letterSize);
 
-            Font::Draw(initialText, tileX + (tileSize - letterWidth) * 0.5f,
-                       tileY + tileSize * 0.5f + letterSize * 0.35f, letterSize, 1.0f, 1.0f, 1.0f);
+            s_hostApi->fontDraw(initialText, tileX + (tileSize - letterWidth) * 0.5f,
+                       tileY + tileSize * 0.5f + letterSize * 0.35f, letterSize, 1.0f, 1.0f, 1.0f, 1.0f);
         }
     }
 
@@ -641,7 +661,7 @@ namespace WStrip {
             frameIndex = 47;
         }
 
-        int markerSlot = Icons::HudSlot(kHudMarkerStrip);
+        int markerSlot = s_hostApi->iconsHudSlot(kHudMarkerStrip);
 
         if (markerSlot <= 0) {
             return;
@@ -657,7 +677,7 @@ namespace WStrip {
         float markerHeight = 45.0f;
         float markerX = centerX - markerWidth * 0.5f;
         float markerY = bandTop + (bandHeight - markerHeight) * 0.5f;
-        Gfx::PushIcon(markerX, markerY, markerWidth, markerHeight, 6.0f, 6.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 0.0f, markerSlot, uvLeft, uvTop, uvRight, uvBottom);
+        s_hostApi->gfxPushIcon(markerX, markerY, markerWidth, markerHeight, 6.0f, 6.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 0.0f, markerSlot, uvLeft, uvTop, uvRight, uvBottom, 1.0f, 1.0f);
     }
 
     /// @brief Draw a title wrapped to two lines under the selected tile.
@@ -750,7 +770,7 @@ namespace WStrip {
 
                     trialText[trialLength] = 0;
 
-                    if (Font::Measure(trialText, 30.0f) > 460.0f) {
+                    if (s_hostApi->fontMeasure(trialText, 30.0f) > 460.0f) {
                         break;
                     }
                 }
@@ -784,8 +804,13 @@ namespace WStrip {
             wrappedLines[lineCount - 1][lineLength] = 0;
         }
 
+        float labelRed = 0.043f;
+        float labelGreen = 0.337f;
+        float labelBlue = 0.804f;
+        s_hostApi->themeTryColor("gamelabel", &labelRed, &labelGreen, &labelBlue);
+
         for (int lineIndex = 0; lineIndex < lineCount; lineIndex++) {
-            Font::Centered(wrappedLines[lineIndex], centerX, topY + (float)lineIndex * 36.0f, 30.0f, 460.0f, 0.043f, 0.337f, 0.804f);
+            s_hostApi->fontCentered(wrappedLines[lineIndex], centerX, topY + (float)lineIndex * 36.0f, 30.0f, 460.0f, labelRed, labelGreen, labelBlue, 1.0f);
         }
     }
 
@@ -793,28 +818,28 @@ namespace WStrip {
     /// @param layoutNode Gamestrip node carrying tile geometry.
     void Draw(const LayoutNode &layoutNode)
     {
-        Gfx::PushLayer(Gfx::GfxLayer::GameStrip);
+        s_hostApi->gfxPushLayer((int)Gfx::GfxLayer::GameStrip);
         float cornerRadius = 24.0f;
         float frameWidth = 6.0f;
         float tileSize = layoutNode.tile > 0.0f ? layoutNode.tile : 384.0f;
         float tileGap = layoutNode.gap > 0.0f ? layoutNode.gap : 50.0f;
         float tilePitch = tileSize + tileGap;
-        float slideOffsetX = Layout::ShiftX();
-        float shiftOffsetY = App::HomeShiftY();
+        float slideOffsetX = s_hostApi->layoutShiftX();
+        float shiftOffsetY = s_hostApi->homeShiftY();
 
-        int rowCount = App::RowCount();
-        int selectedIndex = App::Sel();
+        int rowCount = s_hostApi->rowCount();
+        int selectedIndex = s_hostApi->appSelection();
 
         /* Focus */
-        bool isGamesActive = App::Menu() == Tabs::FindById("home") && !App::TopFocus() &&
-                           !App::BottomFocus() && App::HomeSub() == kHomeSubGames;
+        bool isGamesActive = s_hostApi->appMenu() == s_hostApi->tabFindById("home") && !s_hostApi->topFocus() &&
+                           !s_hostApi->bottomFocus() && s_hostApi->homeSub() == kHomeSubGames;
         float outerSize = tileSize + frameWidth * 2.0f;
 
         /* Game label 30px accent, 461px wide. */
         if (layoutNode.label && isGamesActive && selectedIndex >= 0 && selectedIndex < rowCount) {
             float labelProgress = s_state.highlightProgress < 0.0f ? 0.0f : (s_state.highlightProgress > 1.0f ? 1.0f : s_state.highlightProgress);
             float titleCenterX = layoutNode.x + slideOffsetX + (float)selectedIndex * tilePitch - s_state.stripScroll + outerSize * 0.5f;
-            DrawWrappedName(App::Row(selectedIndex).name, titleCenterX,
+            DrawWrappedName(s_hostApi->rowAt(selectedIndex)->name, titleCenterX,
                             layoutNode.y + shiftOffsetY + outerSize + 20.0f * labelProgress + 45.0f);
         }
 
@@ -882,7 +907,7 @@ namespace WStrip {
             }
 
             float tileCenterX = layoutNode.x + slideOffsetX + (float)tileIndex * tilePitch - s_state.stripScroll + outerSize * 0.5f;
-            const AppRow &row = App::Row(tileIndex);
+            const AppRow &row = *s_hostApi->rowAt(tileIndex);
             float tileAlpha = row.ejected ? 0.50f : 1.0f;
             float tileX = tileCenterX - outerSize * 0.5f;
             float tileY = layoutNode.y + shiftOffsetY;
@@ -895,8 +920,8 @@ namespace WStrip {
                 StripPreview *preview = ResolvePreview(row.folderId);
                 DrawFolderArt(tileX, tileY, outerSize, cornerRadius, cornerRadius, tileAlpha, row.folderColor,
                               preview ? preview->slots : nullptr, preview ? preview->count : 0);
-            } else if (Gfx::TexValid(row.iconSlot)) {
-                unsigned queuedQuads = Gfx::PushIcon(tileX, tileY, outerSize, outerSize, cornerRadius, cornerRadius, cornerRadius, cornerRadius, 1.0f, 1.0f, 1.0f, 0.0f, row.iconSlot, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, tileAlpha);
+            } else if (s_hostApi->gfxTexValid(row.iconSlot)) {
+                unsigned queuedQuads = s_hostApi->gfxPushIcon(tileX, tileY, outerSize, outerSize, cornerRadius, cornerRadius, cornerRadius, cornerRadius, 1.0f, 1.0f, 1.0f, 0.0f, row.iconSlot, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, tileAlpha);
 
                 if (queuedQuads >= (unsigned)(kGfxIconQueueMax / 6)) {
                     TileFallback(row, tileX, tileY, outerSize, outerSize, cornerRadius, tileAlpha);
@@ -908,7 +933,7 @@ namespace WStrip {
 
         if (selectedTile >= 0) {
             float tileCenterX = layoutNode.x + slideOffsetX + (float)selectedTile * tilePitch - s_state.stripScroll + outerSize * 0.5f;
-            const AppRow &row = App::Row(selectedTile);
+            const AppRow &row = *s_hostApi->rowAt(selectedTile);
             float tileAlpha = row.ejected ? 0.50f : 1.0f;
             float bottomRadius = row.ejected ? cornerRadius : 0.0f;
             float tileX = tileCenterX - outerSize * 0.5f;
@@ -921,15 +946,15 @@ namespace WStrip {
             float growY = tileY - 84.0f * highlightProgress;
             float growWidth = outerSize;
             float growHeight = outerSize + growPixels;
-            Gfx::PushSelectRing(growX - 9.0f, growY - 9.0f, growWidth + 18.0f, growHeight + 18.0f, cornerRadius + 9.0f, 12.0f);
+            s_hostApi->gfxPushSelectRing(growX - 9.0f, growY - 9.0f, growWidth + 18.0f, growHeight + 18.0f, cornerRadius + 9.0f, 12.0f);
 
             /* Rounded top and square bottom. */
             if (row.isFolder) {
                 StripPreview *preview = ResolvePreview(row.folderId);
                 DrawFolderArt(growX, growY, outerSize, cornerRadius, bottomRadius, tileAlpha, row.folderColor,
                               preview ? preview->slots : nullptr, preview ? preview->count : 0);
-            } else if (Gfx::TexValid(row.iconSlot)) {
-                unsigned queuedQuads = Gfx::PushIcon(growX, growY, outerSize, outerSize, cornerRadius, cornerRadius, bottomRadius, bottomRadius, 1.0f, 1.0f, 1.0f, 0.0f, row.iconSlot, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, tileAlpha);
+            } else if (s_hostApi->gfxTexValid(row.iconSlot)) {
+                unsigned queuedQuads = s_hostApi->gfxPushIcon(growX, growY, outerSize, outerSize, cornerRadius, cornerRadius, bottomRadius, bottomRadius, 1.0f, 1.0f, 1.0f, 0.0f, row.iconSlot, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, tileAlpha);
 
                 if (queuedQuads >= (unsigned)(kGfxIconQueueMax / 6)) {
                     TileFallback(row, growX, growY, outerSize, outerSize, cornerRadius, tileAlpha);
@@ -939,46 +964,46 @@ namespace WStrip {
             }
 
             if (growPixels > 0.5f) {
-                Gfx::PushPanelCorners(growX, growY + outerSize, growWidth, growPixels, 0.0f, 0.0f, cornerRadius, cornerRadius,
+                s_hostApi->gfxPushPanelCorners(growX, growY + outerSize, growWidth, growPixels, 0.0f, 0.0f, cornerRadius, cornerRadius,
                                       1.0f, 1.0f, 1.0f, 1.0f);
                 DrawMarker(tileCenterX, growY + outerSize, growPixels, highlightProgress);
             }
         }
 
-        Gfx::PopLayer();
+        s_hostApi->gfxPopLayer();
     }
 
     /// @brief Draw folders/VGC sub-screens under the strip.
     void DrawSubs()
     {
-        Gfx::PushLayer(Gfx::GfxLayer::GameStrip);
-        float slideOffsetX = Layout::ShiftX();
-        float shiftOffsetY = App::HomeShiftY();
+        s_hostApi->gfxPushLayer((int)Gfx::GfxLayer::GameStrip);
+        float slideOffsetX = s_hostApi->layoutShiftX();
+        float shiftOffsetY = s_hostApi->homeShiftY();
 
         float inkRed = 0.0f;
         float inkGreen = 0.0f;
         float inkBlue = 0.0f;
-        Theme::Color("ink", &inkRed, &inkGreen, &inkBlue);
+        s_hostApi->themeColor("ink", &inkRed, &inkGreen, &inkBlue);
 
         float dimRed = 0.0f;
         float dimGreen = 0.0f;
         float dimBlue = 0.0f;
-        Theme::Color("dim", &dimRed, &dimGreen, &dimBlue);
+        s_hostApi->themeColor("dim", &dimRed, &dimGreen, &dimBlue);
 
         float menuBarRed = 0.0f;
         float menuBarGreen = 0.0f;
         float menuBarBlue = 0.0f;
-        Theme::Color("menubar", &menuBarRed, &menuBarGreen, &menuBarBlue);
+        s_hostApi->themeColor("menubar", &menuBarRed, &menuBarGreen, &menuBarBlue);
 
         /* Open folder view: member games of the selected folder. */
         {
             float foldersY = 293.0f + 830.0f + shiftOffsetY;
 
             if (foldersY > -400.0f && foldersY < 1100.0f && ValidateFolderView() && s_view.count > 0) {
-                Font::Centered(s_folderName, 960.0f + slideOffsetX, foldersY - 28.0f, 44.0f,
-                               900.0f, inkRed, inkGreen, inkBlue);
+                s_hostApi->fontCentered(s_folderName, 960.0f + slideOffsetX, foldersY - 28.0f, 44.0f,
+                                   900.0f, inkRed, inkGreen, inkBlue, 1.0f);
 
-                int folderSel = App::FolderSel();
+                int folderSel = s_hostApi->folderSel();
 
                 if (folderSel < 0) {
                     folderSel = 0;
@@ -1004,11 +1029,11 @@ namespace WStrip {
                     bool isSelected = (memberIndex == folderSel);
 
                     if (isSelected) {
-                        Gfx::PushSelectRing(cardX - 8.0f, cardY - 8.0f, cardWidth + 16.0f, cardWidth + 16.0f, 20.0f, 8.0f);
+                        s_hostApi->gfxPushSelectRing(cardX - 8.0f, cardY - 8.0f, cardWidth + 16.0f, cardWidth + 16.0f, 20.0f, 8.0f);
                     }
 
-                    if (Gfx::TexValid(s_view.iconSlots[memberIndex])) {
-                        unsigned queuedQuads = Gfx::PushIcon(cardX, cardY, cardWidth, cardWidth, 12.0f, 12.0f, 12.0f, 12.0f, 1.0f, 1.0f, 1.0f, 0.0f, s_view.iconSlots[memberIndex], 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, cardAlpha);
+                    if (s_hostApi->gfxTexValid(s_view.iconSlots[memberIndex])) {
+                        unsigned queuedQuads = s_hostApi->gfxPushIcon(cardX, cardY, cardWidth, cardWidth, 12.0f, 12.0f, 12.0f, 12.0f, 1.0f, 1.0f, 1.0f, 0.0f, s_view.iconSlots[memberIndex], 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, cardAlpha);
 
                         if (queuedQuads >= (unsigned)(kGfxIconQueueMax / 6)) {
                             AppRow gameRow = {};
@@ -1049,10 +1074,10 @@ namespace WStrip {
                     float cardY = gridStartY + gridRow * (cardWidth + 33.0f);
 
                     if (emptyIndex == folderSel) {
-                        Gfx::PushSelectRing(cardX - 8.0f, cardY - 8.0f, cardWidth + 16.0f, cardWidth + 16.0f, 20.0f, 8.0f);
+                        s_hostApi->gfxPushSelectRing(cardX - 8.0f, cardY - 8.0f, cardWidth + 16.0f, cardWidth + 16.0f, 20.0f, 8.0f);
                     }
 
-                    Gfx::PushPanel(cardX, cardY, cardWidth, cardWidth, 12.0f,
+                    s_hostApi->gfxPushPanel(cardX, cardY, cardWidth, cardWidth, 12.0f,
                                    menuBarRed, menuBarGreen, menuBarBlue, 1.0f);
                 }
 
@@ -1064,10 +1089,10 @@ namespace WStrip {
             float gridY = 293.0f - 935.0f + shiftOffsetY;
 
             if (gridY > -700.0f && gridY < 1100.0f) {
-                Font::Centered("Virtual Game Cards", 960.0f + slideOffsetX, gridY - 60.0f,
-                               44.0f, 900.0f, inkRed, inkGreen, inkBlue);
-                int rowCount = App::RowCount();
-                int selectedIndex = App::Sel();
+                s_hostApi->fontCentered("Virtual Game Cards", 960.0f + slideOffsetX, gridY - 60.0f,
+                                   44.0f, 900.0f, inkRed, inkGreen, inkBlue, 1.0f);
+                int rowCount = s_hostApi->rowCount();
+                int selectedIndex = s_hostApi->appSelection();
                 float cardWidth = 180.0f;
                 float cardGap = 20.0f;
                 float cardPitch = cardWidth + cardGap;
@@ -1079,16 +1104,16 @@ namespace WStrip {
                     int gridRow = cardIndex / columnCount;
                     float cardX = gridStartX + gridColumn * cardPitch;
                     float cardY = gridY + gridRow * (cardWidth + 44.0f);
-                    const AppRow &row = App::Row(cardIndex);
+                    const AppRow &row = *s_hostApi->rowAt(cardIndex);
                     float cardAlpha = row.ejected ? 0.50f : 1.0f;
                     bool isSelected = (cardIndex == selectedIndex);
 
                     if (isSelected) {
-                        Gfx::PushSelectRing(cardX - 8.0f, cardY - 8.0f, cardWidth + 16.0f, cardWidth + 16.0f, 20.0f, 8.0f);
+                        s_hostApi->gfxPushSelectRing(cardX - 8.0f, cardY - 8.0f, cardWidth + 16.0f, cardWidth + 16.0f, 20.0f, 8.0f);
                     }
 
-                    if (Gfx::TexValid(row.iconSlot)) {
-                        unsigned queuedQuads = Gfx::PushIcon(cardX, cardY, cardWidth, cardWidth, 12.0f, 12.0f, 12.0f, 12.0f, 1.0f, 1.0f, 1.0f, 0.0f, row.iconSlot, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, cardAlpha);
+                    if (s_hostApi->gfxTexValid(row.iconSlot)) {
+                        unsigned queuedQuads = s_hostApi->gfxPushIcon(cardX, cardY, cardWidth, cardWidth, 12.0f, 12.0f, 12.0f, 12.0f, 1.0f, 1.0f, 1.0f, 0.0f, row.iconSlot, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, cardAlpha);
 
                         if (queuedQuads >= (unsigned)(kGfxIconQueueMax / 6)) {
                             TileFallback(row, cardX, cardY, cardWidth, cardWidth, 12.0f, cardAlpha);
@@ -1099,7 +1124,7 @@ namespace WStrip {
                 }
             }
         }
-        Gfx::PopLayer();
+        s_hostApi->gfxPopLayer();
     }
 
     /// @brief Step the strip selection.
@@ -1110,13 +1135,13 @@ namespace WStrip {
     /// @return True when the selection changed.
     static bool StepSelection(int stepDelta, bool isFreshPress)
     {
-        int rowCount = App::RowCount();
+        int rowCount = s_hostApi->rowCount();
 
         if (rowCount <= 0) {
             return false;
         }
 
-        int selectedIndex = App::Sel();
+        int selectedIndex = s_hostApi->appSelection();
         selectedIndex += stepDelta;
 
         if (selectedIndex < 0) {
@@ -1126,15 +1151,15 @@ namespace WStrip {
         }
 
         /* Ensure we don't restart animation every time. */
-        if (selectedIndex != App::Sel()) {
-            App::SetSel(selectedIndex);
+        if (selectedIndex != s_hostApi->appSelection()) {
+            s_hostApi->appSetSelection(selectedIndex);
             s_state.highlightProgress = 0.0f;
-            Sfx::Play(Sfx::Hover);
-            App::SetTopFocus(false);
+            s_hostApi->sfxPlay((int)Sfx::Hover);
+            s_hostApi->setTopFocus(false);
             return true;
         }
 
-        App::SetTopFocus(false);
+        s_hostApi->setTopFocus(false);
         return false;
     }
 
@@ -1165,7 +1190,7 @@ namespace WStrip {
 
         s_options.open = false;
         s_options.level = 0;
-        WPopup::Close();
+        s_hostApi->popupClose();
     }
 
     /// @brief Whether the title options menu is open.
@@ -1312,7 +1337,7 @@ namespace WStrip {
     /// @param heldButtons Buttons currently held (disarmed until released).
     static void ShowOptionPopup(u64 heldButtons)
     {
-        const char *labels[WPopup::kPopupMaxItems];
+        const char *labels[kPopupMaxItems];
         int labelCount = OptionLabels(labels);
         const char *titleText = s_options.contextName;
 
@@ -1324,7 +1349,7 @@ namespace WStrip {
             titleText = "Change color";
         }
 
-        char infoMessage[WPopup::kPopupTextMax];
+        char infoMessage[kPopupTextMax];
         infoMessage[0] = 0;
 
         if (s_options.gameTid != 0) {
@@ -1340,29 +1365,23 @@ namespace WStrip {
             infoMessage[sizeof(infoMessage) - 1] = 0;
         }
 
-        float swatchColors[WPopup::kPopupMaxItems][3];
+        float swatchColors[kPopupMaxItems][3];
         const float *swatchList = 0;
 
         if (s_options.level == 4) {
             for (int colorIndex = 0; colorIndex < labelCount && colorIndex < kFolderColorCount; colorIndex++) {
-                if (colorIndex == 0) {
-                    Theme::Color("panel", &swatchColors[colorIndex][0], &swatchColors[colorIndex][1],
+                FolderPaletteColor(colorIndex, &swatchColors[colorIndex][0], &swatchColors[colorIndex][1],
                                  &swatchColors[colorIndex][2]);
-                } else {
-                    swatchColors[colorIndex][0] = kFolderColorEntries[colorIndex].red;
-                    swatchColors[colorIndex][1] = kFolderColorEntries[colorIndex].green;
-                    swatchColors[colorIndex][2] = kFolderColorEntries[colorIndex].blue;
-                }
             }
 
             swatchList = swatchColors[0];
         }
 
-        WPopup::Open(WPopup::PopupLayout::List, titleText, infoMessage, labels, swatchList,
+        s_hostApi->popupOpen(kPopupLayoutList, titleText, infoMessage, labels, swatchList,
                      labelCount, 0, heldButtons);
 
         if (s_options.level == 4) {
-            WPopup::SetGridColumns(2);
+            s_hostApi->popupSetGridColumns(2);
         }
     }
 
@@ -1384,7 +1403,7 @@ namespace WStrip {
         CopyOptionName(s_options.contextName, titleName);
         ResolveGameInfo(titleId);
         ShowOptionPopup(heldButtons);
-        Sfx::Play(Sfx::Click);
+        s_hostApi->sfxPlay((int)Sfx::Click);
     }
 
     /// @brief Open the options menu for a strip folder.
@@ -1406,7 +1425,7 @@ namespace WStrip {
         s_options.gameVersion[0] = 0;
         s_options.gamePublisher[0] = 0;
         ShowOptionPopup(heldButtons);
-        Sfx::Play(Sfx::Click);
+        s_hostApi->sfxPlay((int)Sfx::Click);
     }
 
     /// @brief Open the options menu for a game inside a folder view.
@@ -1427,7 +1446,7 @@ namespace WStrip {
         CopyOptionName(s_options.contextName, titleName);
         ResolveGameInfo(titleId);
         ShowOptionPopup(heldButtons);
-        Sfx::Play(Sfx::Click);
+        s_hostApi->sfxPlay((int)Sfx::Click);
     }
 
     /// @brief Enter the folder-choice level for the pending game.
@@ -1452,7 +1471,7 @@ namespace WStrip {
                 continue;
             }
 
-            if (s_options.fromFolderView && folderId == App::OpenFolder()) {
+            if (s_options.fromFolderView && folderId == s_hostApi->openFolder()) {
                 continue;
             }
 
@@ -1471,21 +1490,21 @@ namespace WStrip {
 
         s_options.level = 1;
         ShowOptionPopup(heldButtons);
-        Sfx::Play(Sfx::Click);
+        s_hostApi->sfxPlay((int)Sfx::Click);
     }
 
     /// @brief Run the highlighted options action.
     static void OptionsConfirm(u64 heldButtons)
     {
-        int selectedOption = WPopup::Selection();
+        int selectedOption = s_hostApi->popupSelection();
 
         if (s_options.level == 4) {
             if (qext_folder_set_color(s_options.folderId, selectedOption) == 0) {
-                Sfx::Play(Sfx::Click);
+                s_hostApi->sfxPlay((int)Sfx::Click);
                 CloseOptions();
-                App::RefreshTitles();
+                s_hostApi->refreshTitles();
             } else {
-                Sfx::Play(Sfx::Back);
+                s_hostApi->sfxPlay((int)Sfx::Back);
             }
 
             return;
@@ -1496,16 +1515,16 @@ namespace WStrip {
                 u64 folderId = s_options.folderId;
 
                 if (folderId != 0 && qext_folder_delete(folderId) == 0) {
-                    Sfx::Play(Sfx::Click);
+                    s_hostApi->sfxPlay((int)Sfx::Click);
                     CloseOptions();
-                    App::RefreshTitles();
+                    s_hostApi->refreshTitles();
                 } else {
-                    Sfx::Play(Sfx::Back);
+                    s_hostApi->sfxPlay((int)Sfx::Back);
                 }
             } else {
                 s_options.level = 0;
                 ShowOptionPopup(heldButtons);
-                Sfx::Play(Sfx::Back);
+                s_hostApi->sfxPlay((int)Sfx::Back);
             }
 
             return;
@@ -1519,7 +1538,7 @@ namespace WStrip {
             } else {
                 s_options.level = 0;
                 ShowOptionPopup(heldButtons);
-                Sfx::Play(Sfx::Back);
+                s_hostApi->sfxPlay((int)Sfx::Back);
             }
 
             return;
@@ -1528,7 +1547,7 @@ namespace WStrip {
         if (s_options.level == 1) {
             if (selectedOption == 0) {
                 u64 gameTid = s_options.gameTid;
-                u64 removeFrom = s_options.fromFolderView ? App::OpenFolder() : 0;
+                u64 removeFrom = s_options.fromFolderView ? s_hostApi->openFolder() : 0;
                 CloseOptions();
                 CreateFolderFlow(gameTid, removeFrom);
             } else {
@@ -1539,34 +1558,34 @@ namespace WStrip {
                     u64 gameTid = s_options.gameTid;
 
                     if (s_options.fromFolderView) {
-                        u64 sourceFolder = App::OpenFolder();
+                        u64 sourceFolder = s_hostApi->openFolder();
 
                         if (gameTid != 0 && folderId != 0 && sourceFolder != 0 && sourceFolder != folderId &&
                             qext_folder_remove(sourceFolder, gameTid) == 0 &&
                             qext_folder_add(folderId, gameTid) == 0) {
-                            Sfx::Play(Sfx::Click);
+                            s_hostApi->sfxPlay((int)Sfx::Click);
                             CloseOptions();
-                            App::RefreshTitles();
+                            s_hostApi->refreshTitles();
 
                             if (!ResolveMembers()) {
-                                App::CloseFolderView();
+                                s_hostApi->closeFolderView();
                             } else {
-                                if (App::FolderSel() >= s_view.count) {
-                                    App::SetFolderSel(s_view.count - 1);
+                                if (s_hostApi->folderSel() >= s_view.count) {
+                                    s_hostApi->setFolderSel(s_view.count - 1);
                                 }
 
                                 SyncMemberIcons();
                             }
                         } else {
-                            Sfx::Play(Sfx::Back);
+                            s_hostApi->sfxPlay((int)Sfx::Back);
                         }
                     } else if (gameTid != 0 && folderId != 0 && qext_folder_add(folderId, gameTid) == 0) {
-                        Sfx::Play(Sfx::Click);
+                        s_hostApi->sfxPlay((int)Sfx::Click);
                         CloseOptions();
-                        App::RefreshTitles();
-                        App::SelectFolderRow(folderId);
+                        s_hostApi->refreshTitles();
+                        s_hostApi->selectFolderRow(folderId);
                     } else {
-                        Sfx::Play(Sfx::Back);
+                        s_hostApi->sfxPlay((int)Sfx::Back);
                     }
                 }
             }
@@ -1579,7 +1598,7 @@ namespace WStrip {
 
             if (selectedOption == 0) {
                 CloseOptions();
-                App::OpenFolderView(folderId);
+                s_hostApi->openFolderView(folderId);
             } else if (selectedOption == 1) {
                 char currentName[kAppNameMax];
                 CopyOptionName(currentName, s_options.contextName);
@@ -1588,11 +1607,11 @@ namespace WStrip {
             } else if (selectedOption == 2) {
                 s_options.level = 4;
                 ShowOptionPopup(heldButtons);
-                Sfx::Play(Sfx::Hover);
+                s_hostApi->sfxPlay((int)Sfx::Hover);
             } else {
                 s_options.level = 3;
                 ShowOptionPopup(heldButtons);
-                Sfx::Play(Sfx::Hover);
+                s_hostApi->sfxPlay((int)Sfx::Hover);
             }
 
             return;
@@ -1602,25 +1621,25 @@ namespace WStrip {
             if (selectedOption == 0) {
                 OpenFolderChoices(heldButtons);
             } else {
-                u64 sourceFolder = App::OpenFolder();
+                u64 sourceFolder = s_hostApi->openFolder();
                 u64 gameTid = s_options.gameTid;
 
                 if (sourceFolder != 0 && gameTid != 0 && qext_folder_remove(sourceFolder, gameTid) == 0) {
-                    Sfx::Play(Sfx::Click);
+                    s_hostApi->sfxPlay((int)Sfx::Click);
                     CloseOptions();
-                    App::RefreshTitles();
+                    s_hostApi->refreshTitles();
 
                     if (!ResolveMembers()) {
-                        App::CloseFolderView();
+                        s_hostApi->closeFolderView();
                     } else {
-                        if (App::FolderSel() >= s_view.count) {
-                            App::SetFolderSel(s_view.count - 1);
+                        if (s_hostApi->folderSel() >= s_view.count) {
+                            s_hostApi->setFolderSel(s_view.count - 1);
                         }
 
                         SyncMemberIcons();
                     }
                 } else {
-                    Sfx::Play(Sfx::Back);
+                    s_hostApi->sfxPlay((int)Sfx::Back);
                 }
             }
 
@@ -1630,7 +1649,7 @@ namespace WStrip {
         if (qext_folder_count() <= 0) {
             s_options.level = 2;
             ShowOptionPopup(heldButtons);
-            Sfx::Play(Sfx::Hover);
+            s_hostApi->sfxPlay((int)Sfx::Hover);
         } else {
             OpenFolderChoices(heldButtons);
         }
@@ -1641,23 +1660,28 @@ namespace WStrip {
     /// @param buttonsHeld Held mask (reserved).
     static void OptionsInput(u64 buttonsDown, u64 buttonsHeld)
     {
+        if (!s_hostApi->popupIsOpen()) {
+            CloseOptions();
+            return;
+        }
+
         if (OptionsItemCount() <= 0) {
             CloseOptions();
             return;
         }
 
-        WPopup::PopupResult popupResult = WPopup::Input(buttonsDown, buttonsHeld);
+        int popupResult = s_hostApi->popupInput(buttonsDown, buttonsHeld);
 
-        if (popupResult == WPopup::PopupResult::Confirmed) {
+        if (popupResult == kPopupResultConfirmed) {
             OptionsConfirm(buttonsHeld);
-        } else if (popupResult == WPopup::PopupResult::Cancelled) {
+        } else if (popupResult == kPopupResultCancelled) {
             if (s_options.level == 0) {
                 CloseOptions();
-                Sfx::Play(Sfx::Back);
+                s_hostApi->sfxPlay((int)Sfx::Back);
             } else {
                 s_options.level = 0;
                 ShowOptionPopup(buttonsHeld);
-                Sfx::Play(Sfx::Back);
+                s_hostApi->sfxPlay((int)Sfx::Back);
             }
         }
     }
@@ -1689,15 +1713,15 @@ namespace WStrip {
         }
 
         if (qext_folder_rename(folderId, newName) == 0) {
-            Sfx::Play(Sfx::Click);
-            App::RefreshTitles();
+            s_hostApi->sfxPlay((int)Sfx::Click);
+            s_hostApi->refreshTitles();
 
-            if (App::OpenFolder() == folderId) {
+            if (s_hostApi->openFolder() == folderId) {
                 ResolveMembers();
                 SyncMemberIcons();
             }
         } else {
-            Sfx::Play(Sfx::Back);
+            s_hostApi->sfxPlay((int)Sfx::Back);
         }
     }
 
@@ -1711,7 +1735,7 @@ namespace WStrip {
         }
 
         if (removeFromFolder != 0 && qext_folder_count() >= kFolderStripMax) {
-            Sfx::Play(Sfx::Back);
+            s_hostApi->sfxPlay((int)Sfx::Back);
             return;
         }
 
@@ -1722,35 +1746,35 @@ namespace WStrip {
         }
 
         if (removeFromFolder != 0 && qext_folder_remove(removeFromFolder, titleId) != 0) {
-            Sfx::Play(Sfx::Back);
+            s_hostApi->sfxPlay((int)Sfx::Back);
             return;
         }
 
         u64 folderId = qext_folder_create(newName, titleId);
 
         if (folderId != 0) {
-            Sfx::Play(Sfx::Click);
-            App::RefreshTitles();
+            s_hostApi->sfxPlay((int)Sfx::Click);
+            s_hostApi->refreshTitles();
 
             if (removeFromFolder != 0) {
                 if (!ResolveMembers()) {
-                    App::CloseFolderView();
+                    s_hostApi->closeFolderView();
                 } else {
-                    if (App::FolderSel() >= s_view.count) {
-                        App::SetFolderSel(s_view.count - 1);
+                    if (s_hostApi->folderSel() >= s_view.count) {
+                        s_hostApi->setFolderSel(s_view.count - 1);
                     }
 
                     SyncMemberIcons();
                 }
             } else {
-                App::SelectFolderRow(folderId);
+                s_hostApi->selectFolderRow(folderId);
             }
         } else {
-            Sfx::Play(Sfx::Back);
-            App::RefreshTitles();
+            s_hostApi->sfxPlay((int)Sfx::Back);
+            s_hostApi->refreshTitles();
 
             if (removeFromFolder != 0 && !ResolveMembers()) {
-                App::CloseFolderView();
+                s_hostApi->closeFolderView();
             }
         }
     }
@@ -1763,7 +1787,7 @@ namespace WStrip {
             return;
         }
 
-        int folderSel = App::FolderSel() + stepDelta;
+        int folderSel = s_hostApi->folderSel() + stepDelta;
 
         if (folderSel < 0) {
             folderSel = 0;
@@ -1773,11 +1797,11 @@ namespace WStrip {
             folderSel = kFolderStripGames - 1;
         }
 
-        if (folderSel != App::FolderSel()) {
-            App::SetFolderSel(folderSel);
+        if (folderSel != s_hostApi->folderSel()) {
+            s_hostApi->setFolderSel(folderSel);
             s_state.highlightProgress = 0.0f;
-            Sfx::Play(Sfx::Hover);
-            App::SetTopFocus(false);
+            s_hostApi->sfxPlay((int)Sfx::Hover);
+            s_hostApi->setTopFocus(false);
         }
     }
 
@@ -1817,13 +1841,13 @@ namespace WStrip {
         }
 
         if (buttonsDown & HidNpadButton_B) {
-            App::CloseFolderView();
-            Sfx::Play(Sfx::Back);
+            s_hostApi->closeFolderView();
+            s_hostApi->sfxPlay((int)Sfx::Back);
             return;
         }
 
         if (buttonsDown & HidNpadButton_Y) {
-            int folderSel = App::FolderSel();
+            int folderSel = s_hostApi->folderSel();
 
             if (folderSel >= 0 && folderSel < s_view.count) {
                 OpenMemberOptions(s_view.tids[folderSel], s_view.names[folderSel], buttonsHeld);
@@ -1833,10 +1857,10 @@ namespace WStrip {
         }
 
         if (buttonsDown & HidNpadButton_A) {
-            int folderSel = App::FolderSel();
+            int folderSel = s_hostApi->folderSel();
 
             if (folderSel >= 0 && folderSel < s_view.count) {
-                App::LaunchGameRow(s_view.tids[folderSel], s_view.ejected[folderSel], buttonsHeld);
+                s_hostApi->launchGameRow(s_view.tids[folderSel], s_view.ejected[folderSel], buttonsHeld);
             }
         }
     }
@@ -1860,8 +1884,8 @@ namespace WStrip {
         }
 
         if (buttonsDown & (HidNpadButton_B | HidNpadButton_AnyUp)) {
-            App::SetHomeSub(kHomeSubGames);
-            Sfx::Play(Sfx::Back);
+            s_hostApi->setHomeSub(kHomeSubGames);
+            s_hostApi->sfxPlay((int)Sfx::Back);
         }
     }
 
@@ -1890,25 +1914,25 @@ namespace WStrip {
         }
 
         if (buttonsDown & HidNpadButton_AnyUp) {
-            App::SetTopSel(App::Menu());
-            App::SetTopFocus(true);
-            Sfx::Play(Sfx::Hover);
+            s_hostApi->setTopSelection(s_hostApi->appMenu());
+            s_hostApi->setTopFocus(true);
+            s_hostApi->sfxPlay((int)Sfx::Hover);
         }
 
         if (buttonsDown & HidNpadButton_AnyDown) {
-            App::SetBottomSel(0);
-            App::SetBottomFocus(true);
-            Sfx::Play(Sfx::Hover);
+            s_hostApi->setBottomSelection(0);
+            s_hostApi->setBottomFocus(true);
+            s_hostApi->sfxPlay((int)Sfx::Hover);
         }
 
         if (buttonsDown & HidNpadButton_Y) {
-            int selectedIndex = App::Sel();
+            int selectedIndex = s_hostApi->appSelection();
 
-            if (selectedIndex < 0 || selectedIndex >= App::RowCount()) {
+            if (selectedIndex < 0 || selectedIndex >= s_hostApi->rowCount()) {
                 return;
             }
 
-            const AppRow &selectedRow = App::Row(selectedIndex);
+            const AppRow &selectedRow = *s_hostApi->rowAt(selectedIndex);
 
             if (selectedRow.isFolder) {
                 OpenFolderOptions(selectedRow.folderId, selectedRow.name, buttonsHeld);
@@ -1944,20 +1968,198 @@ namespace WStrip {
         }
     }
 
-    /// @brief Describe the Home tab for the transplantable tab registry.
-    /// @return MenuTab descriptor for Home.
-    MenuTab DescribeTab()
+    /// @brief Install the host table (called once by SubmenuBoot).
+    /// @param hostApi Host API implemented by menu.dnro.
+    void SetHomeHost(const MenuHostApi *hostApi)
     {
-        MenuTab tabDescriptor = {};
-        snprintf(tabDescriptor.id, sizeof(tabDescriptor.id), "home");
-        snprintf(tabDescriptor.title, sizeof(tabDescriptor.title), "Home");
-        tabDescriptor.glyph = 0xE044;
-        snprintf(tabDescriptor.jingle, sizeof(tabDescriptor.jingle), "home_jingle");
-        tabDescriptor.draw = nullptr;
-        tabDescriptor.input = nullptr;
-        tabDescriptor.onEnter = nullptr;
-        tabDescriptor.onExit = nullptr;
-        return tabDescriptor;
+        s_hostApi = hostApi;
     }
 
 } /* namespace WStrip */
+
+extern "C" {
+
+    /// @brief Give the submenu ABI version.
+    /// @return kSubmenuApiVersion.
+    QLAUNCH_HOOK int SubmenuApiVersion(void)
+    {
+        return kSubmenuApiVersion;
+    }
+
+    /// @brief Give the stable submenu id.
+    /// @return Lowercase id owned by the dnro.
+    QLAUNCH_HOOK const char *SubmenuId(void)
+    {
+        return "home";
+    }
+
+    /// @brief Give the display title.
+    /// @return Title owned by the dnro.
+    QLAUNCH_HOOK const char *SubmenuTitle(void)
+    {
+        return "Home";
+    }
+
+    /// @brief Give the jingle clip name, if any.
+    /// @return Clip name or NULL.
+    QLAUNCH_HOOK const char *SubmenuJingle(void)
+    {
+        return "home_jingle";
+    }
+
+    /// @brief Give the fallback glyph, if any.
+    /// @return Codepoint or 0.
+    QLAUNCH_HOOK unsigned SubmenuGlyph(void)
+    {
+        return 0xE044;
+    }
+
+    /// @brief Give the embedded icon PNG bytes, if any.
+    /// @param outputSize Output byte size.
+    /// @return PNG bytes or NULL.
+    QLAUNCH_HOOK const unsigned char *SubmenuIconPng(unsigned *outputSize)
+    {
+        if (outputSize) {
+            *outputSize = 0;
+        }
+
+        return nullptr;
+    }
+
+    /// @brief Give the embedded selected-state icon PNG bytes, if any.
+    /// @param outputSize Output byte size.
+    /// @return PNG bytes or NULL to reuse the normal icon.
+    QLAUNCH_HOOK const unsigned char *SubmenuSelectedIconPng(unsigned *outputSize)
+    {
+        if (outputSize) {
+            *outputSize = 0;
+        }
+
+        return nullptr;
+    }
+
+    /// @brief Give the submenu accent color.
+    /// @param hostApi Host API for theme-derived colors.
+    /// @param redOut Red output.
+    /// @param greenOut Green output.
+    /// @param blueOut Blue output.
+    /// @return Nonzero when a color is provided.
+    QLAUNCH_HOOK int SubmenuColor(const MenuHostApi *hostApi,
+                                  float *redOut, float *greenOut, float *blueOut)
+    {
+        if (!hostApi || !redOut || !greenOut || !blueOut) {
+            return 0;
+        }
+
+        hostApi->themeTabAccent("home", redOut, greenOut, blueOut);
+        return 1;
+    }
+
+    /// @brief Give the submenu background color.
+    /// @param hostApi Host API for theme-derived colors.
+    /// @param redOut Red output.
+    /// @param greenOut Green output.
+    /// @param blueOut Blue output.
+    /// @return Nonzero when a color is provided.
+    QLAUNCH_HOOK int SubmenuBackgroundColor(const MenuHostApi *hostApi,
+                                            float *redOut, float *greenOut, float *blueOut)
+    {
+        if (!hostApi || !redOut || !greenOut || !blueOut) {
+            return 0;
+        }
+
+        hostApi->themeTabColor("home", redOut, greenOut, blueOut);
+        return 1;
+    }
+
+    /// @brief Boot the submenu with the menu host API.
+    /// @param hostApi All menu functions plus the qext family.
+    /// @return 0 to stay loaded.
+    QLAUNCH_HOOK int SubmenuBoot(const MenuHostApi *hostApi)
+    {
+        if (!hostApi || hostApi->version != kMenuHostApiVersion) {
+            return -1;
+        }
+
+        WStrip::SetHomeHost(hostApi);
+        return 0;
+    }
+
+    /// @brief Draw the submenu onto the core's state.
+    /// @param hostApi Host API.
+    QLAUNCH_HOOK void SubmenuDraw(const MenuHostApi *hostApi)
+    {
+        LayoutNode stripNode = {};
+
+        if (hostApi && hostApi->layoutFindNode("gamestrip", &stripNode)) {
+            WStrip::Draw(stripNode);
+        }
+
+        WStrip::DrawSubs();
+    }
+
+    /// @brief Handle submenu input.
+    /// @param hostApi Host API.
+    /// @param buttonsDown Proven pressed mask.
+    /// @param buttonsHeld Held mask.
+    QLAUNCH_HOOK void SubmenuInput(const MenuHostApi *hostApi,
+                                   unsigned long long buttonsDown,
+                                   unsigned long long buttonsHeld)
+    {
+        LayoutNode stripNode = {};
+
+        if (hostApi) {
+            hostApi->layoutFindNode("gamestrip", &stripNode);
+        }
+
+        WStrip::Input(stripNode, buttonsDown, buttonsHeld);
+    }
+
+    /// @brief Enter the submenu tab.
+    /// @param hostApi Host API.
+    QLAUNCH_HOOK void SubmenuOpen(const MenuHostApi *hostApi)
+    {
+        (void)hostApi;
+    }
+
+    /// @brief Exit the submenu tab.
+    /// @param hostApi Host API.
+    QLAUNCH_HOOK void SubmenuClose(const MenuHostApi *hostApi)
+    {
+        (void)hostApi;
+        WStrip::CloseOptions();
+    }
+
+    /// @brief Tick the submenu once per frame.
+    /// @param hostApi Host API.
+    QLAUNCH_HOOK void SubmenuTick(const MenuHostApi *hostApi)
+    {
+        (void)hostApi;
+    }
+
+    /// @brief Whether the submenu currently covers the screen.
+    /// @return Nonzero when fullscreen photo or video is showing.
+    QLAUNCH_HOOK int SubmenuIsFull(void)
+    {
+        return 0;
+    }
+
+    /// @brief Whether the submenu wants all input routed to it.
+    /// @return Nonzero when open (grid or fullscreen).
+    QLAUNCH_HOOK int SubmenuInputLocked(void)
+    {
+        return 0;
+    }
+
+    /// @brief Drop cached textures after an external refresh.
+    QLAUNCH_HOOK void SubmenuRefresh(void)
+    {
+        /* Previews self-refresh on folder change; nothing cached elsewhere. */
+    }
+
+    /// @brief Shut down before unload.
+    QLAUNCH_HOOK void SubmenuShutdown(void)
+    {
+    }
+
+} /* extern C */

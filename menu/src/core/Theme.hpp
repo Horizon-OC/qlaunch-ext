@@ -28,9 +28,10 @@ namespace Theme {
     /// @return True on success.
     bool LoadFile(const char *path);    /* SD override, 64KB max */
 
-    /// @brief Load the SD theme index, else the system color set.
+    /// @brief Load the pack theme table, then the persisted index, else the system set.
+    /// @param packDir Theme pack directory (may be null).
     /// @return True on success.
-    bool InitAuto();                    /* SD theme index, else system set */
+    bool InitAuto(const char *packDir);
 
     /// @brief Look up a theme color.
     /// @param key Color key (for example "ink").
@@ -38,6 +39,14 @@ namespace Theme {
     /// @param g Green output.
     /// @param b Blue output.
     void Color(const char *key, float *r, float *g, float *b);
+
+    /// @brief Look up a theme color without the magenta fallback.
+    /// @param key Color key.
+    /// @param r Red output (untouched when missing).
+    /// @param g Green output (untouched when missing).
+    /// @param b Blue output (untouched when missing).
+    /// @return True when found.
+    bool TryColor(const char *key, float *r, float *g, float *b);
 
     /// @brief Look up a theme metric.
     /// @param key Metric key (for example "corner").

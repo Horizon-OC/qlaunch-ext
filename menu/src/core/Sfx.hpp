@@ -18,8 +18,10 @@ namespace Sfx {
     enum Id { Hover, Click, Back, AlbumJ, SettingsJ, HomeJ, HomeBoot, EshopJ, ChatJ, FolderJ, VgcJ, StandbyJ, Count };
 
     /// @brief Initialize SDL audio output and load the clip registry.
+    /// Pack sfx.json/sfx/*.wav override the embedded clips when present.
+    /// @param packDir Theme pack directory (may be null).
     /// @return True when audio is ready (registry still loads on failure).
-    bool Init();
+    bool Init(const char *packDir);
 
     /// @brief Shut down voices and the SDL audio stream.
     void Shutdown();
@@ -61,14 +63,11 @@ namespace Sfx {
     /// @return True on success.
     bool LoadBuiltin();
 
-    /// @brief Load a registry override from an SD file.
-    /// @param path Filesystem path to sfx.json.
+    /// @brief Load the pack sfx.json registry, else the embedded one.
+    /// Pack sfx/<asset>.wav files override embedded WAVs by asset name.
+    /// @param packDir Theme pack directory (may be null).
     /// @return True on success.
-    bool LoadFile(const char *path);
-
-    /// @brief Load the SD override, else the embedded registry.
-    /// @return True on success.
-    bool LoadAuto();
+    bool LoadAuto(const char *packDir);
 
     /// @brief Mute UI voices and start queuing video PCM.
     /// @note The ring is written by the video worker thread and drained by

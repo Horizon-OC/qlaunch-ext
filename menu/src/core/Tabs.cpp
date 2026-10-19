@@ -70,23 +70,6 @@ namespace Tabs {
             CopyStr(destinationTab.jingle, sizeof(destinationTab.jingle), jingleName);
         }
 
-        // Transplant: copy MakeHomeTab + its widget namespace to reuse this tab elsewhere.
-
-        /// @brief Build the Home tab descriptor.
-        /// @return MenuTab for Home (draw owned by Layout strip node).
-        MenuTab MakeHomeTab()
-        {
-            MenuTab tabDescriptor;
-            ClearTab(tabDescriptor);
-            CopyStr(tabDescriptor.id, sizeof(tabDescriptor.id), "home");
-            CopyStr(tabDescriptor.title, sizeof(tabDescriptor.title), "Home");
-            tabDescriptor.glyph = 0xE044;
-            CopyJingle(tabDescriptor, "home_jingle");
-            tabDescriptor.draw = NULL;
-            tabDescriptor.input = NULL;
-            return tabDescriptor;
-        }
-
     } // namespace
 
     /// @brief Register a tab. Returns its index, or -1 when full.
@@ -208,15 +191,6 @@ namespace Tabs {
         s_registry.tabList[tabIndex].hudSel = selectedSlot;
         s_registry.tabList[tabIndex].hudDesel = deselectedSlot;
         return true;
-    }
-
-    /// @brief Register the builtin tabs (home only; everything else is a dynamic submenu).
-    void RegisterBuiltin()
-    {
-        Clear();
-
-        /* Home keeps a null draw/input so Layout owns the strip node. */
-        Register(MakeHomeTab());
     }
 
 } // namespace Tabs

@@ -23,6 +23,7 @@ fwrite
 hidGetNpadControllerColorSingle
 hidGetNpadControllerColorSplit
 hidGetNpadStyleSet
+ini_gets
 ldexpf
 malloc
 memcmp
@@ -57,18 +58,12 @@ qext_battery_percent
 qext_colorset
 qext_connection_type
 qext_display_size
-qext_folder_add
 qext_folder_color
 qext_folder_count
-qext_folder_create
-qext_folder_delete
 qext_folder_game
 qext_folder_game_count
 qext_folder_id
 qext_folder_name
-qext_folder_remove
-qext_folder_rename
-qext_folder_set_color
 qext_game_has_foreground
 qext_game_running
 qext_launch_applet
@@ -77,7 +72,6 @@ qext_refresh_titles
 qext_resume_game
 qext_sleep
 qext_suspended_title
-qext_swkbd_show_ex
 qext_terminate_game
 qext_time_calendar
 qext_time_now
@@ -87,8 +81,6 @@ qext_title_icon
 qext_title_icon_size
 qext_title_id
 qext_title_name
-qext_title_publisher
-qext_title_version
 qext_wifi_signal
 readdir
 SDL_CreateProperties

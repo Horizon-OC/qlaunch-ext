@@ -9,16 +9,18 @@
 #include "Json.hpp"
 #include "Qext.hpp"
 #include "Assets.hpp"
+#include "Packs.hpp"
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
 
 namespace Theme {
 
-constexpr int kThemeMaxColors = 64;
+constexpr int kThemeMaxColors = 96;
 constexpr int kThemeMaxMetrics = 32;
 constexpr int kThemeMaxThemes = 16;
 constexpr int kThemeColumnCount = 13;
+constexpr int kThemeCustomColors = 16;
 
 struct Entry {
     char name[24];
@@ -36,6 +38,9 @@ struct ThemeRow {
     bool dark;
     float col[kThemeColumnCount][3];
     float ink[3];
+    char customKey[kThemeCustomColors][24];
+    float customValue[kThemeCustomColors][3];
+    int customCount;
 };
 
     /// @brief All mutable theme state, single global.
@@ -145,6 +150,9 @@ struct ThemeRow {
     e->c = 0.0f;
 }
 
+    static void ApplyDefaults(bool dark, float inkRed, float inkGreen, float inkBlue);
+    static void ApplyRowCustom(const ThemeRow *row);
+
     /// @brief Apply a theme table row to the live color set.
     /// @param idx Theme table index.
     static void ApplyRow(int idx)
@@ -159,29 +167,8 @@ struct ThemeRow {
     StoreColor("dock", t->col[5][0], t->col[5][1], t->col[5][2]);
     StoreColor("ink", t->ink[0], t->ink[1], t->ink[2]);
     StoreColor("dim", t->col[6][0], t->col[6][1], t->col[6][2]);
-    StoreColor("accent", 0.0f, 0.7647f, 0.8902f);
-    StoreColor("selring", 0.498f, 0.7216f, 0.9333f);
-    StoreColor("good", 0.2078f, 0.7804f, 0.3490f);
-    StoreColor("warn", 0.9412f, 0.6275f, 0.1255f);
-    StoreColor("bad", 0.9412f, 0.3137f, 0.3137f);
-    StoreColor("tile_game", 0.557f, 0.557f, 0.588f);
-    StoreColor("tile_album", 0.2902f, 0.5647f, 0.8510f);
-    StoreColor("tile_ctrl", 0.3608f, 0.7216f, 0.3608f);
-    StoreColor("hl0", 0.0f, 0.4f, 1.0f);
-    StoreColor("hl1", 0.9333f, 1.0f, 1.0f);
-    StoreColor("hl2", 0.5333f, 0.4667f, 1.0f);
-    StoreColor("hl3", 1.0f, 0.8667f, 1.0f);
-    StoreColor("hl1deep", 0.6667f, 0.9333f, 1.0f);
-    StoreColor("hl3deep", 1.0f, 0.7333f, 1.0f);
-    StoreColor("avatar", 0.9412f, 0.3843f, 0.5725f);
-    if (t->dark)
-        StoreColor("battery", 0.8157f, 0.8157f, 0.8471f);
-    else
-        StoreColor("battery", 0.3333f, 0.3333f, 0.3608f);
-    if (t->dark)
-        StoreColor("icon", 1.0f, 1.0f, 1.0f);
-    else
-        StoreColor("icon", t->ink[0], t->ink[1], t->ink[2]);
+    ApplyDefaults(t->dark, t->ink[0], t->ink[1], t->ink[2]);
+    ApplyRowCustom(t);
     size_t nl = strlen(t->name);
     if (nl > sizeof(s_state.activeName) - 1)
         nl = sizeof(s_state.activeName) - 1;
@@ -191,6 +178,18 @@ struct ThemeRow {
 
     constexpr int kThemeCustomMaxMenus = 8;
     constexpr int kThemeCustomMaxColors = 16;
+    constexpr int kThemeDefaultMaxColors = 48;
+
+    /// @brief Shared fallback colors from the theme table defaults section.
+    struct DefaultEntry {
+        char key[24];
+        float red;
+        float green;
+        float blue;
+    };
+
+    static DefaultEntry s_defaults[kThemeDefaultMaxColors];
+    static int s_defaultCount = 0;
 
     /// @brief Retain the active theme file bytes.
     /// @param fileData File bytes.
@@ -313,6 +312,114 @@ struct ThemeRow {
         }
     }
 
+    /// @brief Whether a color key is structural (columns or derived aliases).
+    /// Structural keys always come from the table row, never overrides.
+    /// @param key Color key.
+    /// @return True when structural.
+    static bool IsStructuralKey(const char *key)
+    {
+        if (!key)
+            return true;
+
+        for (int i = 0; i < kThemeColumnCount; i++) {
+            if (strcmp(key, kThemeColumnKeys[i]) == 0)
+                return true;
+        }
+
+        return strcmp(key, "bg") == 0 || strcmp(key, "panel") == 0 || strcmp(key, "dock") == 0 ||
+               strcmp(key, "ink") == 0 || strcmp(key, "dim") == 0;
+    }
+
+    /// @brief Store one shared default color (structural keys rejected).
+    /// @param key Color key.
+    /// @param red Red 0-1.
+    /// @param green Green 0-1.
+    /// @param blue Blue 0-1.
+    static void StoreDefault(const char *key, float red, float green, float blue)
+    {
+        if (!IsCustomNameUsable(key) || IsStructuralKey(key))
+            return;
+
+        for (int i = 0; i < s_defaultCount; i++) {
+            if (strcmp(s_defaults[i].key, key) == 0) {
+                s_defaults[i].red = red;
+                s_defaults[i].green = green;
+                s_defaults[i].blue = blue;
+                return;
+            }
+        }
+
+        if (s_defaultCount >= kThemeDefaultMaxColors)
+            return;
+
+        DefaultEntry *entry = &s_defaults[s_defaultCount++];
+        size_t keyLength = strlen(key);
+
+        if (keyLength > sizeof(entry->key) - 1)
+            keyLength = sizeof(entry->key) - 1;
+
+        memcpy(entry->key, key, keyLength);
+        entry->key[keyLength] = 0;
+        entry->red = red;
+        entry->green = green;
+        entry->blue = blue;
+    }
+
+    /// @brief Apply the shared defaults plus dark/light picks.
+    /// @param dark True for the dark variants.
+    /// @param inkRed Row ink red (light icon fallback).
+    /// @param inkGreen Row ink green.
+    /// @param inkBlue Row ink blue.
+    static void ApplyDefaults(bool dark, float inkRed, float inkGreen, float inkBlue)
+    {
+        for (int i = 0; i < s_defaultCount; i++)
+            StoreColor(s_defaults[i].key, s_defaults[i].red, s_defaults[i].green, s_defaults[i].blue);
+
+        float batteryRed = 0.0f;
+        float batteryGreen = 0.0f;
+        float batteryBlue = 0.0f;
+
+        if (dark) {
+            if (!TryColor("battery_dark", &batteryRed, &batteryGreen, &batteryBlue)) {
+                batteryRed = 0.8157f;
+                batteryGreen = 0.8157f;
+                batteryBlue = 0.8471f;
+            }
+        } else if (!TryColor("battery_light", &batteryRed, &batteryGreen, &batteryBlue)) {
+            batteryRed = 0.3333f;
+            batteryGreen = 0.3333f;
+            batteryBlue = 0.3608f;
+        }
+
+        StoreColor("battery", batteryRed, batteryGreen, batteryBlue);
+
+        float iconRed = 0.0f;
+        float iconGreen = 0.0f;
+        float iconBlue = 0.0f;
+
+        if (dark) {
+            if (!TryColor("icon_dark", &iconRed, &iconGreen, &iconBlue)) {
+                iconRed = 1.0f;
+                iconGreen = 1.0f;
+                iconBlue = 1.0f;
+            }
+        } else if (!TryColor("icon_light", &iconRed, &iconGreen, &iconBlue)) {
+            iconRed = inkRed;
+            iconGreen = inkGreen;
+            iconBlue = inkBlue;
+        }
+
+        StoreColor("icon", iconRed, iconGreen, iconBlue);
+    }
+
+    /// @brief Apply one row's custom colors over the defaults.
+    /// @param row Theme row.
+    static void ApplyRowCustom(const ThemeRow *row)
+    {
+        for (int i = 0; i < row->customCount; i++)
+            StoreColor(row->customKey[i], row->customValue[i][0], row->customValue[i][1], row->customValue[i][2]);
+    }
+
     /// @brief Load the packed theme table JSON.
     /// @param json JSON text.
     /// @param len Text length.
@@ -324,6 +431,34 @@ struct ThemeRow {
         return false;
     if (Jx::TokType(doc, 0) != 1)
         return false;
+    s_defaultCount = 0;
+    int defaultsRoot = Jx::ObjGet(doc, 0, "defaults");
+
+    if (Jx::TokType(doc, defaultsRoot) == 1) {
+        int defaultsSpan = Jx::TokAfter(doc, defaultsRoot);
+
+        for (int token = defaultsRoot + 1; token < defaultsSpan;) {
+            char defaultKey[24] = { 0 };
+
+            if (Jx::TokType(doc, token) != 3)
+                break;
+
+            Jx::Str(doc, token, defaultKey, sizeof(defaultKey));
+
+            char defaultValue[16] = { 0 };
+            Jx::Str(doc, token + 1, defaultValue, sizeof(defaultValue));
+
+            float red = 1.0f;
+            float green = 0.0f;
+            float blue = 1.0f;
+
+            if (ParseHex(defaultValue, &red, &green, &blue))
+                StoreDefault(defaultKey, red, green, blue);
+
+            token = Jx::TokAfter(doc, token + 1);
+        }
+    }
+
     int ta = Jx::ObjGet(doc, 0, "t");
     if (Jx::TokType(doc, ta) != 2)
         return false;
@@ -353,6 +488,37 @@ struct ThemeRow {
             t->ink[0] = 0.15f;
             t->ink[1] = 0.15f;
             t->ink[2] = 0.15f;
+        }
+        if (Jx::ArrSize(doc, row) > 16 && Jx::TokType(doc, Jx::ArrAt(doc, row, 16)) == 1) {
+            int customRoot = Jx::ArrAt(doc, row, 16);
+            int customSpan = Jx::TokAfter(doc, customRoot);
+
+            for (int token = customRoot + 1; token < customSpan && t->customCount < kThemeCustomColors;) {
+                char customKey[24] = { 0 };
+
+                if (Jx::TokType(doc, token) != 3)
+                    break;
+
+                Jx::Str(doc, token, customKey, sizeof(customKey));
+
+                char customValue[16] = { 0 };
+                Jx::Str(doc, token + 1, customValue, sizeof(customValue));
+
+                float red = 1.0f;
+                float green = 0.0f;
+                float blue = 1.0f;
+
+                if (IsCustomNameUsable(customKey) && !IsStructuralKey(customKey) &&
+                    ParseHex(customValue, &red, &green, &blue)) {
+                    memcpy(t->customKey[t->customCount], customKey, sizeof(t->customKey[0]));
+                    t->customValue[t->customCount][0] = red;
+                    t->customValue[t->customCount][1] = green;
+                    t->customValue[t->customCount][2] = blue;
+                    t->customCount++;
+                }
+
+                token = Jx::TokAfter(doc, token + 1);
+            }
         }
         s_state.themeCount++;
     }
@@ -425,6 +591,25 @@ struct ThemeRow {
     *r = 1.0f;
     *g = 0.0f;
     *b = 1.0f;
+}
+
+    /// @brief Look up a theme color without the magenta fallback.
+    /// @param key Color key.
+    /// @param r Red output (untouched when missing).
+    /// @param g Green output (untouched when missing).
+    /// @param b Blue output (untouched when missing).
+    /// @return True when found.
+    bool TryColor(const char *key, float *r, float *g, float *b)
+{
+    for (int i = 0; i < s_state.colorCount; i++) {
+        if (strcmp(s_state.colors[i].name, key) == 0) {
+            *r = s_state.colors[i].a;
+            *g = s_state.colors[i].b;
+            *b = s_state.colors[i].c;
+            return true;
+        }
+    }
+    return false;
 }
 
     /// @brief Look up a theme metric.
@@ -602,6 +787,7 @@ struct ThemeRow {
     if (Gfx::Ready()) {
         Icons::ResetHud();
         Icons::InitHud(HudAssets::kDefs, HudAssets::kCount);
+        Icons::ReapplyPack();
     }
     PersistTheme();
     return true;
@@ -688,12 +874,48 @@ struct ThemeRow {
     return ok;
 }
 
-    /// @brief Load the SD theme index, else the system color set.
+    /// @brief Load the theme table from the pack, else the embedded one.
+    /// @param packDir Theme pack directory (may be null).
+    /// @return True when a table with rows is active.
+    bool LoadPackTable(const char *packDir)
+    {
+        if (packDir && packDir[0]) {
+            char tablePath[256];
+            snprintf(tablePath, sizeof(tablePath), "%s/themes.json", packDir);
+            tablePath[sizeof(tablePath) - 1] = 0;
+
+            unsigned tableSize = 0;
+            char *tableData = (char *)Packs::ReadFile(tablePath, 65536, &tableSize);
+
+            if (tableData) {
+                bool tableOk = LoadTable(tableData, tableSize);
+
+                if (tableOk) {
+                    RetainThemeFile(tableData, tableSize);
+                }
+
+                free(tableData);
+
+                if (tableOk) {
+                    return true;
+                }
+            }
+        }
+
+        if (!s_state.themeCount) {
+            LoadTable(themes_json, themes_json_size);
+        }
+
+        return s_state.themeCount > 0;
+    }
+
+    /// @brief Load the pack theme table, then the persisted index, else the system set.
+    /// @param packDir Theme pack directory (may be null).
     /// @return True on success.
-    bool InitAuto()
+    bool InitAuto(const char *packDir)
 {
-    if (!s_state.themeCount)
-        LoadTable(themes_json, themes_json_size);
+    if (!LoadPackTable(packDir))
+        return false;
     if (LoadFile("sdmc:/qlaunch-ext/theme.json"))
         return true;
 

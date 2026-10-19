@@ -1,6 +1,6 @@
 TOP := $(CURDIR)
-DLINK := $(TOP)/../../../extern/libnx-dlink
-MENUCORE := $(TOP)/../../src/core
+DLINK := $(TOP)/../../../../extern/libnx-dlink
+MENUCORE := $(TOP)/../../../src/core
 
 DEVKITPRO ?= /opt/devkitpro
 DKA64 := $(DEVKITPRO)/devkitA64
@@ -45,7 +45,7 @@ $(TOP)/build/stub/crt0.o: $(TOP)/stub/crt0.s
 	@mkdir -p $(dir $@)
 	$(CC) $(ASFLAGS) -c $< -o $@
 
-$(TOP)/build/icons/%.o: $(TOP)/../../assets/hud/%.png
+$(TOP)/build/icons/%.o: $(TOP)/../../../assets/hud/%.png
 	@mkdir -p $(dir $@)
 	$(DEVKITPRO)/tools/bin/bin2s $< > $(TOP)/build/icons/$*.s
 	$(CC) $(ASFLAGS) -c $(TOP)/build/icons/$*.s -o $@
