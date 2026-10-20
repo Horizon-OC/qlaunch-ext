@@ -5,6 +5,7 @@
 #include "Widgets.hpp"
 #include "MenuHost.hpp"
 #include "SubmenuApi.hpp"
+#include "LayoutApi.hpp"
 #include "Gfx.hpp"
 #include "Icons.hpp"
 #include "Layout.hpp"
@@ -30,9 +31,16 @@ namespace WStrip {
             float highlightProgress;
             float markerTime;
             InputRepeat keyRepeat;
+            bool flinging;
+            float flingVelocity;
+            bool dragging;
+            float dragRemnant;
+            float dragVelocity;
+            int followSel;
         };
 
-        static StripState s_state = { 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, { 0 } };
+        static StripState s_state = { 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, { 0 }, false, 0.0f, false,
+                                      0.0f, 0.0f, -2 };
 
         /// @brief Home strip phase derived from App state.
         enum class StripPhase {
@@ -962,32 +970,71 @@ namespace WStrip {
             s_state.stripMaxScroll = 0.0f;
         }
 
-        if (s_state.stripTarget < 0.0f) {
-            s_state.stripTarget = 0.0f;
+        /* The finger owns the target while dragging (rubber-band may
+           sit out of range); the lerp below glides back on release. */
+        if (!s_state.dragging) {
+            if (s_state.stripTarget < 0.0f) {
+                s_state.stripTarget = 0.0f;
+            }
+
+            if (s_state.stripTarget > s_state.stripMaxScroll) {
+                s_state.stripTarget = s_state.stripMaxScroll;
+            }
         }
 
-        if (s_state.stripTarget > s_state.stripMaxScroll) {
-            s_state.stripTarget = s_state.stripMaxScroll;
+        if (s_state.flinging && !s_state.dragging) {
+            s_state.stripTarget -= s_state.flingVelocity / 60.0f;
+
+            if (s_state.stripTarget < 0.0f || s_state.stripTarget > s_state.stripMaxScroll) {
+                s_state.flinging = false;
+            }
+
+            s_state.flingVelocity *= 0.90f;
+
+            if (s_state.flingVelocity < 30.0f && s_state.flingVelocity > -30.0f) {
+                s_state.flinging = false;
+            }
+
+            /* Drive scroll directly while flinging so the chase lerp
+               cannot lag behind and overshoot into oscillation. */
+            if (!s_state.flinging) {
+                if (s_state.stripTarget < 0.0f) {
+                    s_state.stripTarget = 0.0f;
+                }
+
+                if (s_state.stripTarget > s_state.stripMaxScroll) {
+                    s_state.stripTarget = s_state.stripMaxScroll;
+                }
+            }
+
+            s_state.stripScroll = s_state.stripTarget;
         }
 
         if (rowCount > 0 && selectedIndex >= 0 && selectedIndex < rowCount) {
             float selectedLeft = (float)selectedIndex * tilePitch;
             float selectedRight = selectedLeft + outerSize;
 
-            if (selectedRight - s_state.stripTarget > visibleWidth - layoutNode.x) {
-                s_state.stripTarget = selectedRight - (visibleWidth - layoutNode.x);
+            /* Follow selection changes, but never fight an active finger. */
+            if (selectedIndex != s_state.followSel && !s_state.dragging && !s_state.flinging) {
+                if (selectedRight - s_state.stripTarget > visibleWidth - layoutNode.x) {
+                    s_state.stripTarget = selectedRight - (visibleWidth - layoutNode.x);
+                }
+
+                if (selectedLeft - s_state.stripTarget < 0.0f) {
+                    s_state.stripTarget = selectedLeft;
+                }
             }
 
-            if (selectedLeft - s_state.stripTarget < 0.0f) {
-                s_state.stripTarget = selectedLeft;
-            }
+            s_state.followSel = selectedIndex;
+        } else {
+            s_state.followSel = selectedIndex;
         }
 
         s_state.stripScroll += (s_state.stripTarget - s_state.stripScroll) * 0.25f;
 
-        if (s_state.stripScroll < 0.0f) {
-            s_state.stripScroll = 0.0f;
-        }
+        /* No lower clamp: rubber-band overscroll lives here transiently,
+           and the label above already drew with it. Target clamps plus
+           the release settle keep it bounded everywhere else. */
 
         float slideDistance = slideOffsetX < 0.0f ? -slideOffsetX : slideOffsetX;
         int firstTile = (int)((s_state.stripScroll - slideDistance) / tilePitch) - 2;
@@ -1086,6 +1133,104 @@ namespace WStrip {
         }
 
         s_hostApi->gfxPopLayer();
+    }
+
+    /// @brief Hit-test a design-space point against the open folder grid.
+    /// Members and empty cells both resolve; drawing clamps the ring.
+    /// @param x X in design space.
+    /// @param y Y in design space.
+    /// @return Cell index, or -1 when outside the grid.
+    int FolderCellAt(float x, float y)
+    {
+        float shiftOffsetY = s_hostApi->homeShiftY();
+        float foldersY = 293.0f + 830.0f + shiftOffsetY;
+
+        if (foldersY <= -400.0f || foldersY >= 1100.0f || !ValidateFolderView() || s_view.count <= 0) {
+            return -1;
+        }
+
+        float slideOffsetX = s_hostApi->layoutShiftX();
+        float cardWidth = 180.0f;
+        float cardPitch = cardWidth + 33.0f;
+        int columnCount = 8;
+        float gridStartX = 960.0f - (columnCount * cardPitch - 33.0f) * 0.5f + slideOffsetX;
+        float gridStartY = foldersY + 12.0f;
+
+        if (x < gridStartX || y < gridStartY) {
+            return -1;
+        }
+
+        int gridColumn = (int)((x - gridStartX) / cardPitch);
+        int gridRow = (int)((y - gridStartY) / cardPitch);
+        int shownCells = columnCount * 3;
+        int shownRows = shownCells / columnCount;
+
+        if (gridColumn < 0 || gridColumn >= columnCount || gridRow < 0 || gridRow >= shownRows) {
+            return -1;
+        }
+
+        float cardX = gridStartX + gridColumn * cardPitch;
+        float cardY = gridStartY + gridRow * cardPitch;
+
+        if (x < cardX - 16.0f || x > cardX + cardWidth + 16.0f ||
+            y < cardY - 16.0f || y > cardY + cardWidth + 16.0f) {
+            return -1;
+        }
+
+        return gridRow * columnCount + gridColumn;
+    }
+
+    /// @brief Hit-test a design-space point against the strip tiles.
+    /// Selected tiles include their raised popup band.
+    /// @param x X in design space.
+    /// @param y Y in design space.
+    /// @return Tile index, or -1 when outside the strip.
+    int StripCellAt(float x, float y)
+    {
+        if (s_hostApi->topFocus() || s_hostApi->bottomFocus()) {
+            return -1;
+        }
+
+        if (s_hostApi->appMenu() != s_hostApi->tabFindById("home")) {
+            return -1;
+        }
+
+        if (s_hostApi->homeSub() != kHomeSubGames) {
+            return -1;
+        }
+
+        LayoutNode stripNode = {};
+
+        if (!s_hostApi->layoutFindNode("gamestrip", &stripNode)) {
+            return -1;
+        }
+
+        float slideOffsetX = s_hostApi->layoutShiftX();
+        float shiftOffsetY = s_hostApi->homeShiftY();
+        float tileSize = stripNode.tile > 0.0f ? stripNode.tile : 384.0f;
+        float tileGap = stripNode.gap > 0.0f ? stripNode.gap : 50.0f;
+        float tilePitch = tileSize + tileGap;
+        float outerSize = tileSize + 12.0f;
+        int rowCount = s_hostApi->rowCount();
+        int selectedIndex = s_hostApi->appSelection();
+        float tileTop = stripNode.y + shiftOffsetY;
+
+        if (y < tileTop - 84.0f || y > tileTop + outerSize) {
+            return -1;
+        }
+
+        for (int tileIndex = 0; tileIndex < rowCount; tileIndex++) {
+            float tileCenterX = stripNode.x + slideOffsetX + (float)tileIndex * tilePitch -
+                                s_state.stripScroll + outerSize * 0.5f;
+            float tileX = tileCenterX - outerSize * 0.5f;
+            float tileBandTop = tileIndex == selectedIndex ? tileTop - 84.0f : tileTop;
+
+            if (x >= tileX && x <= tileX + outerSize && y >= tileBandTop && y <= tileTop + outerSize) {
+                return tileIndex;
+            }
+        }
+
+        return -1;
     }
 
     /// @brief Draw folders/VGC sub-screens under the strip.
@@ -2059,9 +2204,168 @@ namespace WStrip {
         }
     }
 
+    /// @brief Whether the strip owns touch input right now.
+    /// @return True in games mode with no chrome focus and no popup.
+    bool StripTouchActive()
+    {
+        if (s_hostApi->topFocus() || s_hostApi->bottomFocus()) {
+            return false;
+        }
+
+        if (s_hostApi->appMenu() != s_hostApi->tabFindById("home")) {
+            return false;
+        }
+
+        if (s_hostApi->homeSub() != kHomeSubGames) {
+            return false;
+        }
+
+        return !OptionsOpen();
+    }
+
+    /// @brief Drag-scroll the strip with inertia on release.
+    /// Anchors content 1:1 to the finger; release velocity glides.
+    /// @param moveX Horizontal finger travel this frame.
+    /// @param isRelease True on finger lift.
+    /// @return Always 1 when strip touch is active, else 0.
+    int StripDrag(float moveX, bool isRelease)
+    {
+        if (!StripTouchActive()) {
+            return 0;
+        }
+
+        if (isRelease) {
+            float releaseVelocity = s_state.dragVelocity;
+
+            if (releaseVelocity > 2200.0f) {
+                releaseVelocity = 2200.0f;
+            }
+
+            if (releaseVelocity < -2200.0f) {
+                releaseVelocity = -2200.0f;
+            }
+
+            s_state.dragRemnant = 0.0f;
+            s_state.dragVelocity = 0.0f;
+            s_state.dragging = false;
+
+            /* Let go past the edge: settle back inside instead of flinging. */
+            if (s_state.stripTarget < 0.0f) {
+                s_state.stripTarget = 0.0f;
+                s_state.flinging = false;
+            } else if (s_state.stripTarget > s_state.stripMaxScroll) {
+                s_state.stripTarget = s_state.stripMaxScroll;
+                s_state.flinging = false;
+            } else if (releaseVelocity > 250.0f || releaseVelocity < -250.0f) {
+                s_state.flinging = true;
+                s_state.flingVelocity = releaseVelocity;
+            } else {
+                s_state.flinging = false;
+            }
+
+            return 1;
+        }
+
+        s_state.dragging = true;
+        s_state.flinging = false;
+
+        /* Deadband with carry: panel jitter cancels around zero while
+           slow deliberate pans accumulate and stay anchored. */
+        float effectiveMove = moveX + s_state.dragRemnant;
+        float appliedMove = 0.0f;
+
+        if (effectiveMove > 2.0f || effectiveMove < -2.0f) {
+            appliedMove = effectiveMove;
+            s_state.dragRemnant = 0.0f;
+        } else {
+            s_state.dragRemnant = effectiveMove;
+        }
+
+        /* Rubber-band past the edges: content always follows the
+           finger, with resistance once out of range. */
+        float resistedMove = appliedMove;
+
+        if (s_state.stripTarget < 0.0f || s_state.stripTarget > s_state.stripMaxScroll) {
+            resistedMove = appliedMove * 0.35f;
+        }
+
+        s_state.stripTarget -= resistedMove;
+        s_state.stripScroll = s_state.stripTarget;
+
+        /* Exponential moving average: tracks sustained motion, shrugs
+           off single-frame spikes and decays on its own when held. */
+        float instantVelocity = appliedMove * 60.0f;
+        s_state.dragVelocity += (instantVelocity - s_state.dragVelocity) * 0.35f;
+
+        return 1;
+    }
+
+    /// @brief Double-tap window in seconds.
+    constexpr float kHomeDoubleTapWindow = 1.0f;
+
+    /// @brief Last tapped cell for double-tap runs (strip grids).
+    static int s_lastTapCell = -1;
+    static float s_lastTapTime = -10.0f;
+
+    /// @brief Handle one tap inside the home tab (select, double-tap runs).
+    /// Taps on empty background are ignored so nothing launches by accident.
+    /// @param tapX Tap X in design space.
+    /// @param tapY Tap Y in design space.
+    /// @return True when the tap was consumed.
+    bool HandleTap(float tapX, float tapY)
+    {
+        if (s_hostApi->homeSub() == kHomeSubFolders) {
+            int folderCell = FolderCellAt(tapX, tapY);
+
+            if (folderCell < 0) {
+                return false;
+            }
+
+            int selectedBefore = s_hostApi->folderSel();
+            s_hostApi->setFolderSel(folderCell);
+
+            if (folderCell == selectedBefore &&
+                folderCell == s_lastTapCell &&
+                s_hostApi->appTime() - s_lastTapTime <= kHomeDoubleTapWindow) {
+                s_lastTapCell = -1;
+                return false;
+            }
+
+            s_lastTapCell = folderCell;
+            s_lastTapTime = s_hostApi->appTime();
+            return true;
+        }
+
+        int tappedCell = StripCellAt(tapX, tapY);
+
+        if (tappedCell < 0) {
+            return false;
+        }
+
+        int selectedBefore = s_hostApi->appSelection();
+
+        if (tappedCell == selectedBefore) {
+            if (tappedCell == s_lastTapCell &&
+                s_hostApi->appTime() - s_lastTapTime <= kHomeDoubleTapWindow) {
+                s_lastTapCell = -1;
+                return false;
+            }
+
+            s_hostApi->appSetSelection(-1);
+            s_lastTapCell = tappedCell;
+            s_lastTapTime = s_hostApi->appTime();
+            return true;
+        }
+
+        s_hostApi->appSetSelection(tappedCell);
+        s_lastTapCell = tappedCell;
+        s_lastTapTime = s_hostApi->appTime();
+        return true;
+    }
+
     /// @brief Handle home strip navigation input.
     /// @param layoutNode Gamestrip node (reserved).
-    /// @param buttonsDown Buttons pressed.
+    /// @param buttonsDown Proven pressed mask.
     /// @param buttonsHeld Buttons held.
     void Input(const LayoutNode &layoutNode, u64 buttonsDown, u64 buttonsHeld)
     {
@@ -2090,6 +2394,13 @@ namespace WStrip {
     void SetHomeHost(const MenuHostApi *hostApi)
     {
         s_hostApi = hostApi;
+    }
+
+    /// @brief Give the installed host table.
+    /// @return Host API (never null after boot).
+    const MenuHostApi *GetHomeHost()
+    {
+        return s_hostApi;
     }
 
 } /* namespace WStrip */
@@ -2272,6 +2583,39 @@ extern "C" {
     QLAUNCH_HOOK void SubmenuRefresh(void)
     {
         /* Previews self-refresh on folder change; nothing cached elsewhere. */
+    }
+
+    /// @brief Drag-scroll the home strip with inertia on release.
+    /// @param moveX Horizontal finger travel this frame.
+    /// @param moveY Vertical finger travel (ignored).
+    /// @param phase Touch phase (held moves, up releases).
+    /// @return Nonzero when the strip consumed the drag.
+    QLAUNCH_HOOK int SubmenuDrag(float moveX, float moveY, int phase)
+    {
+        (void)moveY;
+
+        if (!WStrip::GetHomeHost()) {
+            return 0;
+        }
+
+        if (phase != kLayoutTouchHeld && phase != kLayoutTouchUp) {
+            return 0;
+        }
+
+        return WStrip::StripDrag(moveX, phase == kLayoutTouchUp);
+    }
+
+    /// @brief Handle one tap inside the home tab (select, double-tap runs).
+    /// @param x Tap X in design space.
+    /// @param y Tap Y in design space.
+    /// @return Nonzero when the tap was consumed.
+    QLAUNCH_HOOK int SubmenuTap(float x, float y)
+    {
+        if (!WStrip::GetHomeHost()) {
+            return 0;
+        }
+
+        return WStrip::HandleTap(x, y) ? 1 : 0;
     }
 
     /// @brief Shut down before unload.

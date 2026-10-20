@@ -5,6 +5,7 @@
 #include "../core/App.hpp"
 #include "../core/Qext.hpp"
 #include "../core/Sfx.hpp"
+#include "../core/Touch.hpp"
 #include <string.h>
 #include <stdio.h>
 
@@ -103,6 +104,8 @@ namespace WPrompt {
     }
 
     /// @brief Handle prompt navigation input.
+    /// Taps hit-test the dialog buttons directly: tapping a button
+    /// selects and presses it, tapping outside cancels.
     /// @param buttonsDown Buttons pressed.
     /// @param buttonsHeld Buttons held.
     /// @return True when the input was consumed.
@@ -110,6 +113,20 @@ namespace WPrompt {
     {
         if (!s_state.isOpen) {
             return false;
+        }
+
+        float tapX = 0.0f;
+        float tapY = 0.0f;
+
+        while (Touch::TakeTap(&tapX, &tapY)) {
+            int tappedCell = WPopup::CellAt(tapX, tapY);
+
+            if (tappedCell >= 0) {
+                WPopup::SetSelection(tappedCell);
+                buttonsDown |= HidNpadButton_A;
+            } else {
+                buttonsDown |= HidNpadButton_B;
+            }
         }
 
         WPopup::PopupResult popupResult = WPopup::Input(buttonsDown, buttonsHeld);

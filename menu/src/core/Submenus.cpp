@@ -8,6 +8,7 @@
 #include "Icons.hpp"
 #include "App.hpp"
 #include "Log.hpp"
+#include "Touch.hpp"
 #include <dlink/dlink.h>
 #include <cstring>
 #include <cstdio>
@@ -42,6 +43,11 @@ namespace Submenus {
             int (*isFull)(void);
             int (*inputLocked)(void);
             void (*refresh)(void);
+            int (*drag)(float moveX, float moveY, int phase);
+            int (*tap)(float x, float y);
+            int (*touchAction)(int cellIndex);
+            int (*touchDown)(float x, float y);
+            int (*touchUp)(float x, float y);
         };
 
         struct SubmenuInstance {
@@ -443,6 +449,11 @@ namespace Submenus {
             instance->callbacks.isFull = (int (*)(void))dlsym(handle, "SubmenuIsFull");
             instance->callbacks.inputLocked = (int (*)(void))dlsym(handle, "SubmenuInputLocked");
             instance->callbacks.refresh = (void (*)(void))dlsym(handle, "SubmenuRefresh");
+            instance->callbacks.drag = (int (*)(float, float, int))dlsym(handle, "SubmenuDrag");
+            instance->callbacks.tap = (int (*)(float, float))dlsym(handle, "SubmenuTap");
+            instance->callbacks.touchAction = (int (*)(int))dlsym(handle, "SubmenuTouchAction");
+            instance->callbacks.touchDown = (int (*)(float, float))dlsym(handle, "SubmenuTouchDown");
+            instance->callbacks.touchUp = (int (*)(float, float))dlsym(handle, "SubmenuTouchUp");
             instance->iconSlot = iconSlot;
             instance->selectedIconSlot = selectedIconSlot;
             instance->phase = SubmenuPhase::Ready;
@@ -569,6 +580,7 @@ namespace Submenus {
             return;
         }
 
+        Touch::BeginTab(tabIndex);
         instance->callbacks.draw(s_hostApi);
     }
 
@@ -597,6 +609,86 @@ namespace Submenus {
         }
 
         instance->callbacks.input(s_hostApi, buttonsDown, buttonsHeld);
+    }
+
+    /// @brief Act on a registered touch cell (select, re-tap acts).
+    /// @param tabIndex Tabs registry index.
+    /// @param cellIndex Cell index from touchRegisterCell.
+    /// @return Nonzero when the tap was consumed.
+    int TouchAction(int tabIndex, int cellIndex)
+    {
+        SubmenuInstance *instance = FindInstanceByTabIndex(tabIndex);
+
+        if (!instance || instance->phase != SubmenuPhase::Ready || !instance->callbacks.touchAction) {
+            return 0;
+        }
+
+        return instance->callbacks.touchAction(cellIndex) != 0 ? 1 : 0;
+    }
+
+    /// @brief Drag-scroll submenu content with inertia on release.
+    /// @param tabIndex Tabs registry index.
+    /// @param moveX Horizontal finger travel this frame.
+    /// @param moveY Vertical finger travel this frame.
+    /// @param phase Touch phase (held moves, up releases).
+    /// @return Nonzero when the drag was consumed.
+    int Drag(int tabIndex, float moveX, float moveY, int phase)
+    {
+        SubmenuInstance *instance = FindInstanceByTabIndex(tabIndex);
+
+        if (!instance || instance->phase != SubmenuPhase::Ready || !instance->callbacks.drag) {
+            return 0;
+        }
+
+        return instance->callbacks.drag(moveX, moveY, phase) != 0 ? 1 : 0;
+    }
+
+    /// @brief Deliver one tap to a submenu tab (select, double-tap runs).
+    /// @param tabIndex Tabs registry index.
+    /// @param x Tap X in design space.
+    /// @param y Tap Y in design space.
+    /// @return Nonzero when the tap was consumed.
+    int Tap(int tabIndex, float x, float y)
+    {
+        SubmenuInstance *instance = FindInstanceByTabIndex(tabIndex);
+
+        if (!instance || instance->phase != SubmenuPhase::Ready || !instance->callbacks.tap) {
+            return 0;
+        }
+
+        return instance->callbacks.tap(x, y) != 0 ? 1 : 0;
+    }
+
+    /// @brief Deliver a finger-down press to a submenu tab.
+    /// @param tabIndex Tabs registry index.
+    /// @param x Down X in design space.
+    /// @param y Down Y in design space.
+    /// @return Nonzero when the submenu claimed the finger.
+    int TouchDown(int tabIndex, float x, float y)
+    {
+        SubmenuInstance *instance = FindInstanceByTabIndex(tabIndex);
+
+        if (!instance || instance->phase != SubmenuPhase::Ready || !instance->callbacks.touchDown) {
+            return 0;
+        }
+
+        return instance->callbacks.touchDown(x, y) != 0 ? 1 : 0;
+    }
+
+    /// @brief Deliver a claimed finger release to a submenu tab.
+    /// @param tabIndex Tabs registry index.
+    /// @param x Up X in design space.
+    /// @param y Up Y in design space.
+    /// @return Nonzero when the release was consumed.
+    int TouchUp(int tabIndex, float x, float y)
+    {
+        SubmenuInstance *instance = FindInstanceByTabIndex(tabIndex);
+
+        if (!instance || instance->phase != SubmenuPhase::Ready || !instance->callbacks.touchUp) {
+            return 0;
+        }
+
+        return instance->callbacks.touchUp(x, y) != 0 ? 1 : 0;
     }
 
     /// @brief Enter a dynamic submenu tab.

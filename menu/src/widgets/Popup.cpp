@@ -6,6 +6,7 @@
 #include "../core/Font.hpp"
 #include "../core/Theme.hpp"
 #include "../core/Sfx.hpp"
+#include "../core/Touch.hpp"
 #include <string.h>
 
 namespace WPopup {
@@ -175,6 +176,9 @@ namespace WPopup {
         s_state.selection = initialSelection;
         s_state.ignoreMask = heldButtons;
         s_state.isOpen = true;
+
+        /* A touch that opened this modal must not act inside it. */
+        Touch::Disarm();
     }
 
     /// @brief Dismiss the popup without acting.
@@ -211,6 +215,88 @@ namespace WPopup {
     int Selection()
     {
         return s_state.selection;
+    }
+
+    /// @brief Hit-test a design-space point against popup items.
+    /// Mirrors Draw geometry exactly (outline margin included).
+    /// @param x X in design space.
+    /// @param y Y in design space.
+    /// @return Item index, or -1 when the point hits no item.
+    int CellAt(float x, float y)
+    {
+        if (!s_state.isOpen || s_state.itemCount <= 0) {
+            return -1;
+        }
+
+        if (s_state.layout == PopupLayout::Row) {
+            float panelY = (1080.0f - kPopupRowHeight) * 0.5f;
+            float totalWidth = (float)s_state.itemCount * kPopupRowButtonWidth +
+                               (float)(s_state.itemCount - 1) * kPopupRowButtonGap;
+            float buttonX = 960.0f - totalWidth * 0.5f;
+            float buttonY = panelY + kPopupRowButtonTop;
+
+            for (int itemIndex = 0; itemIndex < s_state.itemCount; itemIndex++) {
+                float itemX = buttonX + (float)itemIndex * (kPopupRowButtonWidth + kPopupRowButtonGap);
+
+                if (x >= itemX - kPopupOutline && x <= itemX + kPopupRowButtonWidth + kPopupOutline &&
+                    y >= buttonY - kPopupOutline && y <= buttonY + kPopupRowButtonHeight + kPopupOutline) {
+                    return itemIndex;
+                }
+            }
+
+            return -1;
+        }
+
+        int gridColumns = s_state.gridColumns;
+
+        if (gridColumns < 1) {
+            gridColumns = 1;
+        }
+
+        bool hasMessage = s_state.message[0] != 0;
+        float bodyTop = kPopupListBodyTop + (hasMessage ? kPopupListMessageHeight : 0.0f);
+        float itemPitch = kPopupListItemHeight + kPopupRowButtonGap;
+        float columnGap = gridColumns > 1 ? (float)kPopupRowButtonGap : 0.0f;
+        int gridRows = (s_state.itemCount + gridColumns - 1) / gridColumns;
+        float panelHeight = bodyTop + (float)(gridRows - 1) * itemPitch +
+                            kPopupListItemHeight + kPopupListBottomPad;
+        float panelX = (1920.0f - kPopupListWidth) * 0.5f;
+        float panelY = (1080.0f - panelHeight) * 0.5f;
+        float itemWidth = (kPopupListWidth - kPopupListItemInset * 2.0f -
+                           (float)(gridColumns - 1) * columnGap) / (float)gridColumns;
+
+        for (int itemIndex = 0; itemIndex < s_state.itemCount; itemIndex++) {
+            int gridColumn = itemIndex % gridColumns;
+            int gridRow = itemIndex / gridColumns;
+            float itemX = panelX + kPopupListItemInset + (float)gridColumn * (itemWidth + columnGap);
+            float itemY = panelY + bodyTop + (float)gridRow * itemPitch;
+
+            if (x >= itemX - kPopupOutline && x <= itemX + itemWidth + kPopupOutline &&
+                y >= itemY - kPopupOutline && y <= itemY + kPopupListItemHeight + kPopupOutline) {
+                return itemIndex;
+            }
+        }
+
+        return -1;
+    }
+
+    /// @brief Highlight one popup item.
+    /// @param index Item index (clamped).
+    void SetSelection(int index)
+    {
+        if (s_state.itemCount <= 0) {
+            return;
+        }
+
+        if (index < 0) {
+            index = 0;
+        }
+
+        if (index >= s_state.itemCount) {
+            index = s_state.itemCount - 1;
+        }
+
+        s_state.selection = index;
     }
 
     /// @brief Draw the dim + outlined dialog.

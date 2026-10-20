@@ -23,6 +23,8 @@ fwrite
 hidGetNpadControllerColorSingle
 hidGetNpadControllerColorSplit
 hidGetNpadStyleSet
+hidGetTouchScreenStates
+hidInitializeTouchScreen
 ini_gets
 ldexpf
 malloc

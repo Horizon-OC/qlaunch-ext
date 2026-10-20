@@ -18,6 +18,7 @@
 #include "Submenus.hpp"
 #include "DynamicWidgets.hpp"
 #include "LayoutMod.hpp"
+#include "Touch.hpp"
 #include "../widgets/Widgets.hpp"
 #include <cstdio>
 
@@ -768,6 +769,56 @@ namespace HostApi {
             return 1;
         }
 
+        int TouchRegisterCellThunk(int index, float x, float y, float w, float h)
+        {
+            return Touch::RegisterCell(index, x, y, w, h) ? 1 : 0;
+        }
+
+        int TouchHitTestThunk(int tab, float x, float y, int *indexOut)
+        {
+            return Touch::HitTest(tab, x, y, indexOut) ? 1 : 0;
+        }
+
+        int SubmenuDragThunk(int tabIndex, float moveX, float moveY, int phase)
+        {
+            return Submenus::Drag(tabIndex, moveX, moveY, phase);
+        }
+
+        int SubmenuTouchActionThunk(int tabIndex, int cellIndex)
+        {
+            return Submenus::TouchAction(tabIndex, cellIndex);
+        }
+
+        int SubmenuTapThunk(int tabIndex, float x, float y)
+        {
+            return Submenus::Tap(tabIndex, x, y);
+        }
+
+        int PopupCellAtThunk(float x, float y)
+        {
+            return WPopup::CellAt(x, y);
+        }
+
+        void PopupSelectCellThunk(int index)
+        {
+            WPopup::SetSelection(index);
+        }
+
+        int TakeTapThunk(float *xOut, float *yOut)
+        {
+            return Touch::TakeTap(xOut, yOut) ? 1 : 0;
+        }
+
+        int SubmenuTouchDownThunk(int tabIndex, float x, float y)
+        {
+            return Submenus::TouchDown(tabIndex, x, y);
+        }
+
+        int SubmenuTouchUpThunk(int tabIndex, float x, float y)
+        {
+            return Submenus::TouchUp(tabIndex, x, y);
+        }
+
         int SubmenuFullTabIndexThunk(void)
         {
             return Submenus::FullTabIndex();
@@ -945,6 +996,16 @@ namespace HostApi {
             LayoutTabCountThunk,
             LayoutTabAtThunk,
             MenuSlideXThunk,
+            TouchRegisterCellThunk,
+            TouchHitTestThunk,
+            SubmenuDragThunk,
+            SubmenuTouchActionThunk,
+            SubmenuTapThunk,
+            PopupCellAtThunk,
+            PopupSelectCellThunk,
+            TakeTapThunk,
+            SubmenuTouchDownThunk,
+            SubmenuTouchUpThunk,
         };
 
     } // namespace

@@ -10,6 +10,7 @@
 #include "Theme.hpp"
 #include "LayoutMod.hpp"
 #include "Packs.hpp"
+#include "Touch.hpp"
 #include "Clock.hpp"
 #include "Sfx.hpp"
 #include "PadIcon.hpp"
@@ -434,6 +435,7 @@ namespace App {
         padInitializeDefault(&appState.pad);
         appState.padReady = true;
         appState.tick = 0;
+        Touch::Init();
 
         Clock::Tick();
         Avatars::Refresh();
@@ -625,6 +627,7 @@ namespace App {
         padUpdate(&appState.pad);
         u64 buttonsDown = padGetButtonsDown(&appState.pad);
         u64 buttonsHeld = padGetButtons(&appState.pad);
+        Touch::Poll();
 
         PadIcon::Tick();
         UpdateMenuAnim();
@@ -635,9 +638,12 @@ namespace App {
         }
 
         if (WPrompt::IsOpen()) {
+            /* Taps are hit-tested inside WPrompt::Input. */
             WPrompt::Input(buttonsDown, buttonsHeld);
         } else if (appState.menu.t < 1.0f) {
-            /* Lock input during transitions. */
+            /* Locked transitions drop taps instead of arming prompts. */
+            while (Touch::TakeTap(nullptr, nullptr)) {
+            }
         } else {
             LayoutMod::Input(buttonsDown, buttonsHeld);
         }

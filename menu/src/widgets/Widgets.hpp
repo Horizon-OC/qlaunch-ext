@@ -25,6 +25,14 @@ namespace WTopBar {
     /// @param buttonsDown Buttons pressed.
     /// @param buttonsHeld Buttons held.
     void Input(u64 buttonsDown, u64 buttonsHeld);
+
+    /// @brief Hit-test a design-space point against the tab strip.
+    /// Uses the same measurement as Draw, so art and touch agree.
+    /// @param x X in design space.
+    /// @param y Y in design space.
+    /// @param tabIndexOut Tabs registry index on hit.
+    /// @return True when a tab was hit.
+    bool TabAtPosition(float x, float y, int *tabIndexOut);
 } /* namespace WTopBar */
 
 namespace WBottomBar {
@@ -139,6 +147,17 @@ namespace WPopup {
     /// @brief Give the highlighted item.
     /// @return Selection index.
     int Selection();
+
+    /// @brief Hit-test a design-space point against popup items.
+    /// Mirrors Draw geometry exactly.
+    /// @param x X in design space.
+    /// @param y Y in design space.
+    /// @return Item index, or -1 when the point hits no item.
+    int CellAt(float x, float y);
+
+    /// @brief Highlight one popup item.
+    /// @param index Item index (clamped).
+    void SetSelection(int index);
 
     /// @brief Draw the dim + outlined dialog.
     void Draw();

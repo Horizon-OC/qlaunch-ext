@@ -213,22 +213,35 @@ namespace WTopBar {
             return -1;
         }
 
-        /// @brief Draw the centered tab icon strip in layout slot order.
+        /// @brief One measured tab slot for draw and hit-testing.
+        struct TabSpan {
+            float slotX;
+            float slotWidth;
+            int tab;
+        };
+
+        /// @brief Measure every tab slot with draw-identical accumulation.
         /// @param currentTab Current menu tab index.
-        void DrawTabStrip(int currentTab)
+        /// @param spans Output spans (slotX excludes margins, like Draw).
+        /// @param spanCap Span capacity.
+        /// @return Measured slot count.
+        int MeasureStrip(int currentTab, TabSpan *spans, int spanCap)
         {
             const MenuHostApi *hostApi = GetLayoutHost();
-            float iconRed = 0.0f;
-            float iconGreen = 0.0f;
-            float iconBlue = 0.0f;
-            hostApi->themeColor("icon", &iconRed, &iconGreen, &iconBlue);
-
             float baseWidth = kTopBarTabWidth;
             float activeWidth = baseWidth * 1.4f;
             int slotCount = hostApi->layoutTabCount();
 
             if (slotCount <= 0) {
                 slotCount = hostApi->tabCount();
+            }
+
+            if (slotCount > spanCap) {
+                slotCount = spanCap;
+            }
+
+            if (slotCount <= 0) {
+                return 0;
             }
 
             int selectedCount = 0;
@@ -252,22 +265,48 @@ namespace WTopBar {
                 bool isActive = (tabIndex == currentTab);
                 bool isFocused = hostApi->topFocus() && hostApi->topSelection() == tabIndex;
                 bool isSelected = isActive || isFocused;
-
                 float slotWidth = isActive ? activeWidth : baseWidth;
-                float iconSize = isActive ? slotWidth : baseWidth * (isFocused ? 1.2f : 1.0f);
 
                 if (isSelected) {
                     cursorX += kTopBarSelectedMargin;
                 }
 
-                float centerX = cursorX + slotWidth * 0.5f;
-                float iconX = centerX - iconSize * 0.5f;
-                float iconY = kTopBarTabY + (baseWidth - iconSize) * 0.5f;
+                spans[slotIndex].slotX = cursorX;
+                spans[slotIndex].slotWidth = slotWidth;
+                spans[slotIndex].tab = tabIndex;
                 cursorX += slotWidth + kTopBarTabGap;
 
                 if (isSelected) {
                     cursorX += kTopBarSelectedMargin;
                 }
+            }
+
+            return slotCount;
+        }
+
+        /// @brief Draw the centered tab icon strip in layout slot order.
+        /// @param currentTab Current menu tab index.
+        void DrawTabStrip(int currentTab)
+        {
+            const MenuHostApi *hostApi = GetLayoutHost();
+            float iconRed = 0.0f;
+            float iconGreen = 0.0f;
+            float iconBlue = 0.0f;
+            hostApi->themeColor("icon", &iconRed, &iconGreen, &iconBlue);
+
+            float baseWidth = kTopBarTabWidth;
+            TabSpan spans[kLayoutMaxTabs];
+            int slotCount = MeasureStrip(currentTab, spans, kLayoutMaxTabs);
+
+            for (int slotIndex = 0; slotIndex < slotCount; slotIndex++) {
+                int tabIndex = spans[slotIndex].tab;
+                float slotWidth = spans[slotIndex].slotWidth;
+                bool isActive = (tabIndex == currentTab);
+                bool isFocused = hostApi->topFocus() && hostApi->topSelection() == tabIndex;
+
+                float iconSize = isActive ? slotWidth : baseWidth * (isFocused ? 1.2f : 1.0f);
+                float iconX = spans[slotIndex].slotX + (slotWidth - iconSize) * 0.5f;
+                float iconY = kTopBarTabY + (baseWidth - iconSize) * 0.5f;
 
                 int artSlot = TopArt(tabIndex, isActive);
 
@@ -565,6 +604,36 @@ namespace WTopBar {
             hostApi->setTopFocus(0);
             hostApi->sfxPlay((int)Sfx::Back);
         }
+    }
+
+    /// @brief Hit-test a design-space point against the tab strip.
+    /// Uses the same measurement as Draw, so art and touch agree.
+    /// @param x X in design space.
+    /// @param y Y in design space.
+    /// @param tabIndexOut Tabs registry index on hit.
+    /// @return True when a tab was hit.
+    bool TabAtPosition(float x, float y, int *tabIndexOut)
+    {
+        if (y < 0.0f || y > kTopBarHeight) {
+            return false;
+        }
+
+        const MenuHostApi *hostApi = GetLayoutHost();
+        TabSpan spans[kLayoutMaxTabs];
+        int slotCount = MeasureStrip(hostApi->appMenu(), spans, kLayoutMaxTabs);
+
+        for (int slotIndex = 0; slotIndex < slotCount; slotIndex++) {
+            if (x >= spans[slotIndex].slotX - 8.0f &&
+                x <= spans[slotIndex].slotX + spans[slotIndex].slotWidth + 8.0f) {
+                if (tabIndexOut) {
+                    *tabIndexOut = spans[slotIndex].tab;
+                }
+
+                return true;
+            }
+        }
+
+        return false;
     }
 
 } /* namespace WTopBar */

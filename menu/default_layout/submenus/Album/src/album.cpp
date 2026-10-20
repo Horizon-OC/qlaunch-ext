@@ -51,6 +51,10 @@ namespace Album {
 
         static AlbumState s_state = {};
 
+    /// @brief Drag accumulators in design pixels (half a tile steps).
+    static float s_dragAccumX = 0.0f;
+    static float s_dragAccumY = 0.0f;
+
         /// @brief Free a slot's GPU texture and detach it from its entry.
         /// @param thumbnailSlot Slot to free.
         static void FreeSlot(ThumbnailSlot *thumbnailSlot)
@@ -301,9 +305,28 @@ namespace Album {
         }
 
         /// @brief Move the grid selection by a signed step, stopping at the edges.
+        /// When touch scrolling left the selection outside the view, the
+        /// first press re-anchors it to the bottom-right visible cell.
         /// @param delta Signed step (one column, or kAlbumColumns for a row).
         static void MoveGridSelection(int delta)
         {
+            if (s_state.entryCount <= 0) {
+                return;
+            }
+
+            int lastVisible = s_state.firstVisibleIndex + kAlbumVisibleTiles - 1;
+
+            if (lastVisible >= s_state.entryCount) {
+                lastVisible = s_state.entryCount - 1;
+            }
+
+            if (s_state.selectedIndex < s_state.firstVisibleIndex || s_state.selectedIndex > lastVisible) {
+                s_state.selectedIndex = lastVisible;
+                ClampSelection();
+                g_host->sfxPlayByName("hover");
+                return;
+            }
+
             int next = s_state.selectedIndex + delta;
 
             if (next < 0 || next >= s_state.entryCount) {
@@ -433,6 +456,9 @@ namespace Album {
             const float gridX = (1920.0f - gridW) * 0.5f + shiftX;
             const float gridY = 240.0f;
 
+            g_host->touchRegisterCell(-1, gridX, gridY, gridW,
+                                      (float)kAlbumRows * (tileH + gap));
+
             s_state.decodeBudget = 2;
 
             for (int thumbnailCell = 0; thumbnailCell < kAlbumVisibleTiles; thumbnailCell++) {
@@ -446,6 +472,7 @@ namespace Album {
                 int gridRow = thumbnailCell / kAlbumColumns;
                 float tileX = gridX + gridColumn * (tileW + gap);
                 float tileY = gridY + gridRow * (tileH + gap);
+                g_host->touchRegisterCell(albumEntryIndex, tileX, tileY, tileW, tileH);
 
                 if (albumEntryIndex == s_state.selectedIndex) {
                     g_host->gfxPushSelectRing(tileX - 10.0f, tileY - 10.0f, tileW + 20.0f, tileH + 20.0f, 18.0f, 8.0f);
@@ -509,6 +536,7 @@ namespace Album {
             g_host->themeColor("ink", &inkRed, &inkGreen, &inkBlue);
 
             g_host->gfxPushPanel(0.0f, 0.0f, 1920.0f, 1080.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f);
+            g_host->touchRegisterCell(-1, 0.0f, 0.0f, 1920.0f, 1080.0f);
 
             if (s_state.selectedIndex < 0 || s_state.selectedIndex >= s_state.entryCount) {
                 g_host->fontCentered("No image", 960.0f, 540.0f, 40.0f, 800.0f, inkRed, inkGreen, inkBlue, 1.0f);
@@ -738,6 +766,118 @@ namespace Album {
 
         if (gridDelta != 0) {
             MoveGridSelection(gridDelta);
+        }
+
+        return true;
+    }
+
+    /// @brief Act on a registered album cell (select, re-tap opens).
+    /// Fullscreen photo taps go back; video taps fall through to A.
+    /// @param cellIndex Cell index from touchRegisterCell (-1 = padding).
+    /// @return True when the tap was consumed.
+    bool TouchAction(int cellIndex)
+    {
+        if (!s_state.isOpen || Video::IsOpen()) {
+            return false;
+        }
+
+        if (s_state.phase != ViewerPhase::Grid) {
+            EnterGrid();
+            FreeSlot(&s_state.fullscreenSlot);
+            g_host->sfxPlayByName("back");
+            return true;
+        }
+
+        if (cellIndex < 0 || cellIndex >= s_state.entryCount) {
+            return true;
+        }
+
+        if (cellIndex == s_state.selectedIndex) {
+            if (g_host->qextAlbumIsMovie(cellIndex) > 0) {
+                if (!Video::Open(cellIndex)) {
+                    g_host->sfxPlayByName("back");
+                }
+            } else {
+                EnterFull();
+                g_host->sfxPlayByName("click");
+            }
+
+            return true;
+        }
+
+        s_state.selectedIndex = cellIndex;
+        ClampSelection();
+        g_host->sfxPlayByName("hover");
+        return true;
+    }
+
+    /// @brief Drag-scroll the album window without moving the selection.
+    /// Content follows the finger like the home strip; the selection
+    /// stays put. Steps whole tiles with hover feedback.
+    /// @param moveX Horizontal finger travel this frame.
+    /// @param moveY Vertical finger travel this frame.
+    /// @return True while the grid is open (consumes all grid drags).
+    bool HandleDrag(float moveX, float moveY)
+    {
+        if (!s_state.isOpen || Video::IsOpen()) {
+            return false;
+        }
+
+        if (s_state.phase != ViewerPhase::Grid) {
+            return false;
+        }
+
+        if (s_state.entryCount <= 0) {
+            return true;
+        }
+
+        s_dragAccumX += moveX;
+        s_dragAccumY += moveY;
+
+        const float stepX = (320.0f + 32.0f) * 0.5f;
+        const float stepY = (180.0f + 32.0f) * 0.5f;
+        int rowCount = (s_state.entryCount + kAlbumColumns - 1) / kAlbumColumns;
+        int visibleRows = kAlbumVisibleTiles / kAlbumColumns;
+        int maxFirst = rowCount > visibleRows ? (rowCount - visibleRows) * kAlbumColumns : 0;
+
+        if (s_dragAccumX > stepX) {
+            if (s_state.firstVisibleIndex > 0) {
+                s_state.firstVisibleIndex--;
+                g_host->sfxPlayByName("hover");
+            }
+
+            s_dragAccumX = 0.0f;
+        } else if (s_dragAccumX < -stepX) {
+            if (s_state.firstVisibleIndex < maxFirst) {
+                s_state.firstVisibleIndex++;
+                g_host->sfxPlayByName("hover");
+            }
+
+            s_dragAccumX = 0.0f;
+        }
+
+        if (s_dragAccumY > stepY) {
+            if (s_state.firstVisibleIndex >= kAlbumColumns) {
+                s_state.firstVisibleIndex -= kAlbumColumns;
+                g_host->sfxPlayByName("hover");
+            }
+
+            s_dragAccumY = 0.0f;
+        } else if (s_dragAccumY < -stepY) {
+            if (s_state.firstVisibleIndex + kAlbumColumns <= maxFirst) {
+                s_state.firstVisibleIndex += kAlbumColumns;
+                g_host->sfxPlayByName("hover");
+            }
+
+            s_dragAccumY = 0.0f;
+        }
+
+        if (s_state.firstVisibleIndex < 0) {
+            s_state.firstVisibleIndex = 0;
+        }
+
+        if (s_state.firstVisibleIndex > maxFirst) {
+            s_state.firstVisibleIndex = maxFirst;
         }
 
         return true;

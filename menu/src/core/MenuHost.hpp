@@ -9,16 +9,12 @@ extern "C" {
     constexpr int kPopupMaxItems = 12;
     constexpr int kPopupTextMax = 192;
 
-    enum PopupLayout {
-        kPopupLayoutList = 0,
-        kPopupLayoutRow = 1,
-    };
+    constexpr int kPopupLayoutList = 0;
+    constexpr int kPopupLayoutRow = 1;
 
-    enum PopupResult {
-        kPopupResultNone = 0,
-        kPopupResultConfirmed = 1,
-        kPopupResultCancelled = 2,
-    };
+    constexpr int kPopupResultNone = 0;
+    constexpr int kPopupResultConfirmed = 1;
+    constexpr int kPopupResultCancelled = 2;
 
     /// @brief One row in the home game strip (owned by menu.dnro).
     struct AppRow {
@@ -33,9 +29,7 @@ extern "C" {
         char name[kAppNameMax];
     };
 
-    enum {
-        kMenuHostApiVersion = 1
-    };
+    constexpr int kMenuHostApiVersion = 1;
 
     struct WidgetDrawContext {
         float slotX;
@@ -200,6 +194,16 @@ extern "C" {
         int (*layoutTabCount)(void);
         int (*layoutTabAt)(int slot);
         float (*menuSlideX)(void);
+        int (*touchRegisterCell)(int index, float x, float y, float w, float h);
+        int (*touchHitTest)(int tabIndex, float x, float y, int *indexOut);
+        int (*submenuDrag)(int tabIndex, float moveX, float moveY, int phase);
+        int (*submenuTouchAction)(int tabIndex, int cellIndex);
+        int (*submenuTap)(int tabIndex, float x, float y);
+        int (*popupCellAt)(float x, float y);
+        void (*popupSelectCell)(int index);
+        int (*takeTap)(float *xOut, float *yOut);
+        int (*submenuTouchDown)(int tabIndex, float x, float y);
+        int (*submenuTouchUp)(int tabIndex, float x, float y);
     };
 
     /// @brief Fill background, ink, and accent colors from the theme configuration.

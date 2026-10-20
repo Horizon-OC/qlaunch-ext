@@ -12,8 +12,22 @@
 extern "C" {
 #endif
 
-    enum {
-        kLayoutApiVersion = 1
+    constexpr int kLayoutApiVersion = 1;
+
+    /// @brief Finger phase inside a touch frame.
+    constexpr int kLayoutTouchDown = 0;
+    constexpr int kLayoutTouchHeld = 1;
+    constexpr int kLayoutTouchUp = 2;
+
+    /// @brief Maximum fingers per touch frame.
+    constexpr int kLayoutTouchMax = 8;
+
+    /// @brief One finger in design space (1920x1080).
+    struct LayoutTouch {
+        float x;
+        float y;
+        int fingerId;
+        int phase;
     };
 
     struct MenuHostApi;
@@ -35,8 +49,11 @@ extern "C" {
     /// @param hostApi Host API.
     /// @param buttonsDown Proven pressed mask.
     /// @param buttonsHeld Held mask.
+    /// @param touches Touch frame (may be null when untouched).
+    /// @param touchCount Touch point count.
     QLAUNCH_HOOK void LayoutInput(const struct MenuHostApi *hostApi, unsigned long long buttonsDown,
-                                  unsigned long long buttonsHeld);
+                                  unsigned long long buttonsHeld, const struct LayoutTouch *touches,
+                                  int touchCount);
 
     /// @brief Shut the layout module down before unload.
     /// @param hostApi Host API.

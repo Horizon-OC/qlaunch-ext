@@ -69,6 +69,17 @@ namespace Album {
     /// @return True when the input was consumed.
     bool Input(unsigned long long buttonsDown, unsigned long long buttonsHeld);
 
+    /// @brief Act on a registered album cell (select, re-tap opens).
+    /// @param cellIndex Cell index from touchRegisterCell (-1 = padding).
+    /// @return True when the tap was consumed.
+    bool TouchAction(int cellIndex);
+
+    /// @brief Drag-scroll the album window without moving the selection.
+    /// @param moveX Horizontal finger travel this frame.
+    /// @param moveY Vertical finger travel this frame.
+    /// @return True while the grid is open.
+    bool HandleDrag(float moveX, float moveY);
+
 } /* namespace Album */
 
 namespace Video {

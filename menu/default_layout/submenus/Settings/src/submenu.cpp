@@ -169,6 +169,7 @@ namespace {
     };
 
     static SettingsState s_state = { kSettingsNoPage, 0, {}, 0 };
+    static const MenuHostApi *s_hostApi = nullptr;
 
     /// @brief Current settings mode.
     /// @return OptionList when no page is open, else Detail.
@@ -284,6 +285,7 @@ namespace {
         for (int optionIndex = 0; optionIndex < kSettingsOptionCount; optionIndex++) {
             float rowY = listTopY + (float)optionIndex * rowHeight;
             bool isSelected = (s_state.pageIndex < 0 && s_state.rowIndex == optionIndex);
+            hostApi->touchRegisterCell(optionIndex, 110.0f + slideOffsetX, rowY - 4.0f, 500.0f, rowHeight);
 
             if (isSelected) {
                 float accentRed = 0.0f;
@@ -352,6 +354,8 @@ namespace {
             float cardX = 700.0f + slideOffsetX + gridColumn * (cardWidth + cardGap);
             float cardY = 300.0f + gridRow * (cardHeight + 12.0f);
             bool isSelected = (s_state.rowIndex == themeIndex);
+            hostApi->touchRegisterCell(themeIndex, cardX - 8.0f, cardY - 8.0f, cardWidth + 16.0f,
+                                       cardHeight + 16.0f);
 
             float previewRed = 0.0f;
             float previewGreen = 0.0f;
@@ -411,6 +415,8 @@ namespace {
         for (int detailIndex = 0; detailIndex < rowCount; detailIndex++) {
             float detailY = detailTopY + (float)detailIndex * detailRowHeight;
             bool isSelected = (s_state.rowIndex == detailIndex);
+            hostApi->touchRegisterCell(detailIndex, 680.0f + slideOffsetX, detailY - 6.0f, 1120.0f,
+                                       detailRowHeight + 6.0f);
 
             if (isSelected) {
                 float accentRed = 0.0f;
@@ -461,6 +467,59 @@ namespace {
                 hostApi->qextLaunchApplet(2);
             }
         }
+    }
+
+    /// @brief Act on a registered settings cell (select, re-tap acts).
+    /// @param hostApi Host API.
+    /// @param cellIndex Cell index from touchRegisterCell.
+    /// @return True (always consumed inside the tab).
+    bool TouchAction(const MenuHostApi *hostApi, int cellIndex)
+    {
+        if (s_state.pageIndex < 0) {
+            if (cellIndex < 0 || cellIndex >= kSettingsOptionCount) {
+                return true;
+            }
+
+            if (cellIndex == s_state.rowIndex) {
+                s_state.pageIndex = cellIndex;
+                s_state.rowIndex = 0;
+                hostApi->sfxPlayByName("click");
+            } else {
+                s_state.rowIndex = cellIndex;
+                hostApi->sfxPlayByName("hover");
+            }
+
+            return true;
+        }
+
+        if (s_state.pageIndex == kSettingsThemesPage) {
+            if (cellIndex >= 0 && cellIndex < hostApi->themeCount()) {
+                if (cellIndex == s_state.rowIndex) {
+                    ActivateDetailRow(hostApi);
+                    hostApi->sfxPlayByName("click");
+                } else {
+                    s_state.rowIndex = cellIndex;
+                    hostApi->sfxPlayByName("hover");
+                }
+            }
+
+            return true;
+        }
+
+        const SettingsRow *pageRows = SettingsPageRows(s_state.pageIndex);
+        int rowCount = SettingsRowCount(pageRows);
+
+        if (cellIndex >= 0 && cellIndex < rowCount) {
+            if (cellIndex == s_state.rowIndex) {
+                ActivateDetailRow(hostApi);
+                hostApi->sfxPlayByName("click");
+            } else {
+                s_state.rowIndex = cellIndex;
+                hostApi->sfxPlayByName("hover");
+            }
+        }
+
+        return true;
     }
 
     /// @brief Handle option list input.
@@ -676,6 +735,7 @@ extern "C" {
         s_state.rowIndex = 0;
         s_state.repeatCounter = 0;
         memset(s_state.toggleStates, 0, sizeof(s_state.toggleStates));
+        s_hostApi = hostApi;
         return 0;
     }
 
@@ -707,6 +767,18 @@ extern "C" {
                 HandleDetailInput(hostApi, buttonsDown);
                 break;
         }
+    }
+
+    /// @brief Act on a registered settings cell (select, re-tap acts).
+    /// @param cellIndex Cell index from touchRegisterCell.
+    /// @return Nonzero when the tap was consumed.
+    QLAUNCH_HOOK int SubmenuTouchAction(int cellIndex)
+    {
+        if (!s_hostApi) {
+            return 0;
+        }
+
+        return TouchAction(s_hostApi, cellIndex) ? 1 : 0;
     }
 
     /// @brief Enter the submenu tab.

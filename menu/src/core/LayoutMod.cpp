@@ -7,11 +7,19 @@
 #include "HostApi.hpp"
 #include "Submenus.hpp"
 #include "Packs.hpp"
+#include "Touch.hpp"
 #include "Log.hpp"
 #include <dlink/dlink.h>
 #include <sys/stat.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <string.h>
+
+static_assert(sizeof(Touch::TouchPoint) == sizeof(LayoutTouch), "Touch frame ABI mismatch");
+static_assert(offsetof(Touch::TouchPoint, x) == offsetof(LayoutTouch, x), "Touch frame ABI mismatch");
+static_assert(offsetof(Touch::TouchPoint, y) == offsetof(LayoutTouch, y), "Touch frame ABI mismatch");
+static_assert(offsetof(Touch::TouchPoint, fingerId) == offsetof(LayoutTouch, fingerId), "Touch frame ABI mismatch");
+static_assert(offsetof(Touch::TouchPoint, phase) == offsetof(LayoutTouch, phase), "Touch frame ABI mismatch");
 
 namespace LayoutMod {
 
@@ -27,7 +35,8 @@ namespace LayoutMod {
         struct LayoutModState {
             void *handle;
             void (*draw)(const MenuHostApi *);
-            void (*input)(const MenuHostApi *, unsigned long long, unsigned long long);
+            void (*input)(const MenuHostApi *, unsigned long long, unsigned long long,
+                          const LayoutTouch *, int);
             float (*shiftX)(const MenuHostApi *);
             int (*findNode)(const MenuHostApi *, const char *, LayoutNode *);
             int (*tabCount)(const MenuHostApi *);
@@ -84,7 +93,8 @@ namespace LayoutMod {
         int (*layoutBoot)(const MenuHostApi *, const char *) =
             (int (*)(const MenuHostApi *, const char *))dlsym(s_state.handle, "LayoutBoot");
         s_state.draw = (void (*)(const MenuHostApi *))dlsym(s_state.handle, "LayoutDraw");
-        s_state.input = (void (*)(const MenuHostApi *, unsigned long long, unsigned long long))dlsym(s_state.handle, "LayoutInput");
+        s_state.input = (void (*)(const MenuHostApi *, unsigned long long, unsigned long long,
+                                  const LayoutTouch *, int))dlsym(s_state.handle, "LayoutInput");
         s_state.shiftX = (float (*)(const MenuHostApi *))dlsym(s_state.handle, "LayoutShiftX");
         s_state.findNode = (int (*)(const MenuHostApi *, const char *, LayoutNode *))dlsym(s_state.handle, "LayoutFindNode");
         s_state.tabCount = (int (*)(const MenuHostApi *))dlsym(s_state.handle, "LayoutTabCount");
@@ -158,7 +168,9 @@ namespace LayoutMod {
             return;
         }
 
-        s_state.input(HostApi::GetHostApi(), buttonsDown, buttonsHeld);
+        const Touch::TouchFrame &touchFrame = Touch::Frame();
+        s_state.input(HostApi::GetHostApi(), buttonsDown, buttonsHeld,
+                      reinterpret_cast<const LayoutTouch *>(touchFrame.points), touchFrame.count);
     }
 
     /// @brief Give the layout slide offset (0 without layout).

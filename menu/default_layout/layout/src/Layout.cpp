@@ -5,6 +5,7 @@
 #include "Layout.hpp"
 #include "LayoutApi.hpp"
 #include "LayoutHost.hpp"
+#include "TouchNav.hpp"
 #include "Json.hpp"
 #include "Gfx.hpp"
 #include "App.hpp"
@@ -333,9 +334,12 @@ namespace Layout {
     /// @brief Route input to the focused layer, else the active tab.
     /// @param buttonsDown Buttons pressed.
     /// @param buttonsHeld Buttons held.
-    void Input(u64 buttonsDown, u64 buttonsHeld)
+    /// @param touches Touch frame (may be null when untouched).
+    /// @param touchCount Touch point count.
+    void Input(u64 buttonsDown, u64 buttonsHeld, const LayoutTouch *touches, int touchCount)
     {
         const MenuHostApi *hostApi = GetLayoutHost();
+        TouchNav::Handle(touches, touchCount, buttonsDown);
         int fullTab = hostApi->submenuFullTabIndex();
 
         if (fullTab >= 0 && hostApi->menuT() >= 1.0f) {
@@ -502,11 +506,14 @@ extern "C" {
     /// @param hostApi Host API.
     /// @param buttonsDown Proven pressed mask.
     /// @param buttonsHeld Held mask.
+    /// @param touches Touch frame (may be null when untouched).
+    /// @param touchCount Touch point count.
     QLAUNCH_HOOK void LayoutInput(const MenuHostApi *hostApi, unsigned long long buttonsDown,
-                                  unsigned long long buttonsHeld)
+                                  unsigned long long buttonsHeld, const LayoutTouch *touches,
+                                  int touchCount)
     {
         (void)hostApi;
-        Layout::Input(buttonsDown, buttonsHeld);
+        Layout::Input(buttonsDown, buttonsHeld, touches, touchCount);
     }
 
     /// @brief Give the current horizontal slide offset.

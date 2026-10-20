@@ -9,9 +9,7 @@
 extern "C" {
 #endif
 
-    enum {
-        kSubmenuApiVersion = 1
-    };
+    constexpr int kSubmenuApiVersion = 1;
 
     /// @brief Give the submenu ABI version.
     /// @return kSubmenuApiVersion.
@@ -101,6 +99,45 @@ extern "C" {
     /// @brief Drop cached textures after an external refresh.
     QLAUNCH_HOOK void SubmenuRefresh(void);
 
+    /// @brief Act on a registered touch cell (select on tap, act on re-tap).
+    /// Optional; missing means taps fall through to an A press.
+    /// @param cellIndex Cell index from touchRegisterCell.
+    /// @return Nonzero when the tap was consumed.
+    QLAUNCH_HOOK int SubmenuTouchAction(int cellIndex);
+
+    /// @brief Drag-scroll tab content with inertia on release.
+    /// Optional; missing means the tab ignores drags.
+    /// @param moveX Horizontal finger travel this frame.
+    /// @param moveY Vertical finger travel this frame.
+    /// @param phase Touch phase (held moves, up releases).
+    /// @return Nonzero when the drag was consumed.
+    QLAUNCH_HOOK int SubmenuDrag(float moveX, float moveY, int phase);
+
+    /// @brief Handle one tap inside the tab (manual override).
+    /// Optional; checked before registered cells. Home uses this for
+    /// toggle/deselect semantics that a plain select/act cannot express.
+    /// Most submenus should register cells and implement SubmenuTouchAction
+    /// instead, returning zero here for unhandled areas.
+    /// @param x Tap X in design space.
+    /// @param y Tap Y in design space.
+    /// @return Nonzero when the tap was consumed.
+    QLAUNCH_HOOK int SubmenuTap(float x, float y);
+
+    /// @brief Handle a finger touching down inside the tab (press callback).
+    /// Optional; returning nonzero claims the finger, skipping drag,
+    /// swipe, and tap routing for it and delivering SubmenuTouchUp on
+    /// release. Returning zero keeps the standard gesture path.
+    /// @param x Down X in design space.
+    /// @param y Down Y in design space.
+    /// @return Nonzero when the finger was claimed.
+    QLAUNCH_HOOK int SubmenuTouchDown(float x, float y);
+
+    /// @brief Handle a claimed finger lifting off (release callback).
+    /// Only fires for fingers claimed by SubmenuTouchDown.
+    /// @param x Up X in design space.
+    /// @param y Up Y in design space.
+    /// @return Nonzero when the release was consumed.
+    QLAUNCH_HOOK int SubmenuTouchUp(float x, float y);
 
     /// @brief Shut down before unload.
     QLAUNCH_HOOK void SubmenuShutdown(void);

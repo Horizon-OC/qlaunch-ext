@@ -1286,16 +1286,16 @@ namespace Video {
             opacity = 1.0f;
         }
 
-        DrawOsdPill("ZL Previous", 60.0f, opacity);
+        DrawOsdPill("L Previous", 60.0f, opacity);
 
         char middleLabel[64];
-        snprintf(middleLabel, sizeof(middleLabel), "L -5s    A %s    R +5s", PausedState() ? "Play" : "Pause");
+        snprintf(middleLabel, sizeof(middleLabel), "ZL -5s    A %s    ZR +5s", PausedState() ? "Play" : "Pause");
         middleLabel[sizeof(middleLabel) - 1] = 0;
         float middleWidth = g_host->fontMeasure(middleLabel, 30.0f) + 48.0f;
         DrawOsdPill(middleLabel, 960.0f - middleWidth * 0.5f, opacity);
 
-        float rightWidth = g_host->fontMeasure("ZR Next", 30.0f) + 48.0f;
-        DrawOsdPill("ZR Next", 1860.0f - rightWidth, opacity);
+        float rightWidth = g_host->fontMeasure("R Next", 30.0f) + 48.0f;
+        DrawOsdPill("R Next", 1860.0f - rightWidth, opacity);
     }
 
     /// @brief Draw the current video frame and OSD.
@@ -1372,22 +1372,22 @@ namespace Video {
         }
 
         if (provenDown & HidNpadButton_L) {
-            SeekAbs(PositionState() - 5.0);
-            return true;
-        }
-
-        if (provenDown & HidNpadButton_R) {
-            SeekAbs(PositionState() + 5.0);
-            return true;
-        }
-
-        if (provenDown & HidNpadButton_ZL) {
             StepContent(-1);
             return true;
         }
 
-        if (provenDown & HidNpadButton_ZR) {
+        if (provenDown & HidNpadButton_R) {
             StepContent(1);
+            return true;
+        }
+
+        if (provenDown & HidNpadButton_ZL) {
+            SeekAbs(PositionState() - 5.0);
+            return true;
+        }
+
+        if (provenDown & HidNpadButton_ZR) {
+            SeekAbs(PositionState() + 5.0);
             return true;
         }
 

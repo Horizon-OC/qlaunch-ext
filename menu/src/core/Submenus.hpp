@@ -23,11 +23,46 @@ namespace Submenus {
     /// @param tabIndex Tabs registry index.
     void DrawDynamicTab(int tabIndex);
 
+    /// @brief Act on a registered touch cell (select, re-tap acts).
+    /// @param tabIndex Tabs registry index.
+    /// @param cellIndex Cell index from touchRegisterCell.
+    /// @return Nonzero when the tap was consumed.
+    int TouchAction(int tabIndex, int cellIndex);
+
     /// @brief Handle input for a dynamic submenu tab.
     /// @param tabIndex Tabs registry index.
     /// @param buttonsDown Buttons pressed.
     /// @param buttonsHeld Buttons held.
     void InputDynamicTab(int tabIndex, unsigned long long buttonsDown, unsigned long long buttonsHeld);
+
+    /// @brief Drag-scroll submenu content with inertia on release.
+    /// @param tabIndex Tabs registry index.
+    /// @param moveX Horizontal finger travel this frame.
+    /// @param moveY Vertical finger travel this frame.
+    /// @param phase Touch phase (held moves, up releases).
+    /// @return Nonzero when the drag was consumed.
+    int Drag(int tabIndex, float moveX, float moveY, int phase);
+
+    /// @brief Deliver one tap to a submenu tab (select, double-tap runs).
+    /// @param tabIndex Tabs registry index.
+    /// @param x Tap X in design space.
+    /// @param y Tap Y in design space.
+    /// @return Nonzero when the tap was consumed.
+    int Tap(int tabIndex, float x, float y);
+
+    /// @brief Deliver a finger-down press to a submenu tab.
+    /// @param tabIndex Tabs registry index.
+    /// @param x Down X in design space.
+    /// @param y Down Y in design space.
+    /// @return Nonzero when the submenu claimed the finger.
+    int TouchDown(int tabIndex, float x, float y);
+
+    /// @brief Deliver a claimed finger release to a submenu tab.
+    /// @param tabIndex Tabs registry index.
+    /// @param x Up X in design space.
+    /// @param y Up Y in design space.
+    /// @return Nonzero when the release was consumed.
+    int TouchUp(int tabIndex, float x, float y);
 
     /// @brief Enter a dynamic submenu tab.
     /// @param tabIndex Tabs registry index.

@@ -187,6 +187,25 @@ extern "C" {
         Album::OnRefresh();
     }
 
+    /// @brief Drag through the album grid.
+    /// @param moveX Horizontal finger travel this frame.
+    /// @param moveY Vertical finger travel this frame.
+    /// @param phase Touch phase (held moves only; releases need no work).
+    /// @return Nonzero while the grid is open.
+    QLAUNCH_HOOK int SubmenuDrag(float moveX, float moveY, int phase)
+    {
+        (void)phase;
+        return Album::HandleDrag(moveX, moveY) ? 1 : 0;
+    }
+
+    /// @brief Act on a registered album cell (select, re-tap opens).
+    /// @param cellIndex Cell index from touchRegisterCell (-1 = padding).
+    /// @return Nonzero when the tap was consumed.
+    QLAUNCH_HOOK int SubmenuTouchAction(int cellIndex)
+    {
+        return Album::TouchAction(cellIndex) ? 1 : 0;
+    }
+
     /// @brief Shut down before unload.
     QLAUNCH_HOOK void SubmenuShutdown(void)
     {
