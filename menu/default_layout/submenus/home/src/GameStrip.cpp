@@ -680,6 +680,79 @@ namespace WStrip {
         s_hostApi->gfxPushIcon(markerX, markerY, markerWidth, markerHeight, 6.0f, 6.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 0.0f, markerSlot, uvLeft, uvTop, uvRight, uvBottom, 1.0f, 1.0f);
     }
 
+    /// @brief Whether a title id is the currently running game.
+    /// @param tid Title id.
+    /// @return True when the game runs now.
+    bool IsRunningTid(u64 tid)
+    {
+        return tid != 0 && s_hostApi->qextGameRunning() && s_hostApi->qextSuspendedTitle() == tid;
+    }
+
+    /// @brief Whether a strip row is the running game.
+    /// @param row Strip row.
+    /// @return True for the running, inserted game.
+    bool IsRunningRow(const AppRow &row)
+    {
+        return row.isGame && !row.ejected && IsRunningTid(row.tid);
+    }
+
+    /// @brief Hop lift for the running tile (one up-down cycle per 0.5s).
+    /// @return Pixels to lift the tile.
+    float BounceLift()
+    {
+        float cycle = s_hostApi->appTime() / 0.5f;
+        float phase = cycle - (float)(int)cycle;
+        return 12.0f * (0.5f - 0.5f * cosf(phase * 6.2831853f));
+    }
+
+    /// @brief Whether a folder contains the currently running game.
+    /// @param folderId Folder id.
+    /// @return True when a member matches the suspended title.
+    bool FolderHasRunning(u64 folderId)
+    {
+        u64 runningTid = s_hostApi->qextGameRunning() ? s_hostApi->qextSuspendedTitle() : 0;
+
+        if (runningTid == 0 || folderId == 0) {
+            return false;
+        }
+
+        int folderCount = qext_folder_count();
+
+        if (folderCount < 0) {
+            return false;
+        }
+
+        for (int folderIndex = 0; folderIndex < folderCount; folderIndex++) {
+            if (qext_folder_id(folderIndex) != folderId) {
+                continue;
+            }
+
+            int memberCount = qext_folder_game_count(folderIndex);
+
+            for (int memberIndex = 0; memberIndex < memberCount; memberIndex++) {
+                if (qext_folder_game(folderIndex, memberIndex) == runningTid) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        return false;
+    }
+
+    /// @brief Whether a strip tile demands attention (running or holds it).
+    /// @param row Strip row.
+    /// @return True when the tile bounces with a steady ring.
+    bool IsAttractedRow(const AppRow &row)
+    {
+        if (IsRunningRow(row)) {
+            return true;
+        }
+
+        return row.isFolder && FolderHasRunning(row.folderId);
+    }
+
     /// @brief Draw a title wrapped to two lines under the selected tile.
     /// @param titleName Title name.
     /// @param centerX Center X.
@@ -814,6 +887,45 @@ namespace WStrip {
         }
     }
 
+    /// @brief Draw an expanded (popped-up) tile with ring, art, and marker.
+    /// The art rises by the growth height while the bottom edge stays put.
+    /// @param row Strip row.
+    /// @param tileX Tile left X.
+    /// @param tileTop Tile top Y at rest (bounce-lifted for running games).
+    /// @param outerSize Tile outer size.
+    /// @param cornerRadius Corner radius.
+    /// @param tileAlpha Tile opacity.
+    /// @param growPixels Growth height of the popup panel.
+    void DrawExpandedTile(const AppRow &row, float tileX, float tileTop, float outerSize,
+                          float cornerRadius, float tileAlpha, float growPixels)
+    {
+        float bottomRadius = row.ejected ? cornerRadius : 0.0f;
+        float artTop = tileTop - growPixels;
+        float growWidth = outerSize;
+        float growHeight = outerSize + growPixels;
+        s_hostApi->gfxPushSelectRing(tileX - 9.0f, artTop - 9.0f, growWidth + 18.0f, growHeight + 18.0f, cornerRadius + 9.0f, 12.0f);
+
+        if (row.isFolder) {
+            StripPreview *preview = ResolvePreview(row.folderId);
+            DrawFolderArt(tileX, artTop, outerSize, cornerRadius, bottomRadius, tileAlpha, row.folderColor,
+                          preview ? preview->slots : nullptr, preview ? preview->count : 0);
+        } else if (s_hostApi->gfxTexValid(row.iconSlot)) {
+            unsigned queuedQuads = s_hostApi->gfxPushIcon(tileX, artTop, outerSize, outerSize, cornerRadius, cornerRadius, bottomRadius, bottomRadius, 1.0f, 1.0f, 1.0f, 0.0f, row.iconSlot, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, tileAlpha);
+
+            if (queuedQuads >= (unsigned)(kGfxIconQueueMax / 6)) {
+                TileFallback(row, tileX, artTop, outerSize, outerSize, cornerRadius, tileAlpha);
+            }
+        } else {
+            TileFallback(row, tileX, artTop, outerSize, outerSize, cornerRadius, tileAlpha);
+        }
+
+        if (growPixels > 0.5f) {
+            s_hostApi->gfxPushPanelCorners(tileX, artTop + outerSize, growWidth, growPixels, 0.0f, 0.0f, cornerRadius, cornerRadius,
+                                   1.0f, 1.0f, 1.0f, 1.0f);
+            DrawMarker(tileX + outerSize * 0.5f, artTop + outerSize, growPixels, 1.0f);
+        }
+    }
+
     /// @brief Draw the home game strip from a layout node.
     /// @param layoutNode Gamestrip node carrying tile geometry.
     void Draw(const LayoutNode &layoutNode)
@@ -908,6 +1020,11 @@ namespace WStrip {
 
             float tileCenterX = layoutNode.x + slideOffsetX + (float)tileIndex * tilePitch - s_state.stripScroll + outerSize * 0.5f;
             const AppRow &row = *s_hostApi->rowAt(tileIndex);
+
+            if (IsAttractedRow(row)) {
+                continue;
+            }
+
             float tileAlpha = row.ejected ? 0.50f : 1.0f;
             float tileX = tileCenterX - outerSize * 0.5f;
             float tileY = layoutNode.y + shiftOffsetY;
@@ -935,39 +1052,37 @@ namespace WStrip {
             float tileCenterX = layoutNode.x + slideOffsetX + (float)selectedTile * tilePitch - s_state.stripScroll + outerSize * 0.5f;
             const AppRow &row = *s_hostApi->rowAt(selectedTile);
             float tileAlpha = row.ejected ? 0.50f : 1.0f;
-            float bottomRadius = row.ejected ? cornerRadius : 0.0f;
             float tileX = tileCenterX - outerSize * 0.5f;
             float tileY = layoutNode.y + shiftOffsetY;
             float highlightProgress = row.ejected ? 0.0f : (s_state.highlightProgress < 0.0f ? 0.0f : (s_state.highlightProgress > 1.0f ? 1.0f : s_state.highlightProgress));
 
             /* More gamecard stuff. */
             float growPixels = 84.0f * highlightProgress;
-            float growX = tileX;
-            float growY = tileY - 84.0f * highlightProgress;
-            float growWidth = outerSize;
-            float growHeight = outerSize + growPixels;
-            s_hostApi->gfxPushSelectRing(growX - 9.0f, growY - 9.0f, growWidth + 18.0f, growHeight + 18.0f, cornerRadius + 9.0f, 12.0f);
+            float bounceLift = IsAttractedRow(row) ? BounceLift() : 0.0f;
+            DrawExpandedTile(row, tileX, tileY - bounceLift, outerSize, cornerRadius, tileAlpha, growPixels);
+        }
 
-            /* Rounded top and square bottom. */
-            if (row.isFolder) {
-                StripPreview *preview = ResolvePreview(row.folderId);
-                DrawFolderArt(growX, growY, outerSize, cornerRadius, bottomRadius, tileAlpha, row.folderColor,
-                              preview ? preview->slots : nullptr, preview ? preview->count : 0);
-            } else if (s_hostApi->gfxTexValid(row.iconSlot)) {
-                unsigned queuedQuads = s_hostApi->gfxPushIcon(growX, growY, outerSize, outerSize, cornerRadius, cornerRadius, bottomRadius, bottomRadius, 1.0f, 1.0f, 1.0f, 0.0f, row.iconSlot, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, tileAlpha);
-
-                if (queuedQuads >= (unsigned)(kGfxIconQueueMax / 6)) {
-                    TileFallback(row, growX, growY, outerSize, outerSize, cornerRadius, tileAlpha);
-                }
-            } else {
-                TileFallback(row, growX, growY, outerSize, outerSize, cornerRadius, tileAlpha);
+        /* Running games (and folders holding one) keep the flap out and hop. */
+        for (int tileIndex = firstTile; tileIndex < lastTile; tileIndex++) {
+            if (tileIndex == selectedTile) {
+                continue;
             }
 
-            if (growPixels > 0.5f) {
-                s_hostApi->gfxPushPanelCorners(growX, growY + outerSize, growWidth, growPixels, 0.0f, 0.0f, cornerRadius, cornerRadius,
-                                      1.0f, 1.0f, 1.0f, 1.0f);
-                DrawMarker(tileCenterX, growY + outerSize, growPixels, highlightProgress);
+            const AppRow &row = *s_hostApi->rowAt(tileIndex);
+
+            if (!IsAttractedRow(row)) {
+                continue;
             }
+
+            float tileCenterX = layoutNode.x + slideOffsetX + (float)tileIndex * tilePitch - s_state.stripScroll + outerSize * 0.5f;
+            float tileX = tileCenterX - outerSize * 0.5f;
+            float tileY = layoutNode.y + shiftOffsetY;
+
+            if (tileX + outerSize < -50.0f || tileX > 1970.0f) {
+                continue;
+            }
+
+            DrawExpandedTile(row, tileX, tileY - BounceLift(), outerSize, cornerRadius, 1.0f, 84.0f);
         }
 
         s_hostApi->gfxPopLayer();
@@ -1027,13 +1142,15 @@ namespace WStrip {
                     float cardY = gridStartY + gridRow * (cardWidth + 33.0f);
                     float cardAlpha = s_view.ejected[memberIndex] ? 0.50f : 1.0f;
                     bool isSelected = (memberIndex == folderSel);
+                    bool isRunning = IsRunningTid(s_view.tids[memberIndex]);
+                    float cardDrawY = isRunning ? cardY - BounceLift() : cardY;
 
-                    if (isSelected) {
-                        s_hostApi->gfxPushSelectRing(cardX - 8.0f, cardY - 8.0f, cardWidth + 16.0f, cardWidth + 16.0f, 20.0f, 8.0f);
+                    if (isSelected || isRunning) {
+                        s_hostApi->gfxPushSelectRing(cardX - 8.0f, cardDrawY - 8.0f, cardWidth + 16.0f, cardWidth + 16.0f, 20.0f, 8.0f);
                     }
 
                     if (s_hostApi->gfxTexValid(s_view.iconSlots[memberIndex])) {
-                        unsigned queuedQuads = s_hostApi->gfxPushIcon(cardX, cardY, cardWidth, cardWidth, 12.0f, 12.0f, 12.0f, 12.0f, 1.0f, 1.0f, 1.0f, 0.0f, s_view.iconSlots[memberIndex], 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, cardAlpha);
+                        unsigned queuedQuads = s_hostApi->gfxPushIcon(cardX, cardDrawY, cardWidth, cardWidth, 12.0f, 12.0f, 12.0f, 12.0f, 1.0f, 1.0f, 1.0f, 0.0f, s_view.iconSlots[memberIndex], 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, cardAlpha);
 
                         if (queuedQuads >= (unsigned)(kGfxIconQueueMax / 6)) {
                             AppRow gameRow = {};
@@ -1047,7 +1164,7 @@ namespace WStrip {
                             }
 
                             gameRow.name[nameCursor] = 0;
-                            TileFallback(gameRow, cardX, cardY, cardWidth, cardWidth, 12.0f, cardAlpha);
+                            TileFallback(gameRow, cardX, cardDrawY, cardWidth, cardWidth, 12.0f, cardAlpha);
                         }
                     } else {
                         AppRow gameRow = {};
@@ -1061,7 +1178,7 @@ namespace WStrip {
                         }
 
                         gameRow.name[nameCursor] = 0;
-                        TileFallback(gameRow, cardX, cardY, cardWidth, cardWidth, 12.0f, cardAlpha);
+                        TileFallback(gameRow, cardX, cardDrawY, cardWidth, cardWidth, 12.0f, cardAlpha);
                     }
                 }
 
