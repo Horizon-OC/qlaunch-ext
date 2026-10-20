@@ -529,9 +529,4 @@ extern "C" {
         return (int)n;
     }
 
-    void TitleRefresh(void)
-    {
-        fwd::ReadConfig();
-    }
-
 } /* extern C */

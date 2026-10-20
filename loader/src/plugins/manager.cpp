@@ -334,10 +334,10 @@ static void UnloadAt(int idx)
     {
         char iface[16];
         int pos = 0;
-        const char tags[] = "CTDONIiLR";
+        const char tags[] = "CTDONIiL";
         const char *names[] = { "TitleCount", "TitleTid", "TitleDonor", "TitleNro", "TitleName",
-                                "TitleIconSize", "TitleIcon", "TitleLaunch", "TitleRefresh" };
-        for (int k = 0; k < 9; k++) {
+                                "TitleIconSize", "TitleIcon", "TitleLaunch" };
+        for (int k = 0; k < 8; k++) {
             if (dlsym(h, names[k]) && pos + 1 < (int)sizeof(iface))
                 iface[pos++] = tags[k];
         }

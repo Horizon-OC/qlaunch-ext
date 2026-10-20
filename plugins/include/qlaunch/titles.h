@@ -43,9 +43,6 @@ extern "C" {
     /* Called on launch of any title. */
     QLAUNCH_HOOK int TitleLaunch(int index);
 
-    /* Called on title refresh. */
-    QLAUNCH_HOOK void TitleRefresh(void);
-
 #ifdef __cplusplus
 } /* extern C */
 #endif

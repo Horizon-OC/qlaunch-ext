@@ -653,9 +653,8 @@ namespace App {
             Clock::Tick();
         }
 
-        if (appState.frame >= 150) {
+        if (appState.frame >= 600) {
             appState.frame = 0;
-            RefreshTitles();
         }
 
         if (qext_titles_changed()) {

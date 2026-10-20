@@ -19,7 +19,6 @@
  *   int TitleVersion(int index, char *out, unsigned cap);   (optional)
  *   int TitlePublisher(int index, char *out, unsigned cap); (optional)
  *   int TitleLaunch(int index);             (optional with TitleNro)
- *   void TitleRefresh(void);                            (optional)
  *
  * TitleCount: number of virtual titles (0 = none for now).
  * TitleTid: stable fake tid for the title. Must have the high bit set
@@ -46,7 +45,6 @@
  *   first (same as real titles), then dispatches here. The loader
  *   never forwards virtual tids to Nintendo services, so virtual
  *   titles only ever exist menu-side.
- * TitleRefresh: re-enumerate hook, called on every titles refresh.
  *
  * Virtual tids look like 0x8xxx... (high bit set) and encode the
  * provider slot plus the item index. Real tids never have the high
@@ -74,7 +72,7 @@ namespace vtitles {
     /// @param handle dlopen handle being closed.
     void Unregister(void *handle);
 
-    /// @brief Re-query counts (and TitleRefresh hooks) of all providers.
+    /// @brief Re-query counts of all providers and rebuild the index.
     void Refresh();
 
     /// @brief Give the current virtual title count.

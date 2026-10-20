@@ -29,7 +29,6 @@ namespace vtitles {
             int (*version)(int, char *, unsigned) = nullptr;
             int (*publisher)(int, char *, unsigned) = nullptr;
             int (*launch)(int) = nullptr;
-            void (*refresh)(void) = nullptr;
             int cached = 0;
         };
 
@@ -218,7 +217,6 @@ namespace vtitles {
             provider.version = (int (*)(int, char *, unsigned))FindSymbol(handle, "TitleVersion");
             provider.publisher = (int (*)(int, char *, unsigned))FindSymbol(handle, "TitlePublisher");
             provider.launch = launch;
-            provider.refresh = (void (*)(void))FindSymbol(handle, "TitleRefresh");
             s_providers[slot] = provider;
 
             RebuildIndex();
@@ -245,15 +243,9 @@ namespace vtitles {
         }
     }
 
-    /// @brief Re-query counts (and TitleRefresh hooks) of all providers.
+    /// @brief Re-query counts of all providers and rebuild the index.
     void Refresh() {
         nro::PruneStale();
-
-        for (int slot = 0; slot < kMaxProviders; slot++) {
-            if (s_providers[slot].used && s_providers[slot].refresh)
-                s_providers[slot].refresh();
-        }
-
         RebuildIndex();
     }
 
