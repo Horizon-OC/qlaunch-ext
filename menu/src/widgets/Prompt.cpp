@@ -88,7 +88,7 @@ namespace WPrompt {
         s_state.isOpen = true;
         WPopup::Open(WPopup::PopupLayout::Row, dialogTitleBuffer, "Unsaved progress may be lost.",
                      closeLabels, 0, 2, 1, heldButtons);
-        Sfx::Play(Sfx::Hover);
+        Sfx::PlayByName("hover");
     }
 
     /// @brief Dismiss the prompt without acting.
@@ -140,15 +140,15 @@ namespace WPrompt {
                 if (pendingLaunchId != 0) {
                     App::LaunchGame(pendingLaunchId);
                 } else {
-                    Sfx::Play(Sfx::Click);
+                    Sfx::PlayByName("click");
                 }
             } else {
                 Close();
-                Sfx::Play(Sfx::Back);
+                Sfx::PlayByName("back");
             }
         } else if (popupResult == WPopup::PopupResult::Cancelled) {
             Close();
-            Sfx::Play(Sfx::Back);
+            Sfx::PlayByName("back");
         }
 
         return true;

@@ -9,6 +9,5 @@
  {"id": "eshop_jingle", "asset": "s2_eshop", "db": -1.517},
  {"id": "chat_jingle", "asset": "s2_game_chat", "db": -5.119},
  {"id": "folder_jingle", "asset": "news", "db": 0.0},
- {"id": "vgc_jingle", "asset": "virtual_game_cards", "db": 0.0},
  {"id": "standby_jingle", "asset": "s2_standby", "db": -20.0}
 ]}

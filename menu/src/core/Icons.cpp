@@ -242,7 +242,7 @@ static uint8_t *Downscale(uint8_t *px, int *w, int *h)
     const char *HudFileStem(int hudId)
     {
         static const char *kStems[kHudCount] = {
-            "hud_user", "hud_btn_a", "hud_btn_plus", "hud_folder", "hud_vgccard",
+            "hud_user", "hud_btn_a", "hud_btn_plus", "hud_folder",
             "top_sel_home", "top_sel_connect", "top_sel_eshop", "top_sel_album", "top_sel_settings",
             "top_des_home", "top_des_connect", "top_des_eshop", "top_des_album", "top_des_settings",
             "marker_sheet", "wifi_0", "wifi_1", "wifi_2", "wifi_3", "wifi_none", "airplane",
@@ -334,68 +334,6 @@ bool Icons::UploadPng(const uint8_t *pngData, unsigned pngSize, bool downscale, 
     return true;
 }
 
-bool Icons::InitHud(const HudDef *assetDefs, int assetCount)
-{
-    EnsureSlots();
-
-    if (!assetDefs || assetCount <= 0) {
-        return false;
-    }
-
-    if (assetCount > kHudCount) {
-        assetCount = kHudCount;
-    }
-
-    bool anyLoaded = false;
-
-    for (int hudIndex = 0; hudIndex < assetCount; hudIndex++) {
-        if (s_state.hudReady[hudIndex]) {
-            continue;
-        }
-
-        uint32_t pngSize = (assetDefs[hudIndex].size != nullptr) ? *assetDefs[hudIndex].size : 0;
-
-        if (assetDefs[hudIndex].png == nullptr || pngSize == 0) {
-            continue;
-        }
-
-        bool downscaleArt = hudIndex != kHudMarkerStrip;
-        int imageWidth = 0;
-        int imageHeight = 0;
-        uint8_t *pixelData = DecodePng(assetDefs[hudIndex].png, pngSize, downscaleArt,
-                                       !assetDefs[hudIndex].noInvert, &imageWidth, &imageHeight);
-
-        if (!pixelData) {
-            continue;
-        }
-
-        if (imageWidth > 512 && hudIndex != kHudMarkerStrip) {
-            stbi_image_free(pixelData);
-            continue;
-        }
-
-        if (s_state.hudTextures[hudIndex] < 0) {
-            s_state.hudTextures[hudIndex] = Gfx::TexAlloc();
-
-            if (s_state.hudTextures[hudIndex] < 0) {
-                stbi_image_free(pixelData);
-                continue;
-            }
-        }
-
-        if (!Gfx::TexUpload(s_state.hudTextures[hudIndex], pixelData, imageWidth, imageHeight, Gfx::TexFormat::RGBA)) {
-            stbi_image_free(pixelData);
-            continue;
-        }
-
-        stbi_image_free(pixelData);
-        s_state.hudReady[hudIndex] = true;
-        anyLoaded = true;
-    }
-
-    return anyLoaded;
-}
-
 void Icons::ResetHud()
 {
     EnsureSlots();
@@ -439,7 +377,7 @@ bool Icons::ReapplyPack()
         }
 
         char pngPath[256];
-        snprintf(pngPath, sizeof(pngPath), "%s/hud/%s.png", s_state.packDir, stem);
+        snprintf(pngPath, sizeof(pngPath), "%s/assets/hud/%s.png", s_state.packDir, stem);
         pngPath[sizeof(pngPath) - 1] = 0;
 
         unsigned pngSize = 0;

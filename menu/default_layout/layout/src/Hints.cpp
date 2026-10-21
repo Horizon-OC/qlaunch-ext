@@ -79,7 +79,7 @@ namespace WHints {
             } else if (hostApi->appMenu() == homeTabIndex && hostApi->bottomFocus()) {
                 outputHints[hintCount++] = { "A", "OK" };
                 outputHints[hintCount++] = { "B", "Back" };
-            } else if (hostApi->appMenu() == homeTabIndex && hostApi->homeSub() != kHomeSubGames) {
+            } else if (hostApi->appMenu() == homeTabIndex && hostApi->homeSub() == kHomeSubFolders) {
                 outputHints[hintCount++] = { "A", "Start" };
                 outputHints[hintCount++] = { "Y", "Options" };
                 outputHints[hintCount++] = { "B", "Back" };

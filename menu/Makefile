@@ -21,22 +21,8 @@ LDFLAGS := -specs=$(DLINK)/tools/module.specs -g $(ARCH) -shared -nodefaultlibs 
 SRCS := $(wildcard $(TOP)/src/*.cpp $(TOP)/src/core/*.cpp $(TOP)/src/widgets/*.cpp)
 OBJS := $(patsubst $(TOP)/%.cpp,$(TOP)/build/%.o,$(SRCS))
 OBJS += $(TOP)/build/stub/stub.o $(TOP)/build/stub/crt0.o
-OBJS += $(TOP)/build/assets/font.o $(TOP)/build/assets/iconfont.o $(TOP)/build/assets/layout.o $(TOP)/build/assets/sfx.o
-OBJS += $(TOP)/build/assets/hud/wifi_0.o $(TOP)/build/assets/hud/wifi_1.o $(TOP)/build/assets/hud/wifi_2.o $(TOP)/build/assets/hud/wifi_3.o $(TOP)/build/assets/hud/wifi_none.o $(TOP)/build/assets/hud/airplane.o
-OBJS += $(TOP)/build/assets/hud/hud_user.o $(TOP)/build/assets/hud/hud_btn_a.o
-OBJS += $(TOP)/build/assets/hud/hud_btn_plus.o
-OBJS += $(TOP)/build/assets/hud/hud_folder.o $(TOP)/build/assets/hud/hud_vgccard.o
-OBJS += $(TOP)/build/assets/hud/top_sel_home.o $(TOP)/build/assets/hud/top_sel_connect.o
-OBJS += $(TOP)/build/assets/hud/top_sel_eshop.o $(TOP)/build/assets/hud/top_sel_album.o
-OBJS += $(TOP)/build/assets/hud/top_sel_settings.o $(TOP)/build/assets/hud/top_des_home.o
-OBJS += $(TOP)/build/assets/hud/top_des_connect.o $(TOP)/build/assets/hud/top_des_eshop.o
-OBJS += $(TOP)/build/assets/hud/top_des_album.o $(TOP)/build/assets/hud/top_des_settings.o
-OBJS += $(TOP)/build/assets/hud/marker_sheet.o
+OBJS += $(TOP)/build/assets/layout.o
 OBJS += $(TOP)/build/assets/theme_light.o $(TOP)/build/assets/theme_dark.o $(TOP)/build/assets/themes.o
-OBJS += $(TOP)/build/assets/sfx/s2_cursor_move.o $(TOP)/build/assets/sfx/s2_button_click.o $(TOP)/build/assets/sfx/s2_back_select.o
-OBJS += $(TOP)/build/assets/sfx/s2_album.o $(TOP)/build/assets/sfx/s2_settings.o $(TOP)/build/assets/sfx/s2_home_menu.o
-OBJS += $(TOP)/build/assets/sfx/s2_eshop.o $(TOP)/build/assets/sfx/s2_game_chat.o $(TOP)/build/assets/sfx/s2_standby.o
-OBJS += $(TOP)/build/assets/sfx/news.o $(TOP)/build/assets/sfx/virtual_game_cards.o
 
 all: $(TOP)/menu.dnro $(TOP)/menu.undef
 

@@ -46,7 +46,6 @@ namespace WStrip {
         enum class StripPhase {
             Hidden,
             Folders,
-            VirtualCards,
             Games,
         };
 
@@ -69,8 +68,6 @@ namespace WStrip {
             switch (s_hostApi->homeSub()) {
                 case kHomeSubFolders:
                     return StripPhase::Folders;
-                case kHomeSubVgc:
-                    return StripPhase::VirtualCards;
                 default:
                     return StripPhase::Games;
             }
@@ -1233,7 +1230,7 @@ namespace WStrip {
         return -1;
     }
 
-    /// @brief Draw folders/VGC sub-screens under the strip.
+    /// @brief Draw the folders sub-screen under the strip.
     void DrawSubs()
     {
         s_hostApi->gfxPushLayer((int)Gfx::GfxLayer::GameStrip);
@@ -1346,46 +1343,6 @@ namespace WStrip {
             }
         }
 
-        /* VGC grid. */
-        {
-            float gridY = 293.0f - 935.0f + shiftOffsetY;
-
-            if (gridY > -700.0f && gridY < 1100.0f) {
-                s_hostApi->fontCentered("Virtual Game Cards", 960.0f + slideOffsetX, gridY - 60.0f,
-                                   44.0f, 900.0f, inkRed, inkGreen, inkBlue, 1.0f);
-                int rowCount = s_hostApi->rowCount();
-                int selectedIndex = s_hostApi->appSelection();
-                float cardWidth = 180.0f;
-                float cardGap = 20.0f;
-                float cardPitch = cardWidth + cardGap;
-                int columnCount = 6;
-                float gridStartX = 960.0f - (columnCount * cardPitch - cardGap) * 0.5f + slideOffsetX;
-
-                for (int cardIndex = 0; cardIndex < rowCount && cardIndex < 18; cardIndex++) {
-                    int gridColumn = cardIndex % columnCount;
-                    int gridRow = cardIndex / columnCount;
-                    float cardX = gridStartX + gridColumn * cardPitch;
-                    float cardY = gridY + gridRow * (cardWidth + 44.0f);
-                    const AppRow &row = *s_hostApi->rowAt(cardIndex);
-                    float cardAlpha = row.ejected ? 0.50f : 1.0f;
-                    bool isSelected = (cardIndex == selectedIndex);
-
-                    if (isSelected) {
-                        s_hostApi->gfxPushSelectRing(cardX - 8.0f, cardY - 8.0f, cardWidth + 16.0f, cardWidth + 16.0f, 20.0f, 8.0f);
-                    }
-
-                    if (s_hostApi->gfxTexValid(row.iconSlot)) {
-                        unsigned queuedQuads = s_hostApi->gfxPushIcon(cardX, cardY, cardWidth, cardWidth, 12.0f, 12.0f, 12.0f, 12.0f, 1.0f, 1.0f, 1.0f, 0.0f, row.iconSlot, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, cardAlpha);
-
-                        if (queuedQuads >= (unsigned)(kGfxIconQueueMax / 6)) {
-                            TileFallback(row, cardX, cardY, cardWidth, cardWidth, 12.0f, cardAlpha);
-                        }
-                    } else {
-                        TileFallback(row, cardX, cardY, cardWidth, cardWidth, 12.0f, cardAlpha);
-                    }
-                }
-            }
-        }
         s_hostApi->gfxPopLayer();
     }
 
@@ -1416,7 +1373,7 @@ namespace WStrip {
         if (selectedIndex != s_hostApi->appSelection()) {
             s_hostApi->appSetSelection(selectedIndex);
             s_state.highlightProgress = 0.0f;
-            s_hostApi->sfxPlay((int)Sfx::Hover);
+            s_hostApi->sfxPlayByName("hover");
             s_hostApi->setTopFocus(false);
             return true;
         }
@@ -1665,7 +1622,7 @@ namespace WStrip {
         CopyOptionName(s_options.contextName, titleName);
         ResolveGameInfo(titleId);
         ShowOptionPopup(heldButtons);
-        s_hostApi->sfxPlay((int)Sfx::Click);
+        s_hostApi->sfxPlayByName("click");
     }
 
     /// @brief Open the options menu for a strip folder.
@@ -1687,7 +1644,7 @@ namespace WStrip {
         s_options.gameVersion[0] = 0;
         s_options.gamePublisher[0] = 0;
         ShowOptionPopup(heldButtons);
-        s_hostApi->sfxPlay((int)Sfx::Click);
+        s_hostApi->sfxPlayByName("click");
     }
 
     /// @brief Open the options menu for a game inside a folder view.
@@ -1708,7 +1665,7 @@ namespace WStrip {
         CopyOptionName(s_options.contextName, titleName);
         ResolveGameInfo(titleId);
         ShowOptionPopup(heldButtons);
-        s_hostApi->sfxPlay((int)Sfx::Click);
+        s_hostApi->sfxPlayByName("click");
     }
 
     /// @brief Enter the folder-choice level for the pending game.
@@ -1752,7 +1709,7 @@ namespace WStrip {
 
         s_options.level = 1;
         ShowOptionPopup(heldButtons);
-        s_hostApi->sfxPlay((int)Sfx::Click);
+        s_hostApi->sfxPlayByName("click");
     }
 
     /// @brief Run the highlighted options action.
@@ -1762,11 +1719,11 @@ namespace WStrip {
 
         if (s_options.level == 4) {
             if (qext_folder_set_color(s_options.folderId, selectedOption) == 0) {
-                s_hostApi->sfxPlay((int)Sfx::Click);
+                s_hostApi->sfxPlayByName("click");
                 CloseOptions();
                 s_hostApi->refreshTitles();
             } else {
-                s_hostApi->sfxPlay((int)Sfx::Back);
+                s_hostApi->sfxPlayByName("back");
             }
 
             return;
@@ -1777,16 +1734,16 @@ namespace WStrip {
                 u64 folderId = s_options.folderId;
 
                 if (folderId != 0 && qext_folder_delete(folderId) == 0) {
-                    s_hostApi->sfxPlay((int)Sfx::Click);
+                    s_hostApi->sfxPlayByName("click");
                     CloseOptions();
                     s_hostApi->refreshTitles();
                 } else {
-                    s_hostApi->sfxPlay((int)Sfx::Back);
+                    s_hostApi->sfxPlayByName("back");
                 }
             } else {
                 s_options.level = 0;
                 ShowOptionPopup(heldButtons);
-                s_hostApi->sfxPlay((int)Sfx::Back);
+                s_hostApi->sfxPlayByName("back");
             }
 
             return;
@@ -1800,7 +1757,7 @@ namespace WStrip {
             } else {
                 s_options.level = 0;
                 ShowOptionPopup(heldButtons);
-                s_hostApi->sfxPlay((int)Sfx::Back);
+                s_hostApi->sfxPlayByName("back");
             }
 
             return;
@@ -1825,7 +1782,7 @@ namespace WStrip {
                         if (gameTid != 0 && folderId != 0 && sourceFolder != 0 && sourceFolder != folderId &&
                             qext_folder_remove(sourceFolder, gameTid) == 0 &&
                             qext_folder_add(folderId, gameTid) == 0) {
-                            s_hostApi->sfxPlay((int)Sfx::Click);
+                            s_hostApi->sfxPlayByName("click");
                             CloseOptions();
                             s_hostApi->refreshTitles();
 
@@ -1839,15 +1796,15 @@ namespace WStrip {
                                 SyncMemberIcons();
                             }
                         } else {
-                            s_hostApi->sfxPlay((int)Sfx::Back);
+                            s_hostApi->sfxPlayByName("back");
                         }
                     } else if (gameTid != 0 && folderId != 0 && qext_folder_add(folderId, gameTid) == 0) {
-                        s_hostApi->sfxPlay((int)Sfx::Click);
+                        s_hostApi->sfxPlayByName("click");
                         CloseOptions();
                         s_hostApi->refreshTitles();
                         s_hostApi->selectFolderRow(folderId);
                     } else {
-                        s_hostApi->sfxPlay((int)Sfx::Back);
+                        s_hostApi->sfxPlayByName("back");
                     }
                 }
             }
@@ -1869,11 +1826,11 @@ namespace WStrip {
             } else if (selectedOption == 2) {
                 s_options.level = 4;
                 ShowOptionPopup(heldButtons);
-                s_hostApi->sfxPlay((int)Sfx::Hover);
+                s_hostApi->sfxPlayByName("hover");
             } else {
                 s_options.level = 3;
                 ShowOptionPopup(heldButtons);
-                s_hostApi->sfxPlay((int)Sfx::Hover);
+                s_hostApi->sfxPlayByName("hover");
             }
 
             return;
@@ -1887,7 +1844,7 @@ namespace WStrip {
                 u64 gameTid = s_options.gameTid;
 
                 if (sourceFolder != 0 && gameTid != 0 && qext_folder_remove(sourceFolder, gameTid) == 0) {
-                    s_hostApi->sfxPlay((int)Sfx::Click);
+                    s_hostApi->sfxPlayByName("click");
                     CloseOptions();
                     s_hostApi->refreshTitles();
 
@@ -1901,7 +1858,7 @@ namespace WStrip {
                         SyncMemberIcons();
                     }
                 } else {
-                    s_hostApi->sfxPlay((int)Sfx::Back);
+                    s_hostApi->sfxPlayByName("back");
                 }
             }
 
@@ -1911,7 +1868,7 @@ namespace WStrip {
         if (qext_folder_count() <= 0) {
             s_options.level = 2;
             ShowOptionPopup(heldButtons);
-            s_hostApi->sfxPlay((int)Sfx::Hover);
+            s_hostApi->sfxPlayByName("hover");
         } else {
             OpenFolderChoices(heldButtons);
         }
@@ -1939,11 +1896,11 @@ namespace WStrip {
         } else if (popupResult == kPopupResultCancelled) {
             if (s_options.level == 0) {
                 CloseOptions();
-                s_hostApi->sfxPlay((int)Sfx::Back);
+                s_hostApi->sfxPlayByName("back");
             } else {
                 s_options.level = 0;
                 ShowOptionPopup(buttonsHeld);
-                s_hostApi->sfxPlay((int)Sfx::Back);
+                s_hostApi->sfxPlayByName("back");
             }
         }
     }
@@ -1975,7 +1932,7 @@ namespace WStrip {
         }
 
         if (qext_folder_rename(folderId, newName) == 0) {
-            s_hostApi->sfxPlay((int)Sfx::Click);
+            s_hostApi->sfxPlayByName("click");
             s_hostApi->refreshTitles();
 
             if (s_hostApi->openFolder() == folderId) {
@@ -1983,7 +1940,7 @@ namespace WStrip {
                 SyncMemberIcons();
             }
         } else {
-            s_hostApi->sfxPlay((int)Sfx::Back);
+            s_hostApi->sfxPlayByName("back");
         }
     }
 
@@ -1997,7 +1954,7 @@ namespace WStrip {
         }
 
         if (removeFromFolder != 0 && qext_folder_count() >= kFolderStripMax) {
-            s_hostApi->sfxPlay((int)Sfx::Back);
+            s_hostApi->sfxPlayByName("back");
             return;
         }
 
@@ -2008,14 +1965,14 @@ namespace WStrip {
         }
 
         if (removeFromFolder != 0 && qext_folder_remove(removeFromFolder, titleId) != 0) {
-            s_hostApi->sfxPlay((int)Sfx::Back);
+            s_hostApi->sfxPlayByName("back");
             return;
         }
 
         u64 folderId = qext_folder_create(newName, titleId);
 
         if (folderId != 0) {
-            s_hostApi->sfxPlay((int)Sfx::Click);
+            s_hostApi->sfxPlayByName("click");
             s_hostApi->refreshTitles();
 
             if (removeFromFolder != 0) {
@@ -2032,7 +1989,7 @@ namespace WStrip {
                 s_hostApi->selectFolderRow(folderId);
             }
         } else {
-            s_hostApi->sfxPlay((int)Sfx::Back);
+            s_hostApi->sfxPlayByName("back");
             s_hostApi->refreshTitles();
 
             if (removeFromFolder != 0 && !ResolveMembers()) {
@@ -2062,7 +2019,7 @@ namespace WStrip {
         if (folderSel != s_hostApi->folderSel()) {
             s_hostApi->setFolderSel(folderSel);
             s_state.highlightProgress = 0.0f;
-            s_hostApi->sfxPlay((int)Sfx::Hover);
+            s_hostApi->sfxPlayByName("hover");
             s_hostApi->setTopFocus(false);
         }
     }
@@ -2104,7 +2061,7 @@ namespace WStrip {
 
         if (buttonsDown & HidNpadButton_B) {
             s_hostApi->closeFolderView();
-            s_hostApi->sfxPlay((int)Sfx::Back);
+            s_hostApi->sfxPlayByName("back");
             return;
         }
 
@@ -2124,30 +2081,6 @@ namespace WStrip {
             if (folderSel >= 0 && folderSel < s_view.count) {
                 s_hostApi->launchGameRow(s_view.tids[folderSel], s_view.ejected[folderSel], buttonsHeld);
             }
-        }
-    }
-
-    /// @brief Handle VGC sub-screen input.
-    /// @param buttonsDown Buttons pressed.
-    /// @param buttonsHeld Buttons held.
-    static void HandleVirtualCardsInput(u64 buttonsDown, u64 buttonsHeld)
-    {
-        u64 filteredButtonsDown = buttonsDown;
-        s_state.keyRepeat.Poll(filteredButtonsDown, buttonsHeld, HidNpadButton_AnyLeft | HidNpadButton_AnyRight, StripRepeat());
-
-        if (filteredButtonsDown & HidNpadButton_AnyLeft) {
-            StepSelection(-1, (buttonsDown & HidNpadButton_AnyLeft) != 0);
-            return;
-        }
-
-        if (filteredButtonsDown & HidNpadButton_AnyRight) {
-            StepSelection(1, (buttonsDown & HidNpadButton_AnyRight) != 0);
-            return;
-        }
-
-        if (buttonsDown & (HidNpadButton_B | HidNpadButton_AnyUp)) {
-            s_hostApi->setHomeSub(kHomeSubGames);
-            s_hostApi->sfxPlay((int)Sfx::Back);
         }
     }
 
@@ -2178,13 +2111,13 @@ namespace WStrip {
         if (buttonsDown & HidNpadButton_AnyUp) {
             s_hostApi->setTopSelection(s_hostApi->appMenu());
             s_hostApi->setTopFocus(true);
-            s_hostApi->sfxPlay((int)Sfx::Hover);
+            s_hostApi->sfxPlayByName("hover");
         }
 
         if (buttonsDown & HidNpadButton_AnyDown) {
             s_hostApi->setBottomSelection(0);
             s_hostApi->setBottomFocus(true);
-            s_hostApi->sfxPlay((int)Sfx::Hover);
+            s_hostApi->sfxPlayByName("hover");
         }
 
         if (buttonsDown & HidNpadButton_Y) {
@@ -2377,10 +2310,6 @@ namespace WStrip {
 
             case StripPhase::Folders:
                 HandleFoldersInput(buttonsDown, buttonsHeld);
-                return;
-
-            case StripPhase::VirtualCards:
-                HandleVirtualCardsInput(buttonsDown, buttonsHeld);
                 return;
 
             case StripPhase::Games:

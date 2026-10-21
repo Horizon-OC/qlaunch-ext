@@ -19,8 +19,11 @@
 #include "DynamicWidgets.hpp"
 #include "LayoutMod.hpp"
 #include "Touch.hpp"
+#include "Packs.hpp"
 #include "../widgets/Widgets.hpp"
 #include <cstdio>
+#include <cstring>
+#include <cstdlib>
 
 namespace HostApi {
 
@@ -674,11 +677,6 @@ namespace HostApi {
             return Font::Next(textCursor);
         }
 
-        void SfxPlayThunk(int clipId)
-        {
-            Sfx::Play((Sfx::Id)clipId);
-        }
-
         int ThemeTryColorThunk(const char *key, float *redOut, float *greenOut, float *blueOut)
         {
             return Theme::TryColor(key, redOut, greenOut, blueOut) ? 1 : 0;
@@ -817,6 +815,46 @@ namespace HostApi {
         int SubmenuTouchUpThunk(int tabIndex, float x, float y)
         {
             return Submenus::TouchUp(tabIndex, x, y);
+        }
+
+        /// @brief Maximum pack asset read (8MB covers fonts and PNG art).
+        constexpr unsigned kPackAssetMax = 8u * 1024u * 1024u;
+
+        int PackAssetSizeThunk(const char *assetName)
+        {
+            if (!assetName || !assetName[0]) {
+                return -1;
+            }
+
+            unsigned assetSize = 0;
+            unsigned char *assetData = Packs::ReadAsset(Packs::ActiveDir(), assetName,
+                                                       kPackAssetMax, &assetSize);
+
+            if (!assetData) {
+                return -1;
+            }
+
+            free(assetData);
+            return (int)assetSize;
+        }
+
+        int PackAssetReadThunk(const char *assetName, void *outputBuffer, unsigned bufferCapacity)
+        {
+            if (!assetName || !assetName[0] || !outputBuffer || bufferCapacity == 0) {
+                return -1;
+            }
+
+            unsigned assetSize = 0;
+            unsigned char *assetData = Packs::ReadAsset(Packs::ActiveDir(), assetName,
+                                                       bufferCapacity, &assetSize);
+
+            if (!assetData) {
+                return -1;
+            }
+
+            memcpy(outputBuffer, assetData, assetSize);
+            free(assetData);
+            return (int)assetSize;
         }
 
         int SubmenuFullTabIndexThunk(void)
@@ -962,7 +1000,6 @@ namespace HostApi {
             WidgetDrawAllThunk,
             IconsSyncTitleThunk,
             FontNextThunk,
-            SfxPlayThunk,
             ThemeTryColorThunk,
             PopupOpenThunk,
             PopupCloseThunk,
@@ -1006,6 +1043,8 @@ namespace HostApi {
             TakeTapThunk,
             SubmenuTouchDownThunk,
             SubmenuTouchUpThunk,
+            PackAssetSizeThunk,
+            PackAssetReadThunk,
         };
 
     } // namespace

@@ -425,42 +425,42 @@ namespace WPopup {
         if (s_state.layout == PopupLayout::Row) {
             if (freshPress & HidNpadButton_AnyLeft) {
                 s_state.selection = (s_state.selection + s_state.itemCount - 1) % s_state.itemCount;
-                Sfx::Play(Sfx::Hover);
+                Sfx::PlayByName("hover");
             }
 
             if (freshPress & HidNpadButton_AnyRight) {
                 s_state.selection = (s_state.selection + 1) % s_state.itemCount;
-                Sfx::Play(Sfx::Hover);
+                Sfx::PlayByName("hover");
             }
         } else if (s_state.gridColumns > 1) {
             if (freshPress & HidNpadButton_AnyLeft) {
                 s_state.selection = (s_state.selection + s_state.itemCount - 1) % s_state.itemCount;
-                Sfx::Play(Sfx::Hover);
+                Sfx::PlayByName("hover");
             }
 
             if (freshPress & HidNpadButton_AnyRight) {
                 s_state.selection = (s_state.selection + 1) % s_state.itemCount;
-                Sfx::Play(Sfx::Hover);
+                Sfx::PlayByName("hover");
             }
 
             if (freshPress & HidNpadButton_AnyUp) {
                 s_state.selection = (s_state.selection + s_state.itemCount - s_state.gridColumns) % s_state.itemCount;
-                Sfx::Play(Sfx::Hover);
+                Sfx::PlayByName("hover");
             }
 
             if (freshPress & HidNpadButton_AnyDown) {
                 s_state.selection = (s_state.selection + s_state.gridColumns) % s_state.itemCount;
-                Sfx::Play(Sfx::Hover);
+                Sfx::PlayByName("hover");
             }
         } else {
             if (freshPress & HidNpadButton_AnyUp) {
                 s_state.selection = (s_state.selection + s_state.itemCount - 1) % s_state.itemCount;
-                Sfx::Play(Sfx::Hover);
+                Sfx::PlayByName("hover");
             }
 
             if (freshPress & HidNpadButton_AnyDown) {
                 s_state.selection = (s_state.selection + 1) % s_state.itemCount;
-                Sfx::Play(Sfx::Hover);
+                Sfx::PlayByName("hover");
             }
         }
 

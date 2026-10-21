@@ -369,7 +369,7 @@ namespace Layout {
                     if (hostApi->qextGameRunning()) {
                         hostApi->promptOpenGame(buttonsHeld, 0);
                     } else {
-                        hostApi->sfxPlay((int)Sfx::Back);
+                        hostApi->sfxPlayByName("back");
                     }
                 }
 

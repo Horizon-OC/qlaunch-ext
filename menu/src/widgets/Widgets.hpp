@@ -50,7 +50,7 @@ namespace WStrip {
     /// @param layoutNode Gamestrip node carrying tile geometry.
     void Draw(const LayoutNode &layoutNode);
 
-    /// @brief Draw folders/VGC sub-screens under the strip.
+    /// @brief Draw the folders sub-screen under the strip.
     void DrawSubs();
 
     /// @brief Handle home strip navigation input.

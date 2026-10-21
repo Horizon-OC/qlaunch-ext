@@ -6,7 +6,6 @@
 #include "Gfx.hpp"
 #include "Font.hpp"
 #include "Icons.hpp"
-#include "HudAssets.hpp"
 #include "Theme.hpp"
 #include "LayoutMod.hpp"
 #include "Packs.hpp"
@@ -416,7 +415,6 @@ namespace App {
         }
 
         logging::LogLine("[menu] build %s %s", __DATE__, __TIME__);
-        Icons::InitHud(HudAssets::kDefs, HudAssets::kCount);
         Icons::InitHudPack(packDir);
 
         Tabs::Clear();
@@ -518,9 +516,9 @@ namespace App {
 
         if (R_FAILED(qext_launch_title(tid))) {
             appState.launchBlack = false;
-            Sfx::Play(Sfx::Back);
+            Sfx::PlayByName("back");
         } else {
-            Sfx::Play(Sfx::Click);
+            Sfx::PlayByName("click");
         }
     }
 
@@ -549,7 +547,7 @@ namespace App {
         int homeTabIndex = Tabs::FindById("home");
 
         if (appState.menu.cur != homeTabIndex || appState.focus.bottom || appState.focus.top ||
-            (appState.home.sub != kHomeSubGames && appState.home.sub != kHomeSubVgc)) {
+            appState.home.sub != kHomeSubGames) {
             return false;
         }
 
@@ -565,7 +563,7 @@ namespace App {
         }
 
         if (!selectedRow->isGame) {
-            Sfx::Play(Sfx::Back);
+            Sfx::PlayByName("back");
             return true;
         }
 
@@ -582,7 +580,7 @@ namespace App {
         AppState &appState = s_state;
 
         if (ejected) {
-            Sfx::Play(Sfx::Back);
+            Sfx::PlayByName("back");
             return true;
         }
 
@@ -596,9 +594,9 @@ namespace App {
             if (R_FAILED(qext_resume_game())) {
                 appState.launchBlack = false;
                 qext_terminate_game();
-                Sfx::Play(Sfx::Back);
+                Sfx::PlayByName("back");
             } else {
-                Sfx::Play(Sfx::Click);
+                Sfx::PlayByName("click");
             }
 
             return true;
@@ -1040,7 +1038,7 @@ namespace App {
         s_state.home.openFolder = folderId;
         s_state.home.folderSel = 0;
         SetHomeSub(kHomeSubFolders);
-        Sfx::Play(Sfx::Click);
+        Sfx::PlayByName("click");
     }
 
     /// @brief Leave the folder view for the strip.
@@ -1082,8 +1080,6 @@ namespace App {
 
         if (s_state.home.sub == kHomeSubFolders) {
             target = -830.0f;
-        } else if (s_state.home.sub == kHomeSubVgc) {
-            target = 935.0f;
         }
 
         float d = target - s_state.home.shiftY;
@@ -1097,8 +1093,6 @@ namespace App {
 
         if (s_state.home.sub == kHomeSubFolders) {
             target = -830.0f;
-        } else if (s_state.home.sub == kHomeSubVgc) {
-            target = 935.0f;
         }
 
         float d = target - s_state.home.shiftY;
@@ -1125,25 +1119,18 @@ namespace App {
     }
 
     /// @brief Give the bottom-bar selection.
-    /// @return Index 0-1.
+    /// @return Always 0 (single sleep button).
     int BottomSel()
     {
-        return s_state.focus.bottomSel;
+        return 0;
     }
 
-    /// @brief Set the bottom-bar selection, clamped 0-1.
-    /// @param s New selection.
+    /// @brief Set the bottom-bar selection (single button, always 0).
+    /// @param s New selection (ignored).
     void SetBottomSel(int s)
     {
-        if (s < 0) {
-            s = 0;
-        }
-
-        if (s > 1) {
-            s = 1;
-        }
-
-        s_state.focus.bottomSel = s;
+        (void)s;
+        s_state.focus.bottomSel = 0;
     }
 
     /// @brief Step the top-bar tab switch with debounce.
@@ -1190,22 +1177,14 @@ namespace App {
         MenuJingle(m);
     }
 
-    /// @brief Activate the focused bottom-bar icon.
+    /// @brief Activate the focused bottom-bar icon (sleep).
     void ActivateBottom()
     {
         if (HomeShiftBusy()) {
             return;
         }
 
-        /* Bottom-middle icons: game cards toggle their Home sub-screen,
-           sleep sleeps the console. */
-        if (BottomSel() == 1) {
-            qext_sleep();
-            return;
-        }
-
-        Sfx::PlayByName("vgc_jingle");
-        SetHomeSub(kHomeSubVgc == HomeSub() ? kHomeSubGames : kHomeSubVgc);
+        qext_sleep();
         SetBottomFocus(false);
     }
 

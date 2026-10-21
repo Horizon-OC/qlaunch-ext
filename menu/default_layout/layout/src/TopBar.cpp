@@ -575,11 +575,11 @@ namespace WTopBar {
             if (currentSlot >= 0) {
                 if (currentSlot > 0) {
                     hostApi->setTopSelection(hostApi->layoutTabAt(currentSlot - 1));
-                    hostApi->sfxPlay((int)Sfx::Hover);
+                    hostApi->sfxPlayByName("hover");
                 }
             } else if (currentSelection > 0) {
                 hostApi->setTopSelection(currentSelection - 1);
-                hostApi->sfxPlay((int)Sfx::Hover);
+                hostApi->sfxPlayByName("hover");
             }
         }
 
@@ -587,22 +587,22 @@ namespace WTopBar {
             if (currentSlot >= 0) {
                 if (currentSlot < slotCount - 1) {
                     hostApi->setTopSelection(hostApi->layoutTabAt(currentSlot + 1));
-                    hostApi->sfxPlay((int)Sfx::Hover);
+                    hostApi->sfxPlayByName("hover");
                 }
             } else if (currentSelection < tabCount - 1) {
                 hostApi->setTopSelection(currentSelection + 1);
-                hostApi->sfxPlay((int)Sfx::Hover);
+                hostApi->sfxPlayByName("hover");
             }
         }
 
         if (buttonsDown & HidNpadButton_AnyDown) {
             hostApi->setTopFocus(0);
-            hostApi->sfxPlay((int)Sfx::Hover);
+            hostApi->sfxPlayByName("hover");
         }
 
         if (buttonsDown & HidNpadButton_B) {
             hostApi->setTopFocus(0);
-            hostApi->sfxPlay((int)Sfx::Back);
+            hostApi->sfxPlayByName("back");
         }
     }
 

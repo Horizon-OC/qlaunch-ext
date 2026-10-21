@@ -14,7 +14,6 @@ constexpr int kFolderColorCount = 10;
 
 constexpr int kHomeSubGames = 0;
 constexpr int kHomeSubFolders = 1;
-constexpr int kHomeSubVgc = 2;
 
 /// @brief Phase of the menu slide transition.
 enum MenuPhase {

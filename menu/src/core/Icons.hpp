@@ -14,25 +14,24 @@ constexpr int kHudUser = 0;
 constexpr int kHudButtonA = 1;
 constexpr int kHudButtonPlus = 2;
 constexpr int kHudFolder = 3;
-constexpr int kHudVgcCard = 4;
-constexpr int kHudTopSelHome = 5;
-constexpr int kHudTopSelConnect = 6;
-constexpr int kHudTopSelEshop = 7;
-constexpr int kHudTopSelAlbum = 8;
-constexpr int kHudTopSelSettings = 9;
-constexpr int kHudTopDesHome = 10;
-constexpr int kHudTopDesConnect = 11;
-constexpr int kHudTopDesEshop = 12;
-constexpr int kHudTopDesAlbum = 13;
-constexpr int kHudTopDesSettings = 14;
-constexpr int kHudMarkerStrip = 15;
-constexpr int kHudWifi0 = 16;
-constexpr int kHudWifi1 = 17;
-constexpr int kHudWifi2 = 18;
-constexpr int kHudWifi3 = 19;
-constexpr int kHudWifiNone = 20;
-constexpr int kHudAirplane = 21;
-constexpr int kHudCount = 22;
+constexpr int kHudTopSelHome = 4;
+constexpr int kHudTopSelConnect = 5;
+constexpr int kHudTopSelEshop = 6;
+constexpr int kHudTopSelAlbum = 7;
+constexpr int kHudTopSelSettings = 8;
+constexpr int kHudTopDesHome = 9;
+constexpr int kHudTopDesConnect = 10;
+constexpr int kHudTopDesEshop = 11;
+constexpr int kHudTopDesAlbum = 12;
+constexpr int kHudTopDesSettings = 13;
+constexpr int kHudMarkerStrip = 14;
+constexpr int kHudWifi0 = 15;
+constexpr int kHudWifi1 = 16;
+constexpr int kHudWifi2 = 17;
+constexpr int kHudWifi3 = 18;
+constexpr int kHudWifiNone = 19;
+constexpr int kHudAirplane = 20;
+constexpr int kHudCount = 21;
 
 struct IconReq {
     u64 titleId;
@@ -40,14 +39,6 @@ struct IconReq {
 };
 
 namespace Icons {
-    /// @brief One HUD icon asset for the engine to decode and upload.
-    /// New icons only need a row in the caller's table (index = kHud* id).
-    struct HudDef {
-        const uint8_t *png;   ///< PNG bytes (bin2s symbol).
-        const uint32_t *size; ///< PNG byte size (bin2s symbol).
-        bool noInvert;        ///< Keep native colors on dark themes.
-    };
-
     /// @brief Sync title icon slots for the given title ids.
     /// Rows nearest the focus are preferred, so the visible window
     /// owns the fixed budget and scrolling rebalances it. Uncached
@@ -65,16 +56,10 @@ namespace Icons {
     /// @brief Drop cached HUD icons (theme change).
     void ResetHud();
 
-    /// @brief Load HUD icons for the current theme from a caller table.
-    /// @param assetDefs Asset table (index = kHud* id), or null for none.
-    /// @param assetCount Table length (clamped to kHudCount).
-    /// @return True when at least one icon loaded.
-    bool InitHud(const HudDef *assetDefs, int assetCount);
-
-    /// @brief Overlay pack hud/*.png files onto the HUD slots.
+    /// @brief Load pack assets/hud/*.png files into the HUD slots.
     /// Remembers the pack so theme switches can reapply it.
     /// @param packDir Theme pack directory (may be null).
-    /// @return True when at least one icon was overridden.
+    /// @return True when at least one icon was loaded.
     bool InitHudPack(const char *packDir);
 
     /// @brief Reapply the remembered pack HUD overrides, if any.

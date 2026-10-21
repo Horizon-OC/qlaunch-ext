@@ -152,7 +152,16 @@ cp "$ROOT/menu/default_layout/theme.ini" "$PKG/qlaunch-ext/NekoMenu/theme.ini"
 cp "$ROOT/menu/default_layout/layout/layout.dnro" "$PKG/qlaunch-ext/NekoMenu/default/layout.dnro"
 cp "$ROOT/menu/default_layout/assets/TabOrder.json" "$PKG/qlaunch-ext/NekoMenu/default/TabOrder.json"
 cp "$ROOT/menu/src/assets/themes.json" "$PKG/qlaunch-ext/NekoMenu/default/themes.json"
-cp "$ROOT/menu/src/assets/sfx.json" "$PKG/qlaunch-ext/NekoMenu/default/sfx.json"
+mkdir -p "$PKG/qlaunch-ext/NekoMenu/default/assets"
+cp "$ROOT/menu/src/assets/sfx.json" "$PKG/qlaunch-ext/NekoMenu/default/assets/sfx.json"
+rm -f "$PKG/qlaunch-ext/NekoMenu/default/sfx.json"
+mkdir -p "$PKG/qlaunch-ext/NekoMenu/default/assets/hud"
+cp "$ROOT"/menu/assets/hud/*.png "$PKG/qlaunch-ext/NekoMenu/default/assets/hud/"
+mkdir -p "$PKG/qlaunch-ext/NekoMenu/default/assets/sfx"
+for wav in s2_cursor_move s2_button_click s2_back_select s2_album s2_settings s2_home_menu s2_eshop s2_game_chat s2_standby news; do
+    cp "$ROOT/menu/assets/sfx/$wav.wav" "$PKG/qlaunch-ext/NekoMenu/default/assets/sfx/"
+done
+cp "$ROOT/menu/assets/font.otf" "$ROOT/menu/assets/switch_icons.ttf" "$PKG/qlaunch-ext/NekoMenu/default/assets/"
 for f in "$ROOT"/menu/default_layout/submenus/*/*.dnro; do
     if [ -f "$f" ]; then
         cp "$f" "$PKG/qlaunch-ext/NekoMenu/default/submenus/"

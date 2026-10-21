@@ -160,7 +160,6 @@ extern "C" {
         void (*widgetDrawAll)(void);
         void (*iconsSyncTitle)(const u64*, int*, int count, int focus);
         unsigned (*fontNext)(const char**);
-        void (*sfxPlay)(int clipId);
         int (*themeTryColor)(const char*, float*, float*, float*);
         void (*popupOpen)(int layout, const char*, const char*, const char* const*, const float*, int, int, unsigned long long);
         void (*popupClose)(void);
@@ -204,6 +203,8 @@ extern "C" {
         int (*takeTap)(float *xOut, float *yOut);
         int (*submenuTouchDown)(int tabIndex, float x, float y);
         int (*submenuTouchUp)(int tabIndex, float x, float y);
+        int (*packAssetSize)(const char *assetName);
+        int (*packAssetRead)(const char *assetName, void *outputBuffer, unsigned bufferCapacity);
     };
 
     /// @brief Fill background, ink, and accent colors from the theme configuration.

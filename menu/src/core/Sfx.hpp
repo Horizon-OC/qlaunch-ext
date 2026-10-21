@@ -7,20 +7,17 @@
 /// @brief Sound effect registry and mixer.
 ///
 /// Clips are data driven: `menu/src/assets/sfx.json` (embedded) declares
-/// `{id, asset, db, jitter}` rows, and `sdmc:/qlaunch-ext/sfx.json` may
-/// override them. `asset` names resolve to embedded WAV blobs; `db` sets
-/// per-clip gain; `jitter` enables the hover pitch shimmer. Callers play
-/// clips by string id so menu jingles stay out of code.
+/// `{id, asset, db, jitter}` rows, and `<pack>/assets/sfx.json` may
+/// override them. `asset` names resolve to embedded WAV blobs, or to
+/// `<pack>/assets/sfx/<asset>.wav` when the pack registry is active;
+/// `db` sets per-clip gain; `jitter` enables the hover pitch shimmer.
+/// Callers play clips by string id so menu jingles stay out of code.
 namespace Sfx {
 
-    /// @brief Legacy clip ids. Kept for compatibility; each maps to a
-    /// data-driven clip name (see kLegacyNames in Sfx.cpp).
-    enum Id { Hover, Click, Back, AlbumJ, SettingsJ, HomeJ, HomeBoot, EshopJ, ChatJ, FolderJ, VgcJ, StandbyJ, Count };
-
-    /// @brief Initialize SDL audio output and load the clip registry.
-    /// Pack sfx.json/sfx/*.wav override the embedded clips when present.
+    /// @brief Initialize SDL audio output and load the pack clip registry.
+    /// Clips come only from the pack (assets/sfx.json + assets/sfx/*.wav).
     /// @param packDir Theme pack directory (may be null).
-    /// @return True when audio is ready (registry still loads on failure).
+    /// @return True when audio is ready (registry may still be empty).
     bool Init(const char *packDir);
 
     /// @brief Shut down voices and the SDL audio stream.
@@ -28,11 +25,6 @@ namespace Sfx {
 
     /// @brief Mix one tick and queue it on the SDL audio stream. Call every frame.
     void Tick();
-
-    /// @brief Play a legacy clip id.
-    /// @param id Legacy clip id.
-    /// @param pitch Playback rate multiplier, clamped 0.25-4.0.
-    void Play(Id id, float pitch = 1.0f);
 
     /// @brief Play a clip by its data-driven id.
     /// @param name Clip id from sfx.json (for example "home_jingle").
@@ -53,20 +45,9 @@ namespace Sfx {
     /// @return Clip id string, or "" when out of range.
     const char *ClipName(int slot);
 
-    /// @brief Load the clip registry from a JSON buffer.
-    /// @param json JSON text with a "clips" array.
-    /// @param len Text length in bytes.
-    /// @return True when at least one clip loaded.
-    bool LoadJson(const char *json, unsigned len);
-
-    /// @brief Load the embedded sfx.json registry.
-    /// @return True on success.
-    bool LoadBuiltin();
-
-    /// @brief Load the pack sfx.json registry, else the embedded one.
-    /// Pack sfx/<asset>.wav files override embedded WAVs by asset name.
+    /// @brief Load the pack assets/sfx.json registry (pack-only, no fallback).
     /// @param packDir Theme pack directory (may be null).
-    /// @return True on success.
+    /// @return True when at least one clip loaded.
     bool LoadAuto(const char *packDir);
 
     /// @brief Mute UI voices and start queuing video PCM.

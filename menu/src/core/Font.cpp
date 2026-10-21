@@ -14,11 +14,6 @@
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "../third_party/stb_truetype.h"
 
-extern const uint8_t font_otf[];
-extern const uint32_t font_otf_size;
-extern const uint8_t switch_icons_ttf[];
-extern const uint32_t switch_icons_ttf_size;
-
 namespace Font {
 
     struct Atlas {
@@ -46,40 +41,33 @@ namespace Font {
     static FontState s_state = {};
     static constexpr unsigned kFontFileMax = 8 * 1024 * 1024;
 
-        /// @brief Load a pack font file, else the embedded fallback.
+        /// @brief Load a pack font file (pack-only, no embedded fallback).
         /// @param packDir Theme pack directory (may be null).
-        /// @param fileName Pack-relative file name.
-        /// @param fallbackData Embedded bytes.
-        /// @param fallbackSize Embedded byte size.
-        /// @param ownedOut Output owned buffer (free with free()).
-        /// @param sizeOut Output byte size.
-        /// @return Bytes to bake (owned or embedded).
-        static const uint8_t *ResolveFontFile(const char *packDir, const char *fileName,
-                                              const uint8_t *fallbackData, unsigned fallbackSize,
-                                              uint8_t **ownedOut, unsigned *sizeOut)
+        /// @param fileName Pack asset name (for example "font.otf").
+        /// @param sizeOut Output byte size (zero on failure).
+        /// @return Owned bytes, or null when missing.
+        static uint8_t *ResolveFontFile(const char *packDir, const char *fileName,
+                                        unsigned *sizeOut)
         {
-            *ownedOut = nullptr;
-            *sizeOut = fallbackSize;
+            *sizeOut = 0;
 
-            if (packDir && packDir[0] && fileName && fileName[0]) {
-                char fontPath[256];
-                snprintf(fontPath, sizeof(fontPath), "%s/%s", packDir, fileName);
-                fontPath[sizeof(fontPath) - 1] = 0;
-
-                unsigned packSize = 0;
-                unsigned char *packData = Packs::ReadFile(fontPath, kFontFileMax, &packSize);
-
-                if (packData && packSize > 0) {
-                    *ownedOut = packData;
-                    *sizeOut = packSize;
-                    Log::Line("[menu] pack font '%s'", fileName);
-                    return packData;
-                }
-
-                free(packData);
+            if (!packDir || !packDir[0] || !fileName || !fileName[0]) {
+                return nullptr;
             }
 
-            return fallbackData;
+            unsigned packSize = 0;
+            unsigned char *packData = Packs::ReadAsset(packDir, fileName, kFontFileMax, &packSize);
+
+            if (!packData || packSize == 0) {
+                free(packData);
+                Log::Line("[menu] missing pack asset '%s/assets/%s'", packDir ? packDir : "?",
+                           fileName ? fileName : "?");
+                return nullptr;
+            }
+
+            *sizeOut = packSize;
+            Log::Line("[menu] pack font '%s'", fileName);
+            return packData;
         }
 
         /// @brief Bake one glyph range into the scratch atlas.
@@ -172,20 +160,23 @@ namespace Font {
             if (s_state.atlases[0].slot < 0 || s_state.atlases[1].slot < 0 || s_state.atlases[2].slot < 0)
                 return false;
 
-            s_state.latinData = ResolveFontFile(packDir, "font.otf", font_otf, font_otf_size,
-                                                &s_state.latinOwned, &s_state.latinSize);
-            s_state.iconData = ResolveFontFile(packDir, "switch_icons.ttf", switch_icons_ttf,
-                                               switch_icons_ttf_size, &s_state.iconOwned, &s_state.iconSize);
+            s_state.latinOwned = ResolveFontFile(packDir, "font.otf", &s_state.latinSize);
+            s_state.iconOwned = ResolveFontFile(packDir, "switch_icons.ttf", &s_state.iconSize);
+            s_state.latinData = s_state.latinOwned;
+            s_state.iconData = s_state.iconOwned;
+
+            if (!s_state.latinData || !s_state.iconData) {
+                free(s_state.latinOwned);
+                free(s_state.iconOwned);
+                s_state.latinOwned = nullptr;
+                s_state.iconOwned = nullptr;
+                s_state.latinData = nullptr;
+                s_state.iconData = nullptr;
+                return false;
+            }
 
             if (!BakeOne(&s_state.atlases[0], s_state.latinData, big, 4)) {
-                free(s_state.latinOwned);
-                s_state.latinOwned = nullptr;
-                s_state.latinData = font_otf;
-                s_state.latinSize = font_otf_size;
-
-                if (!BakeOne(&s_state.atlases[0], s_state.latinData, big, 4)) {
-                    return false;
-                }
+                return false;
             }
 
             if (!UploadOne(&s_state.atlases[0]))
@@ -195,17 +186,10 @@ namespace Font {
                 UploadOne(&s_state.atlases[1]);
 
             if (!BakeOne(&s_state.atlases[2], s_state.iconData, sml, 3)) {
-                free(s_state.iconOwned);
-                s_state.iconOwned = nullptr;
-                s_state.iconData = switch_icons_ttf;
-                s_state.iconSize = switch_icons_ttf_size;
-
-                if (BakeOne(&s_state.atlases[2], s_state.iconData, sml, 3)) {
-                    UploadOne(&s_state.atlases[2]);
-                }
-            } else {
-                UploadOne(&s_state.atlases[2]);
+                return false;
             }
+
+            UploadOne(&s_state.atlases[2]);
 
             s_state.isInitialized = true;
             return true;

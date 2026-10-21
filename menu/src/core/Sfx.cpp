@@ -66,13 +66,6 @@ namespace Sfx {
             bool jitter;
         };
 
-        /// @brief Embedded WAV blob reference for asset lookup.
-        struct AssetRef {
-            const char *name;
-            const unsigned char *data;
-            unsigned size;
-        };
-
         /// @brief Clip registry backing store.
         RegClip s_registry[kMaxClips];
 
@@ -137,13 +130,6 @@ namespace Sfx {
 
         /// @brief Total video samples queued since begin/seek.
         unsigned s_videoPlayed = 0;
-
-        /// @brief Legacy Id-to-name mapping for Play(Id) compatibility.
-        const char *const kLegacyNames[Count] = {
-            "hover", "click", "back", "album_jingle", "settings_jingle",
-            "home_jingle", "home_boot", "eshop_jingle", "chat_jingle",
-            "folder_jingle", "vgc_jingle", "standby_jingle",
-        };
 
         /// @brief Read a little-endian u32 from raw bytes.
         /// @param p Byte pointer (4 bytes available).
@@ -221,53 +207,14 @@ namespace Sfx {
             return true;
         }
 
-        /// @brief Resolve an asset name to its embedded WAV blob.
-        /// @param name Asset name from sfx.json (for example "s2_album").
-        /// @param data Output blob pointer.
-        /// @param size Output blob size.
-        /// @return True when the asset exists.
-        bool FindAsset(const char *name, const unsigned char **data, unsigned *size)
-        {
-            static const AssetRef kAssets[] = {
-                { "s2_cursor_move", s2_cursor_move_wav, 0 },
-                { "s2_button_click", s2_button_click_wav, 0 },
-                { "s2_back_select", s2_back_select_wav, 0 },
-                { "s2_album", s2_album_wav, 0 },
-                { "s2_settings", s2_settings_wav, 0 },
-                { "s2_home_menu", s2_home_menu_wav, 0 },
-                { "s2_eshop", s2_eshop_wav, 0 },
-                { "s2_game_chat", s2_game_chat_wav, 0 },
-                { "s2_standby", s2_standby_wav, 0 },
-                { "news", news_wav, 0 },
-                { "virtual_game_cards", virtual_game_cards_wav, 0 },
-            };
-            static const unsigned kAssetSizes[] = {
-                s2_cursor_move_wav_size, s2_button_click_wav_size,
-                s2_back_select_wav_size, s2_album_wav_size,
-                s2_settings_wav_size, s2_home_menu_wav_size,
-                s2_eshop_wav_size, s2_game_chat_wav_size,
-                s2_standby_wav_size, news_wav_size,
-                virtual_game_cards_wav_size,
-            };
-
-            if (!name || !name[0] || !data || !size) {
-                return false;
-            }
-
-            for (unsigned i = 0; i < sizeof(kAssets) / sizeof(kAssets[0]); i++) {
-                if (strcmp(kAssets[i].name, name) == 0) {
-                    *data = kAssets[i].data;
-                    *size = kAssetSizes[i];
-                    return *data && *size;
-                }
-            }
-
-            return false;
-        }
-
-        /// @brief Clear the clip registry.
+        /// @brief Clear the clip registry, freeing owned PCM.
         void ClearReg()
         {
+            for (int i = 0; i < s_registryCount; i++) {
+                free((void *)s_registry[i].clip.pcm);
+                s_registry[i].clip.pcm = nullptr;
+            }
+
             memset(s_registry, 0, sizeof(s_registry));
             s_registryCount = 0;
         }
@@ -285,6 +232,7 @@ namespace Sfx {
 
             for (int i = 0; i < s_registryCount; i++) {
                 if (strncmp(s_registry[i].id, id, kIdMax) == 0) {
+                    free((void *)s_registry[i].clip.pcm);
                     s_registry[i].clip = clip;
                     s_registry[i].jitter = jitter;
                     return i;
@@ -311,6 +259,8 @@ namespace Sfx {
         }
 
         /// @brief Decode one WAV blob and store it under a clip id.
+        /// Takes ownership of a copy of the decoded PCM, so the caller's
+        /// WAV buffer may be freed right after this returns.
         /// @param id Clip id.
         /// @param wavData WAV bytes.
         /// @param wavSize Byte count.
@@ -323,32 +273,26 @@ namespace Sfx {
             c.gain = 1.0f;
 
             if (ParseWav(wavData, wavSize, c) && c.rate >= 8000 && c.rate <= 96000) {
+                unsigned pcmBytes = c.frames * (unsigned)c.ch * sizeof(short);
+                short *ownedPcm = (short *)malloc(pcmBytes);
+
+                if (!ownedPcm) {
+                    logging::LogLine("[sfx] out of memory for clip '%s'", id ? id : "?");
+                    return;
+                }
+
+                memcpy(ownedPcm, c.pcm, pcmBytes);
+                c.pcm = ownedPcm;
                 c.gain = powf(10.0f, db / 20.0f);
 
                 if (StoreClip(id, c, jitter) >= 0) {
                     logging::LogLine("[sfx] clip '%s': %u frames %u ch %u Hz", id, c.frames, c.ch, c.rate);
+                } else {
+                    free(ownedPcm);
                 }
             } else {
                 logging::LogLine("[sfx] bad clip '%s'", id ? id : "?");
             }
-        }
-
-        /// @brief Decode one asset blob and store it under a clip id.
-        /// @param id Clip id.
-        /// @param asset Asset name resolving via FindAsset().
-        /// @param db Gain in decibels.
-        /// @param jitter True to enable pitch shimmer.
-        void LoadOneNamed(const char *id, const char *asset, float db, bool jitter)
-        {
-            const unsigned char *d = NULL;
-            unsigned n = 0;
-
-            if (!FindAsset(asset, &d, &n)) {
-                logging::LogLine("[sfx] unknown asset '%s' for clip '%s'", asset ? asset : "?", id ? id : "?");
-                return;
-            }
-
-            StoreDecoded(id, d, n, db, jitter);
         }
 
         /// @brief Whether an sfx asset name is safe to join into a pack path.
@@ -373,49 +317,36 @@ namespace Sfx {
             return true;
         }
 
-        /// @brief Load one clip from a pack wav file, else the embedded asset.
+        /// @brief Load one clip from its pack wav file (pack-only, no fallback).
+        /// Missing or unreadable wavs log and leave the clip unregistered.
         /// @param id Clip id.
-        /// @param asset Asset name (pack sfx/<asset>.wav, else embedded).
+        /// @param asset Asset name (pack assets/sfx/<asset>.wav).
         /// @param db Gain in decibels.
         /// @param jitter True to enable pitch shimmer.
         /// @param packDir Theme pack directory (may be null).
         void LoadOnePack(const char *id, const char *asset, float db, bool jitter,
                          const char *packDir)
         {
-            if (packDir && packDir[0] && IsAssetNameUsable(asset)) {
-                char wavPath[256];
-                snprintf(wavPath, sizeof(wavPath), "%s/sfx/%s.wav", packDir, asset);
-                wavPath[sizeof(wavPath) - 1] = 0;
-
-                unsigned wavSize = 0;
-                unsigned char *wavData = Packs::ReadFile(wavPath, 4 * 1024 * 1024, &wavSize);
-
-                if (wavData) {
-                    StoreDecoded(id, wavData, wavSize, db, jitter);
-                    free(wavData);
-                    return;
-                }
+            if (!packDir || !packDir[0] || !IsAssetNameUsable(asset)) {
+                logging::LogLine("[sfx] bad asset '%s' for clip '%s'", asset ? asset : "?",
+                                 id ? id : "?");
+                return;
             }
 
-            LoadOneNamed(id, asset, db, jitter);
-        }
+            char wavPath[256];
+            snprintf(wavPath, sizeof(wavPath), "%s/assets/sfx/%s.wav", packDir, asset);
+            wavPath[sizeof(wavPath) - 1] = 0;
 
-        /// @brief Load the hardcoded legacy table (fallback path).
-        void LoadLegacy()
-        {
-            ClearReg();
-            LoadOneNamed("hover", "s2_cursor_move", -7.0f, true);
-            LoadOneNamed("click", "s2_button_click", 0.0f, false);
-            LoadOneNamed("back", "s2_back_select", 0.0f, false);
-            LoadOneNamed("album_jingle", "s2_album", -7.362f, false);
-            LoadOneNamed("settings_jingle", "s2_settings", -5.0f, false);
-            LoadOneNamed("home_jingle", "s2_home_menu", -10.464f, false);
-            LoadOneNamed("home_boot", "s2_home_menu", -16.0f, false);
-            LoadOneNamed("eshop_jingle", "s2_eshop", -1.517f, false);
-            LoadOneNamed("chat_jingle", "s2_game_chat", -5.119f, false);
-            LoadOneNamed("folder_jingle", "news", 0.0f, false);
-            LoadOneNamed("vgc_jingle", "virtual_game_cards", 0.0f, false);
-            LoadOneNamed("standby_jingle", "s2_standby", -20.0f, false);
+            unsigned wavSize = 0;
+            unsigned char *wavData = Packs::ReadFile(wavPath, 4 * 1024 * 1024, &wavSize);
+
+            if (!wavData) {
+                logging::LogLine("[sfx] missing '%s' for clip '%s'", wavPath, id ? id : "?");
+                return;
+            }
+
+            StoreDecoded(id, wavData, wavSize, db, jitter);
+            free(wavData);
         }
 
         /// @brief Read a float field from a JSON object token.
@@ -529,10 +460,11 @@ namespace Sfx {
 
     } // namespace
 
-    /// @brief Initialize SDL audio output and load the clip registry.
-    /// Pack sfx.json/sfx/*.wav override the embedded clips when present.
+    /// @brief Initialize SDL audio output and load the pack clip registry.
+    /// Clips come only from the pack (assets/sfx.json + assets/sfx/*.wav);
+    /// a missing registry logs and leaves playback silent.
     /// @param packDir Theme pack directory (may be null).
-    /// @return True when audio is ready (registry still loads on failure).
+    /// @return True when audio is ready (registry may still be empty).
     bool Init(const char *packDir)
     {
         if (s_isReady) {
@@ -543,7 +475,7 @@ namespace Sfx {
         memset(s_mixBuffer, 0, sizeof(s_mixBuffer));
 
         if (!LoadAuto(packDir)) {
-            LoadLegacy();
+            logging::LogLine("[sfx] no pack registry, playback silent");
         }
 
         if (!SDL_InitSubSystem(SDL_INIT_AUDIO)) {
@@ -593,18 +525,6 @@ namespace Sfx {
         }
     }
 
-    /// @brief Play a legacy clip id.
-    /// @param id Legacy clip id.
-    /// @param pitch Playback rate multiplier, clamped 0.25-4.0.
-    void Play(Id id, float pitch)
-    {
-        if ((int)id < 0 || (int)id >= (int)Count) {
-            return;
-        }
-
-        PlayByName(kLegacyNames[(int)id], pitch);
-    }
-
     /// @brief Play a clip by its data-driven id.
     /// @param name Clip id from sfx.json (for example "home_jingle").
     /// @param pitch Playback rate multiplier, clamped 0.25-4.0.
@@ -650,59 +570,10 @@ namespace Sfx {
         return s_registry[slot].id;
     }
 
-    /// @brief Load the clip registry from a JSON buffer.
-    /// @param json JSON text with a "clips" array.
-    /// @param len Text length in bytes.
-    /// @return True when at least one clip loaded.
-    bool LoadJson(const char *json, unsigned len)
-    {
-        JxDoc doc;
-
-        if (!Jx::Parse(doc, json, len)) {
-            return false;
-        }
-
-        if (Jx::TokType(doc, 0) != 1) {
-            return false;
-        }
-
-        int clips = Jx::ObjGet(doc, 0, "clips");
-
-        if (Jx::TokType(doc, clips) != 2) {
-            return false;
-        }
-
-        ClearReg();
-        int n = Jx::ArrSize(doc, clips);
-
-        for (int i = 0; i < n; i++) {
-            int on = Jx::ArrAt(doc, clips, i);
-
-            if (Jx::TokType(doc, on) != 1) {
-                continue;
-            }
-
-            char id[kIdMax] = { 0 };
-            char asset[32] = { 0 };
-            JName(doc, on, "id", id, sizeof(id));
-            JName(doc, on, "asset", asset, sizeof(asset));
-
-            if (!id[0] || !asset[0]) {
-                continue;
-            }
-
-            float db = JFloat(doc, on, "db", 0.0f);
-            bool jitter = JFlag(doc, on, "jitter", false);
-            LoadOneNamed(id, asset, db, jitter);
-        }
-
-        return s_registryCount > 0;
-    }
-
     /// @brief Load the clip registry from a JSON buffer with pack wav lookup.
     /// @param json JSON text with a "clips" array.
     /// @param len Text length in bytes.
-    /// @param packDir Theme pack directory for sfx/*.wav (may be null).
+    /// @param packDir Theme pack directory for assets/sfx/*.wav (may be null).
     /// @return True when at least one clip loaded.
     bool LoadJsonPack(const char *json, unsigned len, const char *packDir)
     {
@@ -749,37 +620,29 @@ namespace Sfx {
         return s_registryCount > 0;
     }
 
-    /// @brief Load the embedded sfx.json registry.
-    /// @return True on success.
-    bool LoadBuiltin()
-    {
-        return LoadJson(sfx_json, sfx_json_size);
-    }
-
-    /// @brief Load the pack sfx.json registry, else the embedded one.
+    /// @brief Load the pack assets/sfx.json registry (pack-only, no fallback).
     /// @param packDir Theme pack directory (may be null).
-    /// @return True on success.
+    /// @return True when at least one clip loaded.
     bool LoadAuto(const char *packDir)
     {
-        if (packDir && packDir[0]) {
-            char jsonPath[256];
-            snprintf(jsonPath, sizeof(jsonPath), "%s/sfx.json", packDir);
-            jsonPath[sizeof(jsonPath) - 1] = 0;
-
-            unsigned jsonSize = 0;
-            unsigned char *jsonData = Packs::ReadFile(jsonPath, 65536, &jsonSize);
-
-            if (jsonData) {
-                bool jsonOk = LoadJsonPack((const char *)jsonData, jsonSize, packDir);
-                free(jsonData);
-
-                if (jsonOk) {
-                    return true;
-                }
-            }
+        if (!packDir || !packDir[0]) {
+            return false;
         }
 
-        return LoadBuiltin();
+        char jsonPath[256];
+        snprintf(jsonPath, sizeof(jsonPath), "%s/assets/sfx.json", packDir);
+        jsonPath[sizeof(jsonPath) - 1] = 0;
+
+        unsigned jsonSize = 0;
+        unsigned char *jsonData = Packs::ReadFile(jsonPath, 65536, &jsonSize);
+
+        if (!jsonData) {
+            return false;
+        }
+
+        bool jsonOk = LoadJsonPack((const char *)jsonData, jsonSize, packDir);
+        free(jsonData);
+        return jsonOk;
     }
 
     /// @brief Mix one tick and queue it on the SDL audio stream. Call every frame.

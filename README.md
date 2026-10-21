@@ -7,19 +7,7 @@
 
 ## Making your own menu
 
-You can use the existing menu as a base here
-
-To boot a different menu, drop its dnro under sdmc:/qlaunch-ext/menus/ and set it to boot like so
-sdmc:/qlaunch-ext/config/menu.ini:
-[menu]
-path=(the path of the menu)
-
-By default sdmc:/qlaunch-ext/menus/menu.dnro is booted.
-
-Menus have neko3d or SDL3 available to them, and the stock menu uses SDL3
-So it is your choice which one to use, and you can interact with neko3d even when using SDL3 (as SDL3 uses neko3d as backend)
-
-Another option is to use the dynamic widget feature in NekoMenu (default menu)
+refer to docs/menu.md
 
 ## Theming
 

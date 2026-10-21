@@ -4,7 +4,6 @@
 
 #include "Theme.hpp"
 #include "Icons.hpp"
-#include "HudAssets.hpp"
 #include "Gfx.hpp"
 #include "Json.hpp"
 #include "Qext.hpp"
@@ -786,7 +785,6 @@ struct ThemeRow {
     ApplyRow(i);
     if (Gfx::Ready()) {
         Icons::ResetHud();
-        Icons::InitHud(HudAssets::kDefs, HudAssets::kCount);
         Icons::ReapplyPack();
     }
     PersistTheme();
