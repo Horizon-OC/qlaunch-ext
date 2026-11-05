@@ -922,7 +922,7 @@ namespace Gfx {
             s_textureStore.handles[slot] = NULL;
         }
         if (!s_textureStore.handles[slot]) {
-            s_textureStore.handles[slot] = SDL_CreateTexture(s_device.renderer, SDL_PIXELFORMAT_RGBA8888,
+            s_textureStore.handles[slot] = SDL_CreateTexture(s_device.renderer, SDL_PIXELFORMAT_ABGR8888,
                                             SDL_TEXTUREACCESS_STATIC, w, h);
             if (!s_textureStore.handles[slot])
                 return false;
@@ -961,7 +961,7 @@ namespace Gfx {
             s_textureStore.handles[slot] = NULL;
         }
         if (!s_textureStore.handles[slot]) {
-            s_textureStore.handles[slot] = SDL_CreateTexture(s_device.renderer, SDL_PIXELFORMAT_RGBA8888,
+            s_textureStore.handles[slot] = SDL_CreateTexture(s_device.renderer, SDL_PIXELFORMAT_ABGR8888,
                                             SDL_TEXTUREACCESS_STREAMING, w, h);
             if (!s_textureStore.handles[slot])
                 return false;
