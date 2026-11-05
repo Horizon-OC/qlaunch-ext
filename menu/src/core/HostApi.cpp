@@ -415,9 +415,9 @@ namespace HostApi {
             qext_album_movie_close();
         }
 
-        int QextAlbumGrowThunk(void)
+        int QextHeapSetThunk(int heapProfile)
         {
-            return qext_album_grow();
+            return qext_heap_set(heapProfile);
         }
 
         void GfxPushOverlayPanelThunk(float positionX, float positionY, float width, float height, float cornerRadius,
@@ -989,7 +989,7 @@ namespace HostApi {
             QextAlbumMovieSizeThunk,
             QextAlbumMovieReadThunk,
             QextAlbumMovieCloseThunk,
-            QextAlbumGrowThunk,
+            QextHeapSetThunk,
             GfxPushOverlayPanelThunk,
             TopSelectionThunk,
             BottomFocusThunk,

@@ -570,12 +570,7 @@ namespace Album {
     /// @brief Open the album grid and refresh thumbnails.
     void Open()
     {
-        int growRc = g_host->qextAlbumGrow();
-
-        if (growRc != 0) {
-            LogFmt("[album] Failed to grow heap (rc: 0x%X)", (unsigned)growRc);
-        }
-
+        /* Heap is managed by the submenu launcher (cap profile on enter). */
         s_state.entryCount = 0;
 
         for (int attempt = 0; attempt < 3 && s_state.entryCount <= 0; attempt++) {

@@ -22,6 +22,7 @@ namespace app {
 
     bool IsActive();
     Result Terminate();
+    void Close();
     Result Start(u64 app_id, bool system, const AccountUid &user_id,
                  const void *data = nullptr, size_t size = 0);
     bool HasForeground();

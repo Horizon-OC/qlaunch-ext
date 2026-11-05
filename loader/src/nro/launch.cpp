@@ -199,7 +199,7 @@ Result Launch(u64 donor, const char *nro_path, const char *argv_or_null)
                          (unsigned long long)app::GetId());
         Result rc = app::Terminate();
         if (R_FAILED(rc))
-            return rc;
+            logging::LogLine("[nro] terminate-before-launch failed (rc=0x%X), continuing", rc);
     }
     if (!StageDonor(donor))
         return MAKERESULT(Module_Libnx, LibnxError_BadInput);

@@ -6,6 +6,7 @@
 #include <cstring>
 #include <malloc.h>
 #include <switch.h>
+#include <switch/display/parcel.h>
 #include <dlink/dlink.h>
 #include <shared/logging.hpp>
 #include "app.hpp"
@@ -31,7 +32,7 @@ extern "C" {
 }
 
 static constexpr size_t kHeapFloor = 96u * 1024u * 1024u; /* 96MB */
-static constexpr size_t kHeapCap = 441u * 1024u * 1024u; /* 441MB (Video/Burst) */
+static constexpr size_t kHeapCap = 384u * 1024u * 1024u; /* 384MB (Video/Burst) */
 static size_t g_heapSize = 0;
 extern char *fake_heap_start;
 extern char *fake_heap_end;
@@ -71,27 +72,27 @@ static Result heap_set(size_t target)
     return 0;
 }
 
-static constexpr size_t kHeapAlbum = 192u * 1024u * 1024u;
+static Result heap_set_floor() {
+    return heap_set(kHeapFloor);
+}
 
-Result heap_album_grow(void)
+static Result heap_set_cap() {
+    return heap_set(kHeapCap);
+}
+
+enum class HeapProfile : int {
+    Minimal = 0,
+    Cap = 1,
+};
+
+extern "C" int qext_heap_set(int profile)
 {
-    static const size_t kTries[] = { kHeapAlbum, 160u * 1024u * 1024u, 128u * 1024u * 1024u };
-
-    Result rc = 0;
-
-    for (size_t i = 0; i < sizeof(kTries) / sizeof(kTries[0]); i++) {
-        if (kTries[i] <= g_heapSize) {
-            return 0;
-        }
-
-        rc = heap_set(kTries[i]);
-
-        if (R_SUCCEEDED(rc)) {
-            return 0;
-        }
+    Result rc = (profile == (int)HeapProfile::Cap) ? heap_set_cap() : heap_set_floor();
+    if (R_FAILED(rc)) {
+        logging::LogLine("[heap] set profile %d failed (rc=0x%X), size=%zu",
+                         profile, rc, g_heapSize);
     }
-
-    return rc;
+    return (int)rc;
 }
 
 #define FB_W 1280
@@ -754,6 +755,7 @@ int main(int argc, char **argv)
         /* game exit */
         bool active = app::IsActive();
         if (was_active && !active) {
+            app::Close();
             logging::LogLine("[qlaunch-ext] game exited t=%llu",
                              (unsigned long long)now_ms());
             titles::Refresh(); album::Refresh();

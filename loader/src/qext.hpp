@@ -60,6 +60,7 @@ typedef struct SwkbdOptions {
 } SwkbdOptions;
 
 int qext_swkbd_show_ex(const SwkbdOptions *options, char *out, unsigned cap);
+int qext_heap_set(int profile);
 void qext_display_size(int *w, int *h);
 int qext_game_running(void);
 int qext_game_has_foreground(void);

@@ -45,7 +45,6 @@ qext_account_list
 qext_account_uid_valid
 qext_airplane_mode
 qext_album_count
-qext_album_grow
 qext_album_image
 qext_album_image_size
 qext_album_is_movie
@@ -68,6 +67,7 @@ qext_folder_id
 qext_folder_name
 qext_game_has_foreground
 qext_game_running
+qext_heap_set
 qext_launch_applet
 qext_launch_title
 qext_refresh_titles

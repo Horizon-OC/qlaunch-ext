@@ -128,12 +128,28 @@ namespace app {
         return !appletApplicationCheckFinished(&g_holder);
     }
 
+    /// @brief Close/reset the application holder state (e.g. after crash/exit).
+    void Close() {
+        appletApplicationClose(&g_holder);
+        g_hasFocus = false;
+        g_lastId = 0;
+    }
+
     /// @brief Terminate the currently running app
     /// @return Result code
     Result Terminate() {
+        /* Best-effort: a crashed or wedged app must not leave the holder in a
+           state that blocks future launches. Always close/reset on exit. */
+        if (!eventActive(&g_holder.StateChangedEvent) && !serviceIsActive(&g_holder.s)) {
+            appletApplicationClose(&g_holder);
+            g_hasFocus = false;
+            g_lastId = 0;
+            return 0;
+        }
+
         Result rc = appletApplicationTerminateAllLibraryApplets(&g_holder);
         if (R_FAILED(rc)) {
-            logging::LogLine("[app] Cant terminate applets (rc=0x%X)", rc);
+            logging::LogLine("[app] Can't terminate applets (rc=0x%X)", rc);
         }
 
         rc = appletApplicationRequestExit(&g_holder);
@@ -144,23 +160,21 @@ namespace app {
         rc = eventWait(&g_holder.StateChangedEvent, 15000000000ULL);
         if (rc == KERNELRESULT(TimedOut)) {
             logging::LogLine("[app] Exit timeout, forcefully terminating");
-
-            rc = appletApplicationTerminate(&g_holder);
-            if (R_FAILED(rc)) {
-                return rc;
-            }
-        } else if (R_FAILED(rc)) {
-            return rc;
+            Result trc = appletApplicationTerminate(&g_holder);
+            if (R_FAILED(trc))
+                logging::LogLine("[app] Force terminate failed (rc=0x%X)", trc);
+        } else if (R_FAILED(rc) && !appletApplicationCheckFinished(&g_holder)) {
+            logging::LogLine("[app] Exit wait failed (rc=0x%X), forcing terminate", rc);
+            Result trc = appletApplicationTerminate(&g_holder);
+            if (R_FAILED(trc))
+                logging::LogLine("[app] Force terminate failed (rc=0x%X)", trc);
         }
 
         u32 out = 0;
         serviceDispatchOut(&g_holder.s, 30, out);
 
         logging::LogLine("[app] App terminated (rc=0x%X)", out);
-        appletApplicationClose(&g_holder);
-
-        g_hasFocus = false;
-        g_lastId = 0;
+        Close();
         return 0;
     }
 

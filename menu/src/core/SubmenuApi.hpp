@@ -41,6 +41,12 @@ extern "C" {
     /// @return PNG bytes or NULL to reuse the normal icon.
     QLAUNCH_HOOK const unsigned char *SubmenuSelectedIconPng(unsigned *outputSize);
 
+    /// @brief Heap profile needed by this submenu (optional).
+    /// The submenu launcher applies it on tab enter and restores the menu heap
+    /// (minimal/floor) on tab exit.
+    /// @return 0 = minimal/floor (default), 1 = cap.
+    QLAUNCH_HOOK int SubmenuHeapProfile(void);
+
     /// @brief Give the submenu accent color.
     /// @param hostApi Host API for theme-derived colors.
     /// @param redOut Red output.

@@ -160,6 +160,13 @@ extern "C" {
         return top_des_eshop_png;
     }
 
+    /// @brief Request cap heap for this submenu.
+    /// @return 1 (cap).
+    QLAUNCH_HOOK int SubmenuHeapProfile(void)
+    {
+        return 1;
+    }
+
     /// @brief Give the submenu accent color.
     /// @param hostApi Host API for theme-derived colors.
     /// @param redOut Red output.

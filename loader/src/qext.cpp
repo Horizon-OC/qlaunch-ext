@@ -66,8 +66,6 @@ extern "C" bool qext_album_movie_open(int i)
 extern "C" u64 qext_album_movie_size() { return album::MovieSize(); }
 extern "C" int qext_album_movie_read(u64 off, void *o, unsigned c) { return album::MovieRead(off, o, c); }
 extern "C" void qext_album_movie_close() { album::MovieClose(); }
-extern Result heap_album_grow(void);
-extern "C" int qext_album_grow(void) { return heap_album_grow(); }
 
 extern "C" Result qext_launch_title(u64 tid)
 {
@@ -85,7 +83,7 @@ extern "C" Result qext_launch_title(u64 tid)
             if (app::IsActive()) {
                 rc = app::Terminate();
                 if (R_FAILED(rc))
-                    return rc;
+                    logging::LogLine("[qext] terminate-before-vlaunch failed (rc=0x%X), continuing", rc);
             }
             rc = vtitles::Launch(tid);
         }
@@ -103,7 +101,7 @@ extern "C" Result qext_launch_title(u64 tid)
         /* Asking is for the menu */
         rc = app::Terminate();
         if (R_FAILED(rc))
-            return rc;
+            logging::LogLine("[qext] terminate-before-launch failed (rc=0x%X), continuing", rc);
     }
 
     AccountUid uid = PickUser();
@@ -140,7 +138,9 @@ extern "C" int qext_swkbd_show_ex(const SwkbdOptions *options, char *out, unsign
     const char *header = options ? options->headerText : 0;
     unsigned minLength = options ? options->minLength : 0;
     unsigned maxLength = options ? options->maxLength : 0;
-    int blur = options ? options->blurBackground : 0;
+    /* TODO: make this a argument? */
+    int blur = 1;
+    (void)options; /* blurBackground is intentionally forced on. */
     char result[128] = {};
 
     if (maxLength == 0 || maxLength > sizeof(result) - 1)
@@ -162,8 +162,9 @@ extern "C" int qext_swkbd_show_ex(const SwkbdOptions *options, char *out, unsign
         swkbdConfigSetInitialText(&config, initial);
     swkbdConfigSetStringLenMax(&config, maxLength);
     swkbdConfigSetStringLenMin(&config, minLength);
-    swkbdConfigSetBlurBackground(&config, blur);
+    swkbdConfigSetBlurBackground(&config, blur ? 1 : 0);
 
+    appletUnlockForeground();
     rc = swkbdShow(&config, result, sizeof(result));
     swkbdClose(&config);
 

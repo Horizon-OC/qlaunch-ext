@@ -50,6 +50,11 @@ namespace Submenus {
             int (*touchUp)(float x, float y);
         };
 
+        enum SubmenuHeapProfile : int {
+            SubmenuHeapMinimal = 0,
+            SubmenuHeapCap = 1,
+        };
+
         struct SubmenuInstance {
             char fileName[kSubmenuFileCap + 1];
             char tabId[kTabIdMax];
@@ -57,6 +62,7 @@ namespace Submenus {
             SubmenuDrawApi callbacks;
             int iconSlot;
             int selectedIconSlot;
+            int heapProfile;
             SubmenuPhase phase;
         };
 
@@ -454,12 +460,38 @@ namespace Submenus {
             instance->callbacks.touchAction = (int (*)(int))dlsym(handle, "SubmenuTouchAction");
             instance->callbacks.touchDown = (int (*)(float, float))dlsym(handle, "SubmenuTouchDown");
             instance->callbacks.touchUp = (int (*)(float, float))dlsym(handle, "SubmenuTouchUp");
+
+            int (*submenuHeapProfile)(void) = (int (*)(void))dlsym(handle, "SubmenuHeapProfile");
+            int heapProfile = submenuHeapProfile ? submenuHeapProfile() : SubmenuHeapMinimal;
+            if (heapProfile != SubmenuHeapCap)
+                heapProfile = SubmenuHeapMinimal;
+
             instance->iconSlot = iconSlot;
             instance->selectedIconSlot = selectedIconSlot;
+            instance->heapProfile = heapProfile;
             instance->phase = SubmenuPhase::Ready;
-            Log::Line("[submenus] loaded %s as %s (icon %d/%d, color %d)", fileName, tabId,
-                      iconSlot, selectedIconSlot, instance->callbacks.accentColor != nullptr);
+            Log::Line("[submenus] loaded %s as %s (icon %d/%d, color %d, heap %d)", fileName, tabId,
+                      iconSlot, selectedIconSlot, instance->callbacks.accentColor != nullptr, heapProfile);
             return true;
+        }
+
+        static void ApplyHeapProfile(SubmenuInstance *instance) {
+            if (!instance || !s_hostApi || !s_hostApi->qextHeapSet)
+                return;
+            int rc = s_hostApi->qextHeapSet(instance->heapProfile);
+            if (rc != 0) {
+                Log::Line("[submenus] heap set profile %d for %s failed (rc=0x%X)",
+                          instance->heapProfile, instance->tabId, (unsigned)rc);
+            }
+        }
+
+        static void RestoreMenuHeap() {
+            if (!s_hostApi || !s_hostApi->qextHeapSet)
+                return;
+            int rc = s_hostApi->qextHeapSet(SubmenuHeapMinimal);
+            if (rc != 0) {
+                Log::Line("[submenus] restore menu heap failed (rc=0x%X), keeping current heap", (unsigned)rc);
+            }
         }
 
     } // namespace
@@ -534,6 +566,7 @@ namespace Submenus {
             memset(instance, 0, sizeof(*instance));
         }
 
+        RestoreMenuHeap();
         s_instanceCount = 0;
         s_hostApi = nullptr;
         s_booted = false;
@@ -705,6 +738,7 @@ namespace Submenus {
             return;
         }
 
+        ApplyHeapProfile(instance);
         instance->callbacks.open(s_hostApi);
     }
 
@@ -723,6 +757,8 @@ namespace Submenus {
         }
 
         instance->callbacks.close(s_hostApi);
+        /* Restore after close so the submenu can release cap-heap allocations first. */
+        RestoreMenuHeap();
     }
 
     /// @brief Give a dynamic submenu tab accent color.

@@ -152,9 +152,15 @@ extern "C" {
     /// @brief Close the open movie.
     void qext_album_movie_close();
 
-    /// @brief Grow the album heap for large images.
-    /// @return 0 on success.
-    int qext_album_grow(void);
+    enum {
+        QEXT_HEAP_MINIMAL = 0,
+        QEXT_HEAP_CAP = 1,
+    };
+
+    /// @brief Set the process heap profile (0 = minimal/floor, 1 = cap).
+    /// @param profile Heap profile.
+    /// @return 0 on success, libnx result code on failure.
+    int qext_heap_set(int profile);
 
     /// @brief Launch a title by id.
     /// @param tid Title id.

@@ -122,7 +122,7 @@ extern "C" {
         unsigned long long (*qextAlbumMovieSize)(void);
         int (*qextAlbumMovieRead)(unsigned long long offset, void *outputBuffer, unsigned bufferCapacity);
         void (*qextAlbumMovieClose)(void);
-        int (*qextAlbumGrow)(void);
+        int (*qextHeapSet)(int heapProfile);
         void (*gfxPushOverlayPanel)(float,float,float,float,float,float,float,float,float);
         /* Layout + Home module surface (append-only additions). */
         int (*topSelection)(void);
