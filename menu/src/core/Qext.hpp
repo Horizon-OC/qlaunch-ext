@@ -62,6 +62,25 @@ extern "C" {
     /// @return > 0 when ejected.
     int qext_title_ejected(int index);
 
+    /// @brief Whether a title is virtual (plugin-provided, renamable).
+    /// @param tid Title id.
+    /// @return > 0 when virtual.
+    int qext_title_is_virtual(u64 tid);
+
+    /// @brief Rename any known title, virtual or not, persisting to titles.json.
+    /// @param tid Title id.
+    /// @param name New name (empty or blank names rejected).
+    /// @return 0 on success, negative on failure.
+    int qext_title_rename(u64 tid, const char *name);
+
+    /// @brief Read a title's original name (NACP, or live provider name when virtual).
+    /// Provider names are never overwritten by renames.
+    /// @param index Title index.
+    /// @param out Output buffer.
+    /// @param out_cap Buffer capacity.
+    /// @return Bytes written, or < 0 on failure.
+    int qext_title_original_name(int index, char *out, unsigned out_cap);
+
     /* Album */
 
     /// @brief Refresh the cached album list.

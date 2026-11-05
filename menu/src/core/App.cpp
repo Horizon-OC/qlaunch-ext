@@ -15,6 +15,7 @@
 #include "PadIcon.hpp"
 #include "Tabs.hpp"
 #include "Submenus.hpp"
+#include "MenuPlugins.hpp"
 #include "DynamicWidgets.hpp"
 #include "HostApi.hpp"
 #include "../widgets/Widgets.hpp"
@@ -1118,19 +1119,47 @@ namespace App {
         s_state.focus.bottom = f;
     }
 
-    /// @brief Give the bottom-bar selection.
-    /// @return Always 0 (single sleep button).
-    int BottomSel()
+    /// @brief Give the bottom-bar button count for the active tab.
+    /// Sleep counts on the home tab; menu plugins add their tab buttons.
+    /// @return Button count (0 when the bar is empty).
+    int BottomButtonCount()
     {
-        return 0;
+        AppState &appState = s_state;
+        int buttonCount = 0;
+
+        if (appState.menu.cur == Tabs::FindById("home")) {
+            buttonCount++;
+        }
+
+        return buttonCount + MenuPlugins::ButtonCountForTab(appState.menu.cur);
     }
 
-    /// @brief Set the bottom-bar selection (single button, always 0).
-    /// @param s New selection (ignored).
+    /// @brief Give the bottom-bar selection.
+    /// @return Selected button index.
+    int BottomSel()
+    {
+        return s_state.focus.bottomSel;
+    }
+
+    /// @brief Set the bottom-bar selection, clamped to the live buttons.
+    /// @param s New selection.
     void SetBottomSel(int s)
     {
-        (void)s;
-        s_state.focus.bottomSel = 0;
+        int buttonTop = BottomButtonCount() - 1;
+
+        if (buttonTop < 0) {
+            buttonTop = 0;
+        }
+
+        if (s < 0) {
+            s = 0;
+        }
+
+        if (s > buttonTop) {
+            s = buttonTop;
+        }
+
+        s_state.focus.bottomSel = s;
     }
 
     /// @brief Step the top-bar tab switch with debounce.
@@ -1177,10 +1206,34 @@ namespace App {
         MenuJingle(m);
     }
 
-    /// @brief Activate the focused bottom-bar icon (sleep).
+    /// @brief Activate the focused bottom-bar button.
+    /// Plugin buttons dispatch to their plugin; the trailing home
+    /// button sleeps the console.
     void ActivateBottom()
     {
         if (HomeShiftBusy()) {
+            return;
+        }
+
+        AppState &appState = s_state;
+        int pluginCount = MenuPlugins::ButtonCountForTab(appState.menu.cur);
+
+        if (appState.focus.bottomSel < pluginCount) {
+            int globalButton = MenuPlugins::ButtonGlobalAt(appState.menu.cur, appState.focus.bottomSel);
+
+            if (globalButton >= 0 && MenuPlugins::Activate(globalButton) != 0) {
+                Sfx::PlayByName("click");
+            } else {
+                Sfx::PlayByName("back");
+            }
+
+            SetBottomFocus(false);
+            return;
+        }
+
+        if (appState.menu.cur != Tabs::FindById("home")) {
+            Sfx::PlayByName("back");
+            SetBottomFocus(false);
             return;
         }
 

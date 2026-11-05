@@ -205,6 +205,11 @@ extern "C" {
         int (*submenuTouchUp)(int tabIndex, float x, float y);
         int (*packAssetSize)(const char *assetName);
         int (*packAssetRead)(const char *assetName, void *outputBuffer, unsigned bufferCapacity);
+        int (*menuButtonCount)(void);
+        int (*menuButtonTab)(int button);
+        const char *(*menuButtonLabel)(int button);
+        int (*menuButtonIcon)(int button);
+        int (*menuButtonActivate)(int button);
     };
 
     /// @brief Fill background, ink, and accent colors from the theme configuration.

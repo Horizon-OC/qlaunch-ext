@@ -100,7 +100,7 @@ int Remove(u64 id, u64 tid);
 /// @param liveCount Live title count.
 void Prune(const u64 *liveTids, int liveCount);
 
-/// @brief Write the folders section («"folders": {...}») for order.json.
+/// @brief Write the folders section («"folders": {...}») for titles.json.
 /// @param f Output file.
 void WriteSection(FILE *f);
 

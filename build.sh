@@ -114,7 +114,7 @@ if [ -n "$FMISSING" ]; then
     exit 1
 fi
 echo "ffmpeg import check passed"
-for p in "$ROOT"/plugins/*/*.elf "$ROOT"/menu/default_layout/submenus/*/*.elf "$ROOT"/menu/default_layout/layout/*.elf; do
+for p in "$ROOT"/plugins/*/*.elf "$ROOT"/menu/default_layout/submenus/*/*.elf "$ROOT"/menu/default_layout/plugins/*/*.elf "$ROOT"/menu/default_layout/layout/*.elf; do
     [ -f "$p" ] || continue
     "$NM" -D -u "$p" | awk "{print \$NF}" | sort -u > "$ROOT/build.plugneed"
     { "$NM" -D --defined-only "$ROOT/loader/loader.elf" | awk "{print \$NF}"
@@ -165,6 +165,12 @@ cp "$ROOT/menu/assets/font.otf" "$ROOT/menu/assets/switch_icons.ttf" "$PKG/qlaun
 for f in "$ROOT"/menu/default_layout/submenus/*/*.dnro; do
     if [ -f "$f" ]; then
         cp "$f" "$PKG/qlaunch-ext/NekoMenu/default/submenus/"
+    fi
+done
+mkdir -p "$PKG/qlaunch-ext/NekoMenu/default/plugins"
+for f in "$ROOT"/menu/default_layout/plugins/*/*.dnro; do
+    if [ -f "$f" ]; then
+        cp "$f" "$PKG/qlaunch-ext/NekoMenu/default/plugins/"
     fi
 done
 mkdir -p "$PKG/qlaunch-ext/NekoMenu/widgets"

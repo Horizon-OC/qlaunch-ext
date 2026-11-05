@@ -12,7 +12,7 @@ namespace folders {
 
 namespace {
 
-constexpr int kOrderFileCapacity = 16384;
+constexpr int kTitlesFileCapacity = 65536;
 
 struct Folder {
     u64 id = 0;
@@ -646,14 +646,14 @@ bool LoadFoldersFile(const char *filePath) {
     if (!orderFile)
         return false;
 
-    char *fileText = (char *)malloc(kOrderFileCapacity);
+    char *fileText = (char *)malloc(kTitlesFileCapacity);
 
     if (!fileText) {
         fclose(orderFile);
         return false;
     }
 
-    size_t readBytes = fread(fileText, 1, kOrderFileCapacity - 1, orderFile);
+    size_t readBytes = fread(fileText, 1, kTitlesFileCapacity - 1, orderFile);
     fclose(orderFile);
     fileText[readBytes] = 0;
 
@@ -710,13 +710,13 @@ bool LoadFoldersFile(const char *filePath) {
 }
 
 /// @brief Load folders from disk on first use.
-/// Reads the folders section of order.json.
+/// Reads the folders section of titles.json.
 void EnsureLoaded() {
     if (s_foldersLoaded)
         return;
 
     s_foldersLoaded = true;
-    LoadFoldersFile(titles::kOrderPath);
+    LoadFoldersFile(titles::kTitlesPath);
 }
 
 /// @brief Find a folder by id.

@@ -17,6 +17,9 @@ int qext_title_icon_size(int index);
 int qext_title_icon(int index, void *out, unsigned cap);
 int qext_title_version(int index, char *out, unsigned cap);
 int qext_title_publisher(int index, char *out, unsigned cap);
+int qext_title_is_virtual(u64 tid);
+int qext_title_rename(u64 tid, const char *name);
+int qext_title_original_name(int index, char *out, unsigned cap);
 
 int qext_album_refresh(void);
 int qext_album_count(void);

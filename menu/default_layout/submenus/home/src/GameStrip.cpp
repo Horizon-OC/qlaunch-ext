@@ -573,6 +573,8 @@ namespace WStrip {
     /// @brief Forward declarations for the options popup (defined below).
     static void CreateFolderFlow(u64 titleId, u64 removeFromFolder);
     static void RenameFolderFlow(u64 folderId, const char *currentName);
+    static bool GameRenameAllowed();
+    static void RenameTitleFlow(u64 titleId, const char *currentName);
 
     /// @brief Draw a fallback tile when no icon is available.
     /// @param row Row to represent.
@@ -1500,8 +1502,16 @@ namespace WStrip {
         } else if (s_options.fromFolderView) {
             outLabels[labelCount++] = "Move to folder";
             outLabels[labelCount++] = "Remove from folder";
+
+            if (GameRenameAllowed()) {
+                outLabels[labelCount++] = "Rename";
+            }
         } else {
             outLabels[labelCount++] = "Add to folder";
+
+            if (GameRenameAllowed()) {
+                outLabels[labelCount++] = "Rename";
+            }
         }
 
         return labelCount;
@@ -1839,7 +1849,7 @@ namespace WStrip {
         if (s_options.fromFolderView) {
             if (selectedOption == 0) {
                 OpenFolderChoices(heldButtons);
-            } else {
+            } else if (selectedOption == 1) {
                 u64 sourceFolder = s_hostApi->openFolder();
                 u64 gameTid = s_options.gameTid;
 
@@ -1860,8 +1870,25 @@ namespace WStrip {
                 } else {
                     s_hostApi->sfxPlayByName("back");
                 }
+            } else if (selectedOption == 2 && GameRenameAllowed()) {
+                u64 gameTid = s_options.gameTid;
+                char currentName[kAppNameMax];
+                CopyOptionName(currentName, s_options.contextName);
+                CloseOptions();
+                RenameTitleFlow(gameTid, currentName);
+            } else {
+                s_hostApi->sfxPlayByName("back");
             }
 
+            return;
+        }
+
+        if (GameRenameAllowed() && selectedOption == 1) {
+            u64 gameTid = s_options.gameTid;
+            char currentName[kAppNameMax];
+            CopyOptionName(currentName, s_options.contextName);
+            CloseOptions();
+            RenameTitleFlow(gameTid, currentName);
             return;
         }
 
@@ -1914,6 +1941,53 @@ namespace WStrip {
     {
         SwkbdOptions keyboardOptions = { initialText, "Folder name", 1, 24, 1 };
         return qext_swkbd_show_ex(&keyboardOptions, outputBuffer, outputCapacity);
+    }
+
+    /// @brief Whether the pending game may be renamed (any known title).
+    /// @return True when Rename is offered in the options popup.
+    static bool GameRenameAllowed()
+    {
+        return s_options.gameTid != 0;
+    }
+
+    /// @brief Run the title-name keyboard into a buffer.
+    /// @param initialText Initial text (may be null or empty).
+    /// @param outputBuffer Output buffer.
+    /// @param outputCapacity Buffer capacity.
+    /// @return Bytes written, or negative on cancel/failure.
+    static int TitleNameKeyboard(const char *initialText, char *outputBuffer, unsigned outputCapacity)
+    {
+        SwkbdOptions keyboardOptions = { initialText, "Title name", 1, 64, 1 };
+        return qext_swkbd_show_ex(&keyboardOptions, outputBuffer, outputCapacity);
+    }
+
+    /// @brief Run the rename keyboard for a game title.
+    /// @param titleId Title id to rename.
+    /// @param currentName Current display name shown as initial text.
+    static void RenameTitleFlow(u64 titleId, const char *currentName)
+    {
+        if (titleId == 0) {
+            s_hostApi->sfxPlayByName("back");
+            return;
+        }
+
+        char newName[128] = { 0 };
+
+        if (TitleNameKeyboard(currentName, newName, sizeof(newName)) < 0) {
+            return;
+        }
+
+        if (qext_title_rename(titleId, newName) == 0) {
+            s_hostApi->sfxPlayByName("click");
+            s_hostApi->refreshTitles();
+
+            if (s_hostApi->openFolder() != 0) {
+                ResolveMembers();
+                SyncMemberIcons();
+            }
+        } else {
+            s_hostApi->sfxPlayByName("back");
+        }
     }
 
     /// @brief Run the rename keyboard for a folder.

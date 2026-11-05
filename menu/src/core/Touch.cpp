@@ -133,9 +133,13 @@ namespace Touch {
         s_clock += 1.0f / 60.0f;
 
         HidTouchScreenState screenState = {};
-        hidGetTouchScreenStates(&screenState, 1);
+        size_t statesRead = hidGetTouchScreenStates(&screenState, 1);
 
-        bool seenIds[kTouchMaxFingers];
+        if (statesRead == 0) {
+            return;
+        }
+
+        int seenIds[kTouchMaxFingers];
         int seenCount = 0;
 
         int touchCount = screenState.count;

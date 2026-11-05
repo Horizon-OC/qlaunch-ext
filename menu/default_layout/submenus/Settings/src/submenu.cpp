@@ -4,7 +4,9 @@
 #include <switch.h>
 #include "MenuHost.hpp"
 #include "SubmenuApi.hpp"
+#include "stb_image.h"
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <stdint.h>
 
@@ -13,24 +15,68 @@ extern const uint32_t top_sel_settings_png_size;
 extern const uint8_t top_des_settings_png[];
 extern const uint32_t top_des_settings_png_size;
 
+extern const uint8_t set_00_png[];
+extern const uint32_t set_00_png_size;
+extern const uint8_t set_01_png[];
+extern const uint32_t set_01_png_size;
+extern const uint8_t set_02_png[];
+extern const uint32_t set_02_png_size;
+extern const uint8_t set_03_png[];
+extern const uint32_t set_03_png_size;
+extern const uint8_t set_04_png[];
+extern const uint32_t set_04_png_size;
+extern const uint8_t set_05_png[];
+extern const uint32_t set_05_png_size;
+extern const uint8_t set_06_png[];
+extern const uint32_t set_06_png_size;
+extern const uint8_t set_07_png[];
+extern const uint32_t set_07_png_size;
+extern const uint8_t set_08_png[];
+extern const uint32_t set_08_png_size;
+extern const uint8_t set_09_png[];
+extern const uint32_t set_09_png_size;
+extern const uint8_t set_10_png[];
+extern const uint32_t set_10_png_size;
+extern const uint8_t set_11_png[];
+extern const uint32_t set_11_png_size;
+extern const uint8_t set_12_png[];
+extern const uint32_t set_12_png_size;
+extern const uint8_t set_13_png[];
+extern const uint32_t set_13_png_size;
+extern const uint8_t set_14_png[];
+extern const uint32_t set_14_png_size;
+extern const uint8_t set_15_png[];
+extern const uint32_t set_15_png_size;
+extern const uint8_t set_16_png[];
+extern const uint32_t set_16_png_size;
+extern const uint8_t set_17_png[];
+extern const uint32_t set_17_png_size;
+
 namespace {
 
     constexpr int kSettingsOptionCount = 18;
-    constexpr int kSettingsMaxToggles = 8;
     constexpr int kSettingsThemesPage = 11;
     constexpr int kSettingsNoPage = -1;
     constexpr int kSettingsRowLabel = 0;
-    constexpr int kSettingsRowToggle = 1;
-    constexpr int kSettingsRowAction = 2;
+    constexpr int kSettingsRowAction = 1;
     constexpr int kSettingsActionControllers = 1;
     constexpr int kSettingsActionMii = 2;
     constexpr unsigned kSettingsRepeatHold = 20;
     constexpr unsigned kSettingsRepeatPeriod = 6;
+    constexpr int kSettingsIconMax = 96;
 
     const char *kSettingsOptions[kSettingsOptionCount] = {
         "Controller", "Health", "Airplane", "Bright", "Internet", "BT",
         "TV", "Data", "Lock", "Parent", "Accessibility", "Themes",
         "Users", "Mii", "amiibo", "Noti", "Sleep", "System",
+    };
+
+    /// @brief Detail pane titles, taken from the mockup `setting` labels.
+    const char *kSettingsTitles[kSettingsOptionCount] = {
+        "Controller Settings", "Support/Health & Safety", "Airplane Mode",
+        "Screen Brightness", "Internet", "Audio", "Display", "Software Data",
+        "Screen Lock", "Parental Controls", "Accessibility", "Themes",
+        "Users", "Mii", "amiibo", "Notification", "Sleep Mode", "System",
     };
 
     struct SettingsRow {
@@ -39,121 +85,110 @@ namespace {
         int actionId;
     };
 
+    /* Detail rows follow the mockup sub-menu content in column-major
+       order (column 0 rows first, then column 1). */
     const SettingsRow kSettingsPageController[] = {
         { "Change Grip/Order", kSettingsRowAction, kSettingsActionControllers },
-        { "Pro Controller Wired Communication", kSettingsRowToggle, 0 },
-        { "NFC Function", kSettingsRowToggle, 1 },
-        { "Vibration", kSettingsRowToggle, 2 },
-        { "Calibrate Control Sticks", kSettingsRowLabel, 0 },
+        { "Search for Controllers", kSettingsRowLabel, 0 },
+        { "How to Pair Controllers", kSettingsRowLabel, 0 },
+        { "How to Use GL/GR Buttons", kSettingsRowLabel, 0 },
+        { "How to Use Mouse Controls", kSettingsRowLabel, 0 },
         { nullptr, 0, 0 },
     };
 
     const SettingsRow kSettingsPageHealth[] = {
-        { "Safety Guide", kSettingsRowLabel, 0 },
-        { "Precautions", kSettingsRowLabel, 0 },
-        { nullptr, 0, 0 },
-    };
-
-    const SettingsRow kSettingsPageAirplane[] = {
-        { "Airplane Mode", kSettingsRowToggle, 0 },
-        { "Bluetooth in Airplane Mode", kSettingsRowToggle, 1 },
-        { nullptr, 0, 0 },
-    };
-
-    const SettingsRow kSettingsPageBrightness[] = {
-        { "Screen Brightness", kSettingsRowLabel, 0 },
-        { "Auto-Brightness", kSettingsRowToggle, 0 },
+        { "Health and Support Information", kSettingsRowLabel, 0 },
+        { "Error History", kSettingsRowLabel, 0 },
         { nullptr, 0, 0 },
     };
 
     const SettingsRow kSettingsPageInternet[] = {
         { "Internet Settings", kSettingsRowLabel, 0 },
-        { "Connection Status", kSettingsRowLabel, 0 },
+        { "Test Connection", kSettingsRowLabel, 0 },
         { nullptr, 0, 0 },
     };
 
     const SettingsRow kSettingsPageBluetooth[] = {
-        { "Bluetooth Audio", kSettingsRowToggle, 0 },
-        { "Pair New Device", kSettingsRowLabel, 0 },
+        { "Output Test", kSettingsRowLabel, 0 },
+        { "Input Test", kSettingsRowLabel, 0 },
         { nullptr, 0, 0 },
     };
 
     const SettingsRow kSettingsPageTelevision[] = {
-        { "TV Resolution", kSettingsRowLabel, 0 },
-        { "Match TV Power State", kSettingsRowToggle, 0 },
+        { "Adjust HDR", kSettingsRowLabel, 0 },
+        { "Adjust Screen Size", kSettingsRowLabel, 0 },
         { nullptr, 0, 0 },
     };
 
     const SettingsRow kSettingsPageData[] = {
-        { "System Memory", kSettingsRowLabel, 0 },
-        { "microSD Card", kSettingsRowLabel, 0 },
-        { "Manage Software", kSettingsRowLabel, 0 },
+        { "Move System / microSD Card Data", kSettingsRowLabel, 0 },
+        { "Quick Delete", kSettingsRowLabel, 0 },
+        { "Software", kSettingsRowLabel, 0 },
         { "Manage Screenshots and Videos", kSettingsRowLabel, 0 },
-        { "Cloud Backup", kSettingsRowLabel, 0 },
-        { "Transfer to System Memory", kSettingsRowLabel, 0 },
-        { "Format microSD Card", kSettingsRowLabel, 0 },
-        { nullptr, 0, 0 },
-    };
-
-    const SettingsRow kSettingsPageLock[] = {
-        { "Console Screen Lock", kSettingsRowToggle, 0 },
-        { "Change PIN", kSettingsRowLabel, 0 },
+        { "Save Data Cloud", kSettingsRowLabel, 0 },
+        { "Transfer Your Save Data", kSettingsRowLabel, 0 },
+        { "Delete Save Data", kSettingsRowLabel, 0 },
         { nullptr, 0, 0 },
     };
 
     const SettingsRow kSettingsPageParental[] = {
-        { "Parental Controls Settings", kSettingsRowLabel, 0 },
-        { "Restriction Level", kSettingsRowLabel, 0 },
+        { "Parental Controls", kSettingsRowLabel, 0 },
         { nullptr, 0, 0 },
     };
 
     const SettingsRow kSettingsPageAccessibility[] = {
-        { "Zoom", kSettingsRowToggle, 0 },
-        { "Grayscale", kSettingsRowToggle, 1 },
-        { "Invert Colors", kSettingsRowToggle, 2 },
         { "Button Mapping", kSettingsRowLabel, 0 },
         { nullptr, 0, 0 },
     };
 
     const SettingsRow kSettingsPageUsers[] = {
         { "Add User", kSettingsRowLabel, 0 },
-        { "User Settings", kSettingsRowLabel, 0 },
         { nullptr, 0, 0 },
     };
 
     const SettingsRow kSettingsPageMii[] = {
-        { "Create Mii", kSettingsRowAction, kSettingsActionMii },
-        { "Edit Mii", kSettingsRowAction, kSettingsActionMii },
-        { "Delete Mii", kSettingsRowLabel, 0 },
+        { "Create a Mii", kSettingsRowAction, kSettingsActionMii },
+        { "Edit a Mii", kSettingsRowLabel, 0 },
+        { "Send/Recieve a Mii", kSettingsRowLabel, 0 },
         { nullptr, 0, 0 },
     };
 
     const SettingsRow kSettingsPageAmiibo[] = {
-        { "Register Owner and Nickname", kSettingsRowLabel, 0 },
+        { "Enter Owner and Nickname", kSettingsRowLabel, 0 },
         { "Delete Game Data", kSettingsRowLabel, 0 },
         { "Reset amiibo", kSettingsRowLabel, 0 },
         { nullptr, 0, 0 },
     };
 
     const SettingsRow kSettingsPageNotifications[] = {
-        { "Notification Display", kSettingsRowToggle, 0 },
-        { "Download Notifications", kSettingsRowToggle, 1 },
-        { nullptr, 0, 0 },
-    };
-
-    const SettingsRow kSettingsPageSleep[] = {
-        { "Auto-Sleep", kSettingsRowToggle, 0 },
-        { "Maintain Internet Connection in Sleep", kSettingsRowToggle, 1 },
-        { "Wake When AC Adapter Is Unplugged", kSettingsRowToggle, 2 },
+        { "Alarm Notifications", kSettingsRowLabel, 0 },
+        { "Platinum Point Notifications", kSettingsRowLabel, 0 },
         { nullptr, 0, 0 },
     };
 
     const SettingsRow kSettingsPageSystem[] = {
         { "System Update", kSettingsRowLabel, 0 },
         { "Date and Time", kSettingsRowLabel, 0 },
-        { "Language", kSettingsRowLabel, 0 },
-        { "Console Nickname", kSettingsRowLabel, 0 },
+        { "Dock Update", kSettingsRowLabel, 0 },
+        { "System Information", kSettingsRowLabel, 0 },
         { nullptr, 0, 0 },
+    };
+
+    struct SettingsIconBin {
+        const uint8_t *pngData;
+        const uint32_t *pngSize;
+    };
+
+    static const SettingsIconBin kSettingsOptionIcons[kSettingsOptionCount] = {
+        { set_00_png, &set_00_png_size }, { set_01_png, &set_01_png_size },
+        { set_02_png, &set_02_png_size }, { set_03_png, &set_03_png_size },
+        { set_04_png, &set_04_png_size }, { set_05_png, &set_05_png_size },
+        { set_06_png, &set_06_png_size }, { set_07_png, &set_07_png_size },
+        { set_08_png, &set_08_png_size }, { set_09_png, &set_09_png_size },
+        { set_10_png, &set_10_png_size }, { set_11_png, &set_11_png_size },
+        { set_12_png, &set_12_png_size }, { set_13_png, &set_13_png_size },
+        { set_14_png, &set_14_png_size }, { set_15_png, &set_15_png_size },
+        { set_16_png, &set_16_png_size }, { set_17_png, &set_17_png_size },
     };
 
     enum class SettingsMode {
@@ -164,21 +199,21 @@ namespace {
     struct SettingsState {
         int pageIndex;
         int rowIndex;
-        bool toggleStates[kSettingsOptionCount][kSettingsMaxToggles];
+        int optionIconSlots[kSettingsOptionCount];
         unsigned repeatCounter;
     };
 
-    static SettingsState s_state = { kSettingsNoPage, 0, {}, 0 };
+    static SettingsState s_state = { kSettingsNoPage, 0, { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 }, 0 };
     static const MenuHostApi *s_hostApi = nullptr;
 
-    /// @brief Current settings mode.
+    /// @brief Current mode.
     /// @return OptionList when no page is open, else Detail.
     SettingsMode CurrentMode()
     {
         return s_state.pageIndex < 0 ? SettingsMode::OptionList : SettingsMode::Detail;
     }
 
-    /// @brief Look up the row table for a detail page.
+    /// @brief Look up the row table for a detail page (column-major).
     /// @param pageIndex Settings page index.
     /// @return Row table or null.
     const SettingsRow *SettingsPageRows(int pageIndex)
@@ -189,9 +224,8 @@ namespace {
             case 1:
                 return kSettingsPageHealth;
             case 2:
-                return kSettingsPageAirplane;
             case 3:
-                return kSettingsPageBrightness;
+                return nullptr;
             case 4:
                 return kSettingsPageInternet;
             case 5:
@@ -201,7 +235,7 @@ namespace {
             case 7:
                 return kSettingsPageData;
             case 8:
-                return kSettingsPageLock;
+                return nullptr;
             case 9:
                 return kSettingsPageParental;
             case 10:
@@ -215,7 +249,7 @@ namespace {
             case 15:
                 return kSettingsPageNotifications;
             case 16:
-                return kSettingsPageSleep;
+                return nullptr;
             case 17:
                 return kSettingsPageSystem;
             default:
@@ -235,6 +269,231 @@ namespace {
         }
 
         return rowCount;
+    }
+
+    /// @brief Column count for a detail page (themes grid is separate).
+    /// @param pageIndex Settings page index.
+    /// @return 2 when the mockup lays the page out in two columns, else 1.
+    int SettingsPageColumns(int pageIndex)
+    {
+        switch (pageIndex) {
+            case 1:
+            case 4:
+            case 5:
+            case 6:
+            case 7:
+            case 13:
+            case 15:
+            case 17:
+                return 2;
+            default:
+                return 1;
+        }
+    }
+
+    /// @brief Row count inside one column of a two-column page.
+    /// Columns are filled left to right.
+    /// @param pageIndex Settings page index.
+    /// @param columnIndex Column index (0 or 1).
+    /// @return Row count in that column.
+    int SettingsPageColumnRows(int pageIndex, int columnIndex)
+    {
+        const SettingsRow *pageRows = SettingsPageRows(pageIndex);
+        int rowCount = SettingsRowCount(pageRows);
+
+        if (SettingsPageColumns(pageIndex) < 2) {
+            return columnIndex == 0 ? rowCount : 0;
+        }
+
+        int leftCount = (rowCount + 1) / 2;
+        return columnIndex == 0 ? leftCount : rowCount - leftCount;
+    }
+
+    /// @brief Split a column-major flat index into column and row.
+    /// @param pageIndex Settings page index.
+    /// @param flatIndex Column-major flat index.
+    /// @param columnOut Column output.
+    /// @param rowOut Row output.
+    void SettingsCellSplit(int pageIndex, int flatIndex, int *columnOut, int *rowOut)
+    {
+        int leftCount = SettingsPageColumnRows(pageIndex, 0);
+
+        if (flatIndex < leftCount) {
+            *columnOut = 0;
+            *rowOut = flatIndex;
+        } else {
+            *columnOut = 1;
+            *rowOut = flatIndex - leftCount;
+        }
+    }
+
+    /// @brief Join a column and row into a column-major flat index.
+    /// @param pageIndex Settings page index.
+    /// @param columnIndex Column index (0 or 1, clamped).
+    /// @param rowIndex Row index (clamped into the column).
+    /// @return Flat index.
+    int SettingsCellJoin(int pageIndex, int columnIndex, int rowIndex)
+    {
+        int leftCount = SettingsPageColumnRows(pageIndex, 0);
+        int rightCount = SettingsPageColumnRows(pageIndex, 1);
+
+        if (columnIndex <= 0 || rightCount <= 0) {
+            if (rowIndex >= leftCount) {
+                rowIndex = leftCount - 1;
+            }
+
+            if (rowIndex < 0) {
+                rowIndex = 0;
+            }
+
+            return rowIndex;
+        }
+
+        if (rowIndex >= rightCount) {
+            rowIndex = rightCount - 1;
+        }
+
+        if (rowIndex < 0) {
+            rowIndex = 0;
+        }
+
+        return leftCount + rowIndex;
+    }
+
+    /// @brief Downscale RGBA art to the icon budget with a box filter.
+    /// @param hostApi Host API (unused, kept for symmetry).
+    /// @param pixelData Source pixels, freed or adopted by the caller.
+    /// @param width Source width (updated to the scaled width).
+    /// @param height Source height (updated to the scaled height).
+    /// @return Scaled pixels (caller frees), or null on failure.
+    unsigned char *DownscaleIcon(const MenuHostApi *hostApi, unsigned char *pixelData, int *width, int *height)
+    {
+        (void)hostApi;
+
+        int sourceWidth = *width;
+        int sourceHeight = *height;
+        int targetWidth = sourceWidth;
+        int targetHeight = sourceHeight;
+
+        while (targetWidth > kSettingsIconMax || targetHeight > kSettingsIconMax) {
+            targetWidth /= 2;
+            targetHeight /= 2;
+        }
+
+        if (targetWidth == sourceWidth && targetHeight == sourceHeight) {
+            return pixelData;
+        }
+
+        unsigned char *scaled = (unsigned char *)malloc((size_t)targetWidth * (size_t)targetHeight * 4u);
+
+        if (!scaled) {
+            return pixelData;
+        }
+
+        for (int y = 0; y < targetHeight; y++) {
+            int y0 = y * sourceHeight / targetHeight;
+            int y1 = (y + 1) * sourceHeight / targetHeight;
+
+            if (y1 <= y0) {
+                y1 = y0 + 1;
+            }
+
+            for (int x = 0; x < targetWidth; x++) {
+                int x0 = x * sourceWidth / targetWidth;
+                int x1 = (x + 1) * sourceWidth / targetWidth;
+
+                if (x1 <= x0) {
+                    x1 = x0 + 1;
+                }
+
+                unsigned sumRed = 0, sumGreen = 0, sumBlue = 0, sumAlpha = 0, count = 0;
+
+                for (int sy = y0; sy < y1; sy++) {
+                    for (int sx = x0; sx < x1; sx++) {
+                        unsigned char *pixel = pixelData + ((size_t)sy * (size_t)sourceWidth + (size_t)sx) * 4u;
+                        sumRed += pixel[0];
+                        sumGreen += pixel[1];
+                        sumBlue += pixel[2];
+                        sumAlpha += pixel[3];
+                        count++;
+                    }
+                }
+
+                unsigned char *out = scaled + ((size_t)y * (size_t)targetWidth + (size_t)x) * 4u;
+                out[0] = (unsigned char)(sumRed / count);
+                out[1] = (unsigned char)(sumGreen / count);
+                out[2] = (unsigned char)(sumBlue / count);
+                out[3] = (unsigned char)(sumAlpha / count);
+            }
+        }
+
+        stbi_image_free(pixelData);
+        *width = targetWidth;
+        *height = targetHeight;
+        return scaled;
+    }
+
+    /// @brief Decode and upload one option icon, caching the texture slot.
+    /// @param hostApi Host API.
+    /// @param optionIndex Option index 0-17.
+    void LoadOptionIcon(const MenuHostApi *hostApi, int optionIndex)
+    {
+        if (optionIndex < 0 || optionIndex >= kSettingsOptionCount) {
+            return;
+        }
+
+        int imageWidth = 0;
+        int imageHeight = 0;
+        unsigned char *pixelData = stbi_load_from_memory(kSettingsOptionIcons[optionIndex].pngData,
+                                                        *kSettingsOptionIcons[optionIndex].pngSize,
+                                                        &imageWidth, &imageHeight, nullptr, 4);
+
+        if (!pixelData || imageWidth <= 0 || imageHeight <= 0) {
+            if (pixelData) {
+                stbi_image_free(pixelData);
+            }
+
+            return;
+        }
+
+        pixelData = DownscaleIcon(hostApi, pixelData, &imageWidth, &imageHeight);
+
+        int textureSlot = hostApi->gfxTexAlloc();
+
+        if (textureSlot < 0) {
+            stbi_image_free(pixelData);
+            return;
+        }
+
+        if (hostApi->gfxTexUploadRgba(textureSlot, pixelData, imageWidth, imageHeight) == 0) {
+            hostApi->gfxTexFree(textureSlot);
+            stbi_image_free(pixelData);
+            return;
+        }
+
+        stbi_image_free(pixelData);
+        s_state.optionIconSlots[optionIndex] = textureSlot;
+    }
+
+    /// @brief Decode and upload every option icon.
+    /// @param hostApi Host API.
+    void LoadOptionIcons(const MenuHostApi *hostApi)
+    {
+        for (int optionIndex = 0; optionIndex < kSettingsOptionCount; optionIndex++) {
+            LoadOptionIcon(hostApi, optionIndex);
+        }
+    }
+
+    /// @brief Release every cached option icon texture.
+    /// @param hostApi Host API.
+    void DropOptionIcons(const MenuHostApi *hostApi)
+    {
+        for (int optionIndex = 0; optionIndex < kSettingsOptionCount; optionIndex++) {
+            if (s_state.optionIconSlots[optionIndex] >= 0) {
+                hostApi->gfxTexFree(s_state.optionIconSlots[optionIndex]);
+                s_state.optionIconSlots[optionIndex] = -1;
+            }
+        }
     }
 
     /// @brief Poll directional buttons with key repeat.
@@ -264,7 +523,7 @@ namespace {
         }
     }
 
-    /// @brief Draw the left settings option list.
+    /// @brief Draw the left settings option list with icons.
     /// @param hostApi Host API.
     /// @param slideOffsetX Horizontal slide offset.
     void DrawOptions(const MenuHostApi *hostApi, float slideOffsetX)
@@ -296,40 +555,20 @@ namespace {
                                       accentRed, accentGreen, accentBlue, 1.0f);
             }
 
-            hostApi->fontDraw(kSettingsOptions[optionIndex], 130.0f + slideOffsetX, rowY + 22.0f, 27.0f,
+            int iconSlot = s_state.optionIconSlots[optionIndex];
+
+            if (hostApi->gfxTexValid(iconSlot)) {
+                hostApi->gfxPushIcon(118.0f + slideOffsetX, rowY - 2.0f, 26.0f, 26.0f,
+                                     6.0f, 6.0f, 6.0f, 6.0f, 1.0f, 1.0f, 1.0f, 0.0f, iconSlot,
+                                     0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f);
+            }
+
+            hostApi->fontDraw(kSettingsOptions[optionIndex], 152.0f + slideOffsetX, rowY + 22.0f, 27.0f,
                               isSelected ? 1.0f : (s_state.pageIndex == optionIndex ? inkRed : dimRed),
                               isSelected ? 1.0f : (s_state.pageIndex == optionIndex ? inkGreen : dimGreen),
                               isSelected ? 1.0f : (s_state.pageIndex == optionIndex ? inkBlue : dimBlue),
                               1.0f);
         }
-    }
-
-    /// @brief Draw a toggle row ON/OFF value.
-    /// @param hostApi Host API.
-    /// @param pageIndex Settings page index.
-    /// @param rowIndex Row index inside the page.
-    /// @param rightEdgeX Right edge X.
-    /// @param baselineY Baseline Y.
-    void DrawToggleValue(const MenuHostApi *hostApi, int pageIndex, int rowIndex, float rightEdgeX, float baselineY)
-    {
-        float inkRed = 0.0f;
-        float inkGreen = 0.0f;
-        float inkBlue = 0.0f;
-        hostApi->themeColor("ink", &inkRed, &inkGreen, &inkBlue);
-
-        float dimRed = 0.0f;
-        float dimGreen = 0.0f;
-        float dimBlue = 0.0f;
-        hostApi->themeColor("dim", &dimRed, &dimGreen, &dimBlue);
-
-        bool isEnabled = (pageIndex >= 0 && pageIndex < kSettingsOptionCount && rowIndex >= 0 && rowIndex < kSettingsMaxToggles)
-            ? s_state.toggleStates[pageIndex][rowIndex]
-            : false;
-        const char *toggleText = isEnabled ? "ON" : "OFF";
-        float textWidth = hostApi->fontMeasure(toggleText, 30.0f);
-        hostApi->fontDraw(toggleText, rightEdgeX - textWidth, baselineY, 30.0f,
-                          isEnabled ? inkRed : dimRed, isEnabled ? inkGreen : dimGreen,
-                          isEnabled ? inkBlue : dimBlue, 1.0f);
     }
 
     /// @brief Draw the theme picker detail page.
@@ -380,7 +619,7 @@ namespace {
         }
     }
 
-    /// @brief Draw the right detail pane.
+    /// @brief Draw the right detail pane with the mockup header title.
     /// @param hostApi Host API.
     /// @param slideOffsetX Horizontal slide offset.
     void DrawDetail(const MenuHostApi *hostApi, float slideOffsetX)
@@ -399,7 +638,7 @@ namespace {
             return;
         }
 
-        hostApi->fontDraw(kSettingsOptions[s_state.pageIndex], 700.0f + slideOffsetX, 250.0f, 40.0f,
+        hostApi->fontDraw(kSettingsTitles[s_state.pageIndex], 700.0f + slideOffsetX, 250.0f, 40.0f,
                           inkRed, inkGreen, inkBlue, 1.0f);
 
         if (s_state.pageIndex == kSettingsThemesPage) {
@@ -409,13 +648,31 @@ namespace {
 
         const SettingsRow *pageRows = SettingsPageRows(s_state.pageIndex);
         int rowCount = SettingsRowCount(pageRows);
+
+        if (rowCount <= 0) {
+            return;
+        }
+
         float detailTopY = 320.0f;
         float detailRowHeight = 64.0f;
+        float columnWidth = 500.0f;
+        float columnGap = 40.0f;
 
-        for (int detailIndex = 0; detailIndex < rowCount; detailIndex++) {
-            float detailY = detailTopY + (float)detailIndex * detailRowHeight;
-            bool isSelected = (s_state.rowIndex == detailIndex);
-            hostApi->touchRegisterCell(detailIndex, 680.0f + slideOffsetX, detailY - 6.0f, 1120.0f,
+        int columns = SettingsPageColumns(s_state.pageIndex);
+        float columnX[2] = { 700.0f + slideOffsetX, 700.0f + columnWidth + columnGap + slideOffsetX };
+
+        for (int rowIndex = 0; rowIndex < rowCount; rowIndex++) {
+            int columnIndex = 0;
+            int columnRow = rowIndex;
+
+            if (columns > 1) {
+                SettingsCellSplit(s_state.pageIndex, rowIndex, &columnIndex, &columnRow);
+            }
+
+            float detailX = columnIndex == 0 ? columnX[0] : columnX[1];
+            float detailY = detailTopY + (float)columnRow * detailRowHeight;
+            bool isSelected = (s_state.rowIndex == rowIndex);
+            hostApi->touchRegisterCell(rowIndex, detailX - 10.0f, detailY - 6.0f, columnWidth + 18.0f,
                                        detailRowHeight + 6.0f);
 
             if (isSelected) {
@@ -423,7 +680,7 @@ namespace {
                 float accentGreen = 0.0f;
                 float accentBlue = 0.0f;
                 hostApi->themeColor("accent", &accentRed, &accentGreen, &accentBlue);
-                hostApi->gfxPushPanel(690.0f + slideOffsetX, detailY - 6.0f, 1100.0f, detailRowHeight, 12.0f,
+                hostApi->gfxPushPanel(detailX - 10.0f, detailY - 6.0f, columnWidth + 18.0f, detailRowHeight, 12.0f,
                                       accentRed, accentGreen, accentBlue, 0.30f);
             }
 
@@ -431,12 +688,8 @@ namespace {
             float labelGreen = isSelected ? inkGreen : dimGreen;
             float labelBlue = isSelected ? inkBlue : dimBlue;
 
-            hostApi->fontDraw(pageRows[detailIndex].labelText, 720.0f + slideOffsetX, detailY + 40.0f, 32.0f,
+            hostApi->fontDraw(pageRows[rowIndex].labelText, detailX + 30.0f, detailY + 40.0f, 32.0f,
                               labelRed, labelGreen, labelBlue, 1.0f);
-
-            if (pageRows[detailIndex].rowKind == kSettingsRowToggle) {
-                DrawToggleValue(hostApi, s_state.pageIndex, detailIndex, 1760.0f + slideOffsetX, detailY + 40.0f);
-            }
         }
     }
 
@@ -455,12 +708,7 @@ namespace {
             return;
         }
 
-        if (pageRows[s_state.rowIndex].rowKind == kSettingsRowToggle) {
-            if (s_state.rowIndex >= 0 && s_state.rowIndex < kSettingsMaxToggles) {
-                s_state.toggleStates[s_state.pageIndex][s_state.rowIndex] =
-                    !s_state.toggleStates[s_state.pageIndex][s_state.rowIndex];
-            }
-        } else if (pageRows[s_state.rowIndex].rowKind == kSettingsRowAction) {
+        if (pageRows[s_state.rowIndex].rowKind == kSettingsRowAction) {
             if (pageRows[s_state.rowIndex].actionId == kSettingsActionControllers) {
                 hostApi->qextLaunchApplet(1);
             } else if (pageRows[s_state.rowIndex].actionId == kSettingsActionMii) {
@@ -524,27 +772,17 @@ namespace {
 
     /// @brief Handle option list input.
     /// @param hostApi Host API.
-    /// @param buttonsDown Buttons pressed.
+    /// @param buttonsDown Proven pressed mask.
     void HandleOptionListInput(const MenuHostApi *hostApi, unsigned long long buttonsDown)
     {
         if (buttonsDown & (unsigned long long)HidNpadButton_AnyUp) {
-            int nextRow = (s_state.rowIndex + kSettingsOptionCount - 1) % kSettingsOptionCount;
-
-            if (nextRow != s_state.rowIndex) {
-                hostApi->sfxPlayByName("hover");
-            }
-
-            s_state.rowIndex = nextRow;
+            s_state.rowIndex = (s_state.rowIndex + kSettingsOptionCount - 1) % kSettingsOptionCount;
+            hostApi->sfxPlayByName("hover");
         }
 
         if (buttonsDown & (unsigned long long)HidNpadButton_AnyDown) {
-            int nextRow = (s_state.rowIndex + 1) % kSettingsOptionCount;
-
-            if (nextRow != s_state.rowIndex) {
-                hostApi->sfxPlayByName("hover");
-            }
-
-            s_state.rowIndex = nextRow;
+            s_state.rowIndex = (s_state.rowIndex + 1) % kSettingsOptionCount;
+            hostApi->sfxPlayByName("hover");
         }
 
         if (buttonsDown & (unsigned long long)HidNpadButton_A) {
@@ -559,9 +797,9 @@ namespace {
         }
     }
 
-    /// @brief Handle detail page input.
+    /// @brief Handle detail page input with mockup two-column navigation.
     /// @param hostApi Host API.
-    /// @param buttonsDown Buttons pressed.
+    /// @param buttonsDown Proven pressed mask.
     void HandleDetailInput(const MenuHostApi *hostApi, unsigned long long buttonsDown)
     {
         int rowCount = (s_state.pageIndex == kSettingsThemesPage) ? hostApi->themeCount()
@@ -571,46 +809,91 @@ namespace {
             rowCount = 1;
         }
 
-        int columnCount = (s_state.pageIndex == kSettingsThemesPage) ? 2 : 1;
+        int columnCount = (s_state.pageIndex == kSettingsThemesPage) ? 2 : SettingsPageColumns(s_state.pageIndex);
+        bool twoColumn = columnCount > 1 && s_state.pageIndex != kSettingsThemesPage;
+        int currentColumn = 0;
+        int currentRow = s_state.rowIndex;
+
+        if (twoColumn) {
+            SettingsCellSplit(s_state.pageIndex, s_state.rowIndex, &currentColumn, &currentRow);
+        }
 
         if (buttonsDown & (unsigned long long)HidNpadButton_AnyLeft) {
-            int nextRow = (s_state.rowIndex + rowCount - 1) % rowCount;
+            if (twoColumn) {
+                currentColumn = (currentColumn + 1) % 2;
+                int columnRows = SettingsPageColumnRows(s_state.pageIndex, currentColumn);
 
-            if (nextRow != s_state.rowIndex) {
+                if (currentRow >= columnRows) {
+                    currentRow = columnRows - 1;
+                }
+
+                s_state.rowIndex = SettingsCellJoin(s_state.pageIndex, currentColumn, currentRow);
                 hostApi->sfxPlayByName("hover");
-            }
+            } else {
+                int nextRow = (s_state.rowIndex + rowCount - 1) % rowCount;
 
-            s_state.rowIndex = nextRow;
+                if (nextRow != s_state.rowIndex) {
+                    hostApi->sfxPlayByName("hover");
+                }
+
+                s_state.rowIndex = nextRow;
+            }
         }
 
         if (buttonsDown & (unsigned long long)HidNpadButton_AnyRight) {
-            int nextRow = (s_state.rowIndex + 1) % rowCount;
+            if (twoColumn) {
+                currentColumn = (currentColumn + 1) % 2;
+                int columnRows = SettingsPageColumnRows(s_state.pageIndex, currentColumn);
 
-            if (nextRow != s_state.rowIndex) {
+                if (currentRow >= columnRows) {
+                    currentRow = columnRows - 1;
+                }
+
+                s_state.rowIndex = SettingsCellJoin(s_state.pageIndex, currentColumn, currentRow);
                 hostApi->sfxPlayByName("hover");
-            }
+            } else {
+                int nextRow = (s_state.rowIndex + 1) % rowCount;
 
-            s_state.rowIndex = nextRow;
+                if (nextRow != s_state.rowIndex) {
+                    hostApi->sfxPlayByName("hover");
+                }
+
+                s_state.rowIndex = nextRow;
+            }
         }
 
         if (buttonsDown & (unsigned long long)HidNpadButton_AnyUp) {
-            int nextRow = (s_state.rowIndex + rowCount - columnCount) % rowCount;
-
-            if (nextRow != s_state.rowIndex) {
+            if (twoColumn) {
+                int columnRows = SettingsPageColumnRows(s_state.pageIndex, currentColumn);
+                currentRow = (currentRow + columnRows - 1) % columnRows;
+                s_state.rowIndex = SettingsCellJoin(s_state.pageIndex, currentColumn, currentRow);
                 hostApi->sfxPlayByName("hover");
-            }
+            } else {
+                int nextRow = (s_state.rowIndex + rowCount - columnCount) % rowCount;
 
-            s_state.rowIndex = nextRow;
+                if (nextRow != s_state.rowIndex) {
+                    hostApi->sfxPlayByName("hover");
+                }
+
+                s_state.rowIndex = nextRow;
+            }
         }
 
         if (buttonsDown & (unsigned long long)HidNpadButton_AnyDown) {
-            int nextRow = (s_state.rowIndex + columnCount) % rowCount;
-
-            if (nextRow != s_state.rowIndex) {
+            if (twoColumn) {
+                int columnRows = SettingsPageColumnRows(s_state.pageIndex, currentColumn);
+                currentRow = (currentRow + 1) % columnRows;
+                s_state.rowIndex = SettingsCellJoin(s_state.pageIndex, currentColumn, currentRow);
                 hostApi->sfxPlayByName("hover");
-            }
+            } else {
+                int nextRow = (s_state.rowIndex + columnCount) % rowCount;
 
-            s_state.rowIndex = nextRow;
+                if (nextRow != s_state.rowIndex) {
+                    hostApi->sfxPlayByName("hover");
+                }
+
+                s_state.rowIndex = nextRow;
+            }
         }
 
         if (buttonsDown & (unsigned long long)HidNpadButton_A) {
@@ -651,7 +934,7 @@ extern "C" {
     }
 
     /// @brief Give the jingle clip name, if any.
-    /// @return Clip name or NULL.
+    /// @return Clip id or NULL.
     QLAUNCH_HOOK const char *SubmenuJingle(void)
     {
         return "settings_jingle";
@@ -734,8 +1017,13 @@ extern "C" {
         s_state.pageIndex = kSettingsNoPage;
         s_state.rowIndex = 0;
         s_state.repeatCounter = 0;
-        memset(s_state.toggleStates, 0, sizeof(s_state.toggleStates));
+
+        for (int optionIndex = 0; optionIndex < kSettingsOptionCount; optionIndex++) {
+            s_state.optionIconSlots[optionIndex] = -1;
+        }
+
         s_hostApi = hostApi;
+        LoadOptionIcons(hostApi);
         return 0;
     }
 
@@ -805,6 +1093,9 @@ extern "C" {
     /// @brief Shut down before unload.
     QLAUNCH_HOOK void SubmenuShutdown(void)
     {
+        if (s_hostApi) {
+            DropOptionIcons(s_hostApi);
+        }
     }
 
 } /* extern C */

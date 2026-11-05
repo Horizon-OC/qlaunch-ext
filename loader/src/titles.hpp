@@ -7,8 +7,8 @@
 
 namespace titles {
 
-/* Combined order file holding game entries plus the folders section. */
-extern const char kOrderPath[];
+/* Combined titles file holding game order, custom names, and folders. */
+extern const char kTitlesPath[];
 
 int Refresh();
 int Count();
@@ -26,10 +26,16 @@ int Icon(int index, void *out, unsigned cap);
 
 /* Is the gamecard present */
 int Ejected(int index);
+/* Whether a tid is a virtual (plugin-provided) title. */
+int IsVirtual(u64 tid);
+/* Rename any known title, virtual or not (empty or blank names rejected). */
+int Rename(u64 tid, const char *name);
+/* Read a title's original name: NACP name, or live provider name when virtual. */
+int OriginalName(int index, char *out, unsigned out_cap);
 void NoteLaunched(u64 tid);
 int TitlesChanged();
 
-/* Persist game order plus the folders section. */
+/* Persist game order, custom names, and the folders section. */
 void Save();
 
 } // namespace titles

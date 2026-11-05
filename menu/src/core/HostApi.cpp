@@ -20,6 +20,7 @@
 #include "LayoutMod.hpp"
 #include "Touch.hpp"
 #include "Packs.hpp"
+#include "MenuPlugins.hpp"
 #include "../widgets/Widgets.hpp"
 #include <cstdio>
 #include <cstring>
@@ -857,6 +858,31 @@ namespace HostApi {
             return (int)assetSize;
         }
 
+        int MenuButtonCountThunk(void)
+        {
+            return MenuPlugins::ButtonCount();
+        }
+
+        int MenuButtonTabThunk(int button)
+        {
+            return MenuPlugins::ButtonTab(button);
+        }
+
+        const char *MenuButtonLabelThunk(int button)
+        {
+            return MenuPlugins::ButtonLabel(button);
+        }
+
+        int MenuButtonIconThunk(int button)
+        {
+            return MenuPlugins::ButtonIconSlot(button);
+        }
+
+        int MenuButtonActivateThunk(int button)
+        {
+            return MenuPlugins::Activate(button);
+        }
+
         int SubmenuFullTabIndexThunk(void)
         {
             return Submenus::FullTabIndex();
@@ -1045,6 +1071,11 @@ namespace HostApi {
             SubmenuTouchUpThunk,
             PackAssetSizeThunk,
             PackAssetReadThunk,
+            MenuButtonCountThunk,
+            MenuButtonTabThunk,
+            MenuButtonLabelThunk,
+            MenuButtonIconThunk,
+            MenuButtonActivateThunk,
         };
 
     } // namespace

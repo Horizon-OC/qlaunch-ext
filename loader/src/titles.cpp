@@ -14,13 +14,16 @@
 
 namespace titles {
 
-const char kOrderPath[] = "sdmc:/qlaunch-ext/order.json";
+const char kTitlesPath[] = "sdmc:/qlaunch-ext/titles.json";
 
 namespace {
 
 constexpr int kMaxTitles = 256;
 constexpr int kChunkCount = 30;
-constexpr int kOrderFileCap = 65536;
+constexpr int kTitlesFileCap = 65536;
+
+/// @brief Maximum custom title name bytes (swkbd caps input well below this).
+constexpr int kCustomNameBytes = 128;
 
 struct Entry {
     u64 tid = 0;
@@ -30,8 +33,16 @@ struct Entry {
     u64 seq = 0;
 };
 
+/// @brief One user rename, keyed by title id (virtual tids never stored).
+struct CustomName {
+    u64 tid = 0;
+    char name[kCustomNameBytes] = {0};
+};
+
 Entry s_list[kMaxTitles];
 int s_count = 0;
+CustomName s_customNames[kMaxTitles];
+int s_customCount = 0;
 static Event s_ev;
 static bool s_evInit = false;
 static u64 s_seq = 0;
@@ -272,15 +283,18 @@ static bool IsSpaceByte(char c) {
     return c == ' ' || c == '\t' || c == '\n' || c == '\r';
 }
 
-/// @brief Locate a top-level "folders" object span so game scanning skips it.
-/// Folder names are free user text and may contain game-like patterns.
+/// @brief Locate a top-level named object span so game scanning skips it.
+/// Names are free user text and may contain game-like patterns; non-key
+/// strings are skipped wholesale so braces inside them cannot corrupt
+/// the depth count.
 /// @param text File text.
 /// @param len Text length.
+/// @param sectionKey Section key without quotes (for example "folders").
 /// @param spanStartOut Span start output (key quote).
 /// @param spanEndOut Span end output (past closing brace).
-/// @return True when a folders object was found.
-static bool FindFoldersSpan(const char *text, size_t len, size_t *spanStartOut, size_t *spanEndOut) {
-    static const char keyText[] = "folders";
+/// @return True when the section object was found.
+static bool FindSectionSpan(const char *text, size_t len, const char *sectionKey,
+                            size_t *spanStartOut, size_t *spanEndOut) {
     size_t i = 0;
     int depth = 0;
     while (i < len) {
@@ -288,11 +302,11 @@ static bool FindFoldersSpan(const char *text, size_t len, size_t *spanStartOut, 
         if (c == '"') {
             size_t keyStart = i++;
             size_t k = 0;
-            while (k < 7 && i < len && text[i] == keyText[k]) {
+            while (sectionKey[k] != 0 && i < len && text[i] == sectionKey[k]) {
                 i++;
                 k++;
             }
-            if (k == 7 && i < len && text[i] == '"' && depth == 1) {
+            if (sectionKey[k] == 0 && i < len && text[i] == '"' && depth == 1) {
                 i++;
                 while (i < len && IsSpaceByte(text[i]))
                     i++;
@@ -338,6 +352,16 @@ static bool FindFoldersSpan(const char *text, size_t len, size_t *spanStartOut, 
                     }
                 }
             }
+            while (i < len) {
+                if (text[i] == '\\') {
+                    i += 2;
+                } else if (text[i] == '"') {
+                    i++;
+                    break;
+                } else {
+                    i++;
+                }
+            }
             continue;
         }
         if (c == '{')
@@ -347,6 +371,346 @@ static bool FindFoldersSpan(const char *text, size_t len, size_t *spanStartOut, 
         i++;
     }
     return false;
+}
+
+/// @brief Copy a title name, truncating on a UTF-8 boundary and terminating.
+/// @param destination Destination buffer (kCustomNameBytes).
+/// @param source Source UTF-8 text.
+static void CopyTitleName(char *destination, const char *source) {
+    if (!destination) {
+        return;
+    }
+
+    destination[0] = 0;
+
+    if (!source)
+        return;
+
+    unsigned copyLength = 0;
+
+    while (copyLength + 1 < (unsigned)kCustomNameBytes && source[copyLength])
+        copyLength++;
+
+    memcpy(destination, source, copyLength);
+
+    while (copyLength > 0 && (destination[copyLength - 1] & 0xC0) == 0x80)
+        copyLength--;
+
+    destination[copyLength] = 0;
+}
+
+/// @brief Find a custom name by title id.
+/// @param tid Title id.
+/// @return Table index, or negative when absent.
+static int FindCustom(u64 tid) {
+    if (tid == 0)
+        return -1;
+
+    for (int i = 0; i < s_customCount; i++) {
+        if (s_customNames[i].tid == tid)
+            return i;
+    }
+
+    return -1;
+}
+
+/// @brief Write one JSON string with escaping.
+/// @param f Output file.
+/// @param text UTF-8 text.
+static void WriteJsonString(FILE *f, const char *text) {
+    fputc('"', f);
+
+    for (const char *p = text; *p; p++) {
+        unsigned char c = (unsigned char)*p;
+
+        if (c == '"' || c == '\\') {
+            fputc('\\', f);
+            fputc(c, f);
+        } else if (c < 0x20) {
+            fprintf(f, "\\u%04x", c);
+        } else {
+            fputc(c, f);
+        }
+    }
+
+    fputc('"', f);
+}
+
+/// @brief Append a Unicode codepoint as UTF-8.
+/// @param cursor Output cursor (advanced).
+/// @param end Output end (room for 4 bytes plus NUL required).
+/// @param codepoint Codepoint.
+/// @return True on success.
+static bool PutUtf8(char *&cursor, char *end, unsigned codepoint) {
+    if (codepoint < 0x80) {
+        if (cursor + 1 >= end)
+            return false;
+        *cursor++ = (char)codepoint;
+    } else if (codepoint < 0x800) {
+        if (cursor + 2 >= end)
+            return false;
+        *cursor++ = (char)(0xC0 | (codepoint >> 6));
+        *cursor++ = (char)(0x80 | (codepoint & 0x3F));
+    } else if (codepoint < 0x10000) {
+        if (cursor + 3 >= end)
+            return false;
+        *cursor++ = (char)(0xE0 | (codepoint >> 12));
+        *cursor++ = (char)(0x80 | ((codepoint >> 6) & 0x3F));
+        *cursor++ = (char)(0x80 | (codepoint & 0x3F));
+    } else if (codepoint <= 0x10FFFF) {
+        if (cursor + 4 >= end)
+            return false;
+        *cursor++ = (char)(0xF0 | (codepoint >> 18));
+        *cursor++ = (char)(0x80 | ((codepoint >> 12) & 0x3F));
+        *cursor++ = (char)(0x80 | ((codepoint >> 6) & 0x3F));
+        *cursor++ = (char)(0x80 | (codepoint & 0x3F));
+    } else {
+        return false;
+    }
+
+    return true;
+}
+
+/// @brief Parse 4 hex digits.
+/// @param digits Digit run.
+/// @return Value, or 0xFFFFFFFF on failure.
+static unsigned ParseHex4(const char *digits) {
+    unsigned value = 0;
+
+    for (int i = 0; i < 4; i++) {
+        char c = digits[i];
+        value <<= 4;
+
+        if (c >= '0' && c <= '9')
+            value |= (unsigned)(c - '0');
+        else if (c >= 'a' && c <= 'f')
+            value |= (unsigned)(c - 'a' + 10);
+        else if (c >= 'A' && c <= 'F')
+            value |= (unsigned)(c - 'A' + 10);
+        else
+            return 0xFFFFFFFF;
+    }
+
+    return value;
+}
+
+/// @brief Parse one JSON string with escapes.
+/// @param cursor Cursor, advanced past the closing quote.
+/// @param limit Buffer end.
+/// @param out Output buffer.
+/// @param cap Output capacity.
+/// @return True when a well-formed string was parsed.
+static bool TakeJsonString(const char *&cursor, const char *limit, char *out, unsigned cap) {
+    if (cursor >= limit || *cursor != '"' || cap == 0)
+        return false;
+
+    cursor++;
+    char *writeCursor = out;
+    char *bufferEnd = out + cap;
+    bool ok = false;
+
+    while (cursor < limit) {
+        char c = *cursor++;
+
+        if (c == '"') {
+            ok = true;
+            break;
+        }
+
+        if (c != '\\') {
+            if (writeCursor + 1 < bufferEnd)
+                *writeCursor++ = c;
+            continue;
+        }
+
+        if (cursor >= limit)
+            return false;
+
+        char esc = *cursor++;
+
+        switch (esc) {
+            case '"': case '\\': case '/':
+                if (writeCursor + 1 < bufferEnd)
+                    *writeCursor++ = esc;
+                break;
+            case 'b':
+                if (writeCursor + 1 < bufferEnd)
+                    *writeCursor++ = '\b';
+                break;
+            case 'f':
+                if (writeCursor + 1 < bufferEnd)
+                    *writeCursor++ = '\f';
+                break;
+            case 'n':
+                if (writeCursor + 1 < bufferEnd)
+                    *writeCursor++ = '\n';
+                break;
+            case 'r':
+                if (writeCursor + 1 < bufferEnd)
+                    *writeCursor++ = '\r';
+                break;
+            case 't':
+                if (writeCursor + 1 < bufferEnd)
+                    *writeCursor++ = '\t';
+                break;
+            case 'u': {
+                if (cursor + 4 > limit)
+                    return false;
+
+                unsigned codepoint = ParseHex4(cursor);
+
+                if (codepoint == 0xFFFFFFFF)
+                    return false;
+
+                cursor += 4;
+
+                if (codepoint >= 0xD800 && codepoint <= 0xDBFF && cursor + 6 <= limit &&
+                    cursor[0] == '\\' && cursor[1] == 'u') {
+                    unsigned low = ParseHex4(cursor + 2);
+
+                    if (low >= 0xDC00 && low <= 0xDFFF) {
+                        cursor += 6;
+                        codepoint = 0x10000 + ((codepoint - 0xD800) << 10) + (low - 0xDC00);
+                    } else {
+                        codepoint = 0xFFFD;
+                    }
+                } else if (codepoint >= 0xD800 && codepoint <= 0xDFFF) {
+                    codepoint = 0xFFFD;
+                }
+
+                if (!PutUtf8(writeCursor, bufferEnd, codepoint))
+                    return false;
+                break;
+            }
+            default:
+                if (writeCursor + 1 < bufferEnd)
+                    *writeCursor++ = esc;
+                break;
+        }
+    }
+
+    if (writeCursor < bufferEnd)
+        *writeCursor = 0;
+    else if (cap > 0)
+        out[cap - 1] = 0;
+
+    return ok;
+}
+
+/// @brief Parse the names section into the custom-name table.
+/// Malformed sections are ignored, keeping previously loaded names.
+/// @param spanStart Section span start (key quote).
+/// @param spanEnd Section span end (past closing brace).
+static void ParseNamesSection(const char *spanStart, const char *spanEnd) {
+    const char *p = spanStart;
+
+    while (p < spanEnd && *p != '{')
+        p++;
+
+    if (p >= spanEnd)
+        return;
+
+    p++;
+
+    static CustomName staged[kMaxTitles];
+    int stagedCount = 0;
+    bool closed = false;
+
+    while (p < spanEnd) {
+        while (p < spanEnd && IsSpaceByte(*p))
+            p++;
+
+        if (p >= spanEnd)
+            break;
+
+        if (*p == '}') {
+            closed = true;
+            break;
+        }
+
+        char keyText[24];
+
+        if (!TakeJsonString(p, spanEnd, keyText, sizeof(keyText)))
+            return;
+
+        while (p < spanEnd && IsSpaceByte(*p))
+            p++;
+
+        if (p >= spanEnd || *p != ':')
+            return;
+
+        p++;
+
+        while (p < spanEnd && IsSpaceByte(*p))
+            p++;
+
+        char valueText[256];
+
+        if (!TakeJsonString(p, spanEnd, valueText, sizeof(valueText)))
+            return;
+
+        u64 tid = 0;
+
+        if (keyText[0] != 0) {
+            bool allDigits = true;
+
+            for (const char *digit = keyText; *digit; digit++) {
+                if (*digit < '0' || *digit > '9') {
+                    allDigits = false;
+                    break;
+                }
+            }
+
+            if (allDigits)
+                tid = strtoull(keyText, nullptr, 10);
+        }
+
+        if (tid != 0 && valueText[0] != 0 && stagedCount < kMaxTitles) {
+            bool duplicate = false;
+
+            for (int i = 0; i < stagedCount; i++) {
+                if (staged[i].tid == tid) {
+                    CopyTitleName(staged[i].name, valueText);
+                    duplicate = true;
+                    break;
+                }
+            }
+
+            if (!duplicate) {
+                staged[stagedCount].tid = tid;
+                CopyTitleName(staged[stagedCount].name, valueText);
+
+                if (staged[stagedCount].name[0] != 0)
+                    stagedCount++;
+            }
+        }
+
+        while (p < spanEnd && IsSpaceByte(*p))
+            p++;
+
+        if (p >= spanEnd)
+            break;
+
+        if (*p == ',') {
+            p++;
+            continue;
+        }
+
+        if (*p == '}') {
+            closed = true;
+            break;
+        }
+
+        return;
+    }
+
+    if (!closed)
+        return;
+
+    s_customCount = 0;
+
+    for (int i = 0; i < stagedCount && i < kMaxTitles; i++)
+        s_customNames[s_customCount++] = staged[i];
 }
 
 /// @brief Scan a buffer range for game entries (original stream semantics).
@@ -384,23 +748,40 @@ static void ScanGames(const char *p, const char *end, u64 *tids, int &n, int cap
     }
 }
 
-static int ParseOrderFile(u64 *tids, int cap) {
+static int ParseTitlesFile(u64 *tids, int cap) {
     int n = 0;
-    FILE *f = fopen(kOrderPath, s_rb);
+    FILE *f = fopen(kTitlesPath, s_rb);
     if (!f)
         return 0;
-    char *text = (char *)malloc(kOrderFileCap);
+    char *text = (char *)malloc(kTitlesFileCap);
     if (!text) {
         fclose(f);
         return 0;
     }
-    size_t got = fread(text, 1, kOrderFileCap - 1, f);
+    size_t got = fread(text, 1, kTitlesFileCap - 1, f);
     fclose(f);
-    size_t spanStart = 0;
-    size_t spanEnd = 0;
-    if (FindFoldersSpan(text, got, &spanStart, &spanEnd)) {
-        ScanGames(text, text + spanStart, tids, n, cap);
-        ScanGames(text + spanEnd, text + got, tids, n, cap);
+    size_t foldersStart = 0;
+    size_t foldersEnd = 0;
+    size_t namesStart = 0;
+    size_t namesEnd = 0;
+    bool hasFolders = FindSectionSpan(text, got, "folders", &foldersStart, &foldersEnd);
+    bool hasNames = FindSectionSpan(text, got, "names", &namesStart, &namesEnd);
+    if (hasNames)
+        ParseNamesSection(text + namesStart, text + namesEnd);
+    if (hasFolders && hasNames) {
+        size_t firstStart = foldersStart < namesStart ? foldersStart : namesStart;
+        size_t firstEnd = foldersStart < namesStart ? foldersEnd : namesEnd;
+        size_t secondStart = foldersStart < namesStart ? namesStart : foldersStart;
+        size_t secondEnd = foldersStart < namesStart ? namesEnd : foldersEnd;
+        ScanGames(text, text + firstStart, tids, n, cap);
+        ScanGames(text + firstEnd, text + secondStart, tids, n, cap);
+        ScanGames(text + secondEnd, text + got, tids, n, cap);
+    } else if (hasFolders) {
+        ScanGames(text, text + foldersStart, tids, n, cap);
+        ScanGames(text + foldersEnd, text + got, tids, n, cap);
+    } else if (hasNames) {
+        ScanGames(text, text + namesStart, tids, n, cap);
+        ScanGames(text + namesEnd, text + got, tids, n, cap);
     } else {
         ScanGames(text, text + got, tids, n, cap);
     }
@@ -408,10 +789,10 @@ static int ParseOrderFile(u64 *tids, int cap) {
     return n;
 }
 
-/// @brief Persist game order plus the folders section.
-/// Single writer for order.json; folders mutators funnel through here.
+/// @brief Persist game order, custom names, and the folders section.
+/// Single writer for titles.json; folders mutators funnel through here.
 void Save() {
-    FILE *f = fopen(kOrderPath, s_wb);
+    FILE *f = fopen(kTitlesPath, s_wb);
     if (!f)
         return;
 
@@ -426,6 +807,22 @@ void Save() {
         WriteU64(f, (u64)(i + 1));
         fputs("\": ", f);
         WriteU64(f, s_list[i].tid);
+        fputc('\n', f);
+    }
+    if (s_customCount > 0) {
+        if (!first)
+            fputc(',', f);
+        first = false;
+        fputs("\"names\": {", f);
+        for (int i = 0; i < s_customCount; i++) {
+            if (i > 0)
+                fputc(',', f);
+            fputc('"', f);
+            WriteU64(f, s_customNames[i].tid);
+            fputs("\": ", f);
+            WriteJsonString(f, s_customNames[i].name);
+        }
+        fputc('}', f);
         fputc('\n', f);
     }
     if (!first)
@@ -499,7 +896,7 @@ int Refresh() {
     int prevTotal = s_count;
     bool changed = false;
     /* A failed enumeration is not a removal: keep the old list instead
-       of gutting order.json on transient ns errors. */
+       of gutting titles.json on transient ns errors. */
     if (ntid == 0 && prevTotal > 0) {
         logging::LogLine("[titles] empty enumeration, keeping %d", prevTotal);
         return prevTotal;
@@ -583,11 +980,34 @@ int Refresh() {
             liveTids[liveCount++] = next[i].tid;
         folders::Prune(liveTids, liveCount);
     }
+    /* Drop custom names for titles that no longer exist. */
+    {
+        int keptCount = 0;
+
+        for (int i = 0; i < s_customCount; i++) {
+            bool liveTitle = false;
+
+            for (int j = 0; j < nnext; j++) {
+                if (next[j].tid == s_customNames[i].tid) {
+                    liveTitle = true;
+                    break;
+                }
+            }
+
+            if (liveTitle)
+                s_customNames[keptCount++] = s_customNames[i];
+        }
+
+        if (keptCount != s_customCount) {
+            s_customCount = keptCount;
+            changed = true;
+        }
+    }
     if (nnext != prevTotal)
         changed = true;
     if (s_fileN < 0) {
-        s_fileN = ParseOrderFile(s_fileTids, kMaxTitles);
-        logging::LogLine("[titles] order file: %d", s_fileN);
+        s_fileN = ParseTitlesFile(s_fileTids, kMaxTitles);
+        logging::LogLine("[titles] titles file: %d", s_fileN);
         for (int k = 0; k < s_fileN; k++) {
             for (int i = 0; i < nnext; i++) {
                 if (next[i].tid == s_fileTids[k]) {
@@ -731,12 +1151,87 @@ int TitlesChanged() {
 int Name(int index, char *out, unsigned out_cap) {
     if (index < 0 || index >= s_count || !out || !out_cap)
         return -1;
+    int ci = FindCustom(s_list[index].tid);
+    if (ci >= 0) {
+        snprintf(out, out_cap, "%s", s_customNames[ci].name);
+        out[out_cap - 1] = 0;
+        return (int)strlen(out);
+    }
+    return OriginalName(index, out, out_cap);
+}
+
+/// @brief Read a title's original name: NACP name, or live provider name.
+/// Provider names are never overwritten by renames; customs live in a
+/// separate table that Name() prefers.
+/// @param index Title index.
+/// @param out Output buffer.
+/// @param out_cap Buffer capacity.
+/// @return Bytes written, or negative on failure.
+int OriginalName(int index, char *out, unsigned out_cap) {
+    if (index < 0 || index >= s_count || !out || !out_cap)
+        return -1;
     int vi = vtitles::IndexOf(s_list[index].tid);
     if (vi >= 0)
         return vtitles::Name(vi, out, out_cap);
     snprintf(out, out_cap, "%s", s_list[index].name);
     out[out_cap - 1] = 0;
     return (int)strlen(out);
+}
+
+/// @brief Whether a tid is a virtual (plugin-provided) title.
+/// Virtual titles are owned by their provider and cannot be renamed.
+/// @param tid Title id.
+/// @return Non-zero when virtual.
+int IsVirtual(u64 tid) {
+    return vtitles::IsId(tid) ? 1 : 0;
+}
+
+/// @brief Rename any known title, virtual or not, persisting to titles.json.
+/// Virtual titles keep their provider (original) names; the rename lives
+/// in the custom table that Name() prefers.
+/// @param tid Title id (must be a known title).
+/// @param name New name (empty or blank names rejected).
+/// @return 0 on success, negative on failure.
+int Rename(u64 tid, const char *name) {
+    if (tid == 0 || !name || !name[0])
+        return -1;
+
+    bool known = false;
+    for (int i = 0; i < s_count; i++) {
+        if (s_list[i].tid == tid) {
+            known = true;
+            break;
+        }
+    }
+    if (!known)
+        return -1;
+
+    bool blank = true;
+    for (const char *p = name; *p; p++) {
+        if (*p != ' ' && *p != '\t' && *p != '\n' && *p != '\r') {
+            blank = false;
+            break;
+        }
+    }
+    if (blank)
+        return -1;
+
+    int slot = FindCustom(tid);
+    if (slot < 0) {
+        if (s_customCount >= kMaxTitles)
+            return -1;
+        slot = s_customCount++;
+        s_customNames[slot].tid = tid;
+    }
+    CopyTitleName(s_customNames[slot].name, name);
+    if (!s_customNames[slot].name[0]) {
+        for (int i = slot; i + 1 < s_customCount; i++)
+            s_customNames[i] = s_customNames[i + 1];
+        s_customCount--;
+        return -1;
+    }
+    Save();
+    return 0;
 }
 
 int Version(int index, char *out, unsigned out_cap) {

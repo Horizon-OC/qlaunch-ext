@@ -45,6 +45,9 @@ extern "C" int qext_title_icon(int i, void *o, unsigned c) { return titles::Icon
 extern "C" int qext_title_version(int i, char *o, unsigned c) { return titles::Version(i, o, c); }
 extern "C" int qext_title_publisher(int i, char *o, unsigned c) { return titles::Publisher(i, o, c); }
 extern "C" int qext_title_ejected(int i) { return titles::Ejected(i); }
+extern "C" int qext_title_is_virtual(u64 tid) { return titles::IsVirtual(tid); }
+extern "C" int qext_title_rename(u64 tid, const char *name) { return titles::Rename(tid, name); }
+extern "C" int qext_title_original_name(int i, char *o, unsigned c) { return titles::OriginalName(i, o, c); }
 int qext_titles_changed(void) { return titles::TitlesChanged(); }
 
 extern "C" int qext_album_refresh(void) { return album::Refresh(); }

@@ -43,6 +43,25 @@ extern "C" {
     /* Called on launch of any title. */
     QLAUNCH_HOOK int TitleLaunch(int index);
 
+    /* ---- Title registry queries (implemented by the loader) ----
+     * A plugin may call these to read the title registry. They resolve
+     * from the loader at runtime; no link-time dependency is needed.
+     * Providers only ever set original names through TitleName above:
+     * user renames live in the loader's titles.json and never feed back
+     * into TitleName. */
+
+    /* Number of titles right now. */
+    int qext_title_count(void);
+
+    /* Title id by index. */
+    unsigned long long qext_title_id(int index);
+
+    /* Effective display name (user rename when set, else original). */
+    int qext_title_name(int index, char *out, unsigned cap);
+
+    /* Original name (NACP name, or live provider name when virtual). */
+    int qext_title_original_name(int index, char *out, unsigned cap);
+
 #ifdef __cplusplus
 } /* extern C */
 #endif

@@ -6,6 +6,7 @@
 #include "Layout.hpp"
 #include "HostApi.hpp"
 #include "Submenus.hpp"
+#include "MenuPlugins.hpp"
 #include "Packs.hpp"
 #include "Touch.hpp"
 #include "Log.hpp"
@@ -30,6 +31,9 @@ namespace LayoutMod {
 
         /// @brief Pack-relative submenu directory name.
         constexpr char kSubmenuDirName[] = "submenus";
+
+        /// @brief Pack-relative menu plugin directory name.
+        constexpr char kPluginDirName[] = "plugins";
 
         /// @brief Loaded layout module state, single global.
         struct LayoutModState {
@@ -109,11 +113,17 @@ namespace LayoutMod {
             return false;
         }
 
+        char pluginDir[192] = { 0 };
+        snprintf(pluginDir, sizeof(pluginDir), "%s/%s", packDir, kPluginDirName);
+        pluginDir[sizeof(pluginDir) - 1] = 0;
+
         const MenuHostApi *hostApi = HostApi::GetHostApi();
         Submenus::Boot(hostApi, submenuDir);
+        MenuPlugins::Boot(hostApi, pluginDir);
 
         if (layoutBoot(hostApi, packDir) != 0) {
             Log::Line("[layoutmod] layout boot rejected");
+            MenuPlugins::Shutdown();
             Submenus::Shutdown();
             dlclose(s_state.handle);
             s_state.handle = nullptr;
@@ -124,9 +134,10 @@ namespace LayoutMod {
         return true;
     }
 
-    /// @brief Shut down submenus, then unload the layout module.
+    /// @brief Shut down menu plugins and submenus, then unload the layout module.
     void Shutdown()
     {
+        MenuPlugins::Shutdown();
         Submenus::Shutdown();
 
         if (s_state.handle) {

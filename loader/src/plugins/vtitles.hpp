@@ -24,7 +24,7 @@
  * TitleTid: stable fake tid for the title. Must have the high bit set
  *   (virtual space) and be unique across providers; when missing or
  *   unusable the loader assigns one from the provider slot instead.
- *   Prefer fixed fake tids (they keep order.json ranks and icon caches
+ *   Prefer fixed fake tids (they keep titles.json ranks and icon caches
  *   stable across reboots even if plugin load order changes).
  * TitleDonor: donor title id backing the launch (0 = none). The donor
  *   is only the application container (title id, save data); its own
@@ -34,7 +34,9 @@
  *   (with a donor), tapping the title boots the NRO and TitleLaunch
  *   is neither required nor called. Without it the title is plain:
  *   TitleLaunch handles the tap (0 = handled).
- * TitleName: name length into out (<0 on error).
+ * TitleName: name length into out (<0 on error). This sets the
+ *   ORIGINAL name only; user renames are stored loader-side in
+ *   titles.json and never feed back into the provider.
  * TitleIconSize/TitleIcon: JPEG bytes for the menu tile. JPEG only
  *   (the menu checks for SOI magic); <0 or missing means the menu
  *   draws its fallback tile. Max 256KB per icon.
