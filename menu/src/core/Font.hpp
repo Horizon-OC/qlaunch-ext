@@ -5,8 +5,10 @@
 #pragma once
 #include <switch.h>
 
-constexpr int kFontAtlasWidth = 1024;
-constexpr int kFontAtlasHeight = 1024;
+/* Maximum atlas dimensions for the baking scratch buffer. Actual GPU
+   textures are sized to the used area to reduce memory. */
+constexpr int kFontAtlasMaxWidth = 1024;
+constexpr int kFontAtlasMaxHeight = 1024;
 
 /* Text buffers: 0 latin, 1 kana, 2 icons. Atlas texture slots are
    engine-allocated at init (see Slot()). */

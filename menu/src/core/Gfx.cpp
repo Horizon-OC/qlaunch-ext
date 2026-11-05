@@ -935,19 +935,29 @@ namespace Gfx {
         rect.w = w;
         rect.h = h;
         if (fmt == TexFormat::R8) {
-            uint8_t *tmp = (uint8_t *)malloc((size_t)w * (size_t)h * 4);
-            bool ok;
-            if (!tmp)
+            /* Expand 8-bit coverage to white-with-alpha row-by-row to keep
+               CPU/unified-memory use low (4KB stack buffer). */
+            uint8_t row[4096];
+            int pitch = w * 4;
+            if ((size_t)pitch > sizeof(row))
                 return false;
-            for (int i = 0; i < w * h; i++) {
-                tmp[i * 4 + 0] = 255;
-                tmp[i * 4 + 1] = 255;
-                tmp[i * 4 + 2] = 255;
-                tmp[i * 4 + 3] = px[i];
+            for (int y = 0; y < h; y++) {
+                const uint8_t *src = px + (size_t)y * (size_t)w;
+                for (int x = 0; x < w; x++) {
+                    uint8_t c = src[x];
+                    row[x * 4 + 0] = 255;
+                    row[x * 4 + 1] = 255;
+                    row[x * 4 + 2] = 255;
+                    row[x * 4 + 3] = c;
+                }
+                rect.x = 0;
+                rect.y = y;
+                rect.w = w;
+                rect.h = 1;
+                if (!SDL_UpdateTexture(s_textureStore.handles[slot], &rect, row, pitch))
+                    return false;
             }
-            ok = SDL_UpdateTexture(s_textureStore.handles[slot], &rect, tmp, w * 4);
-            free(tmp);
-            return ok;
+            return true;
         }
         return SDL_UpdateTexture(s_textureStore.handles[slot], &rect, px, w * 4);
     }

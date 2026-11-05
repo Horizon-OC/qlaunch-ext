@@ -719,7 +719,7 @@ struct ThemeRow {
     /// @brief Persist the active theme index, preserving custom colors.
     static void PersistTheme()
     {
-        char retainedCustom[65536] = { 0 };
+        const char *retainedCustom = NULL;
         unsigned retainedCustomSize = 0;
 
         if (s_state.themeFileData && s_state.themeFileSize > 0) {
@@ -735,10 +735,8 @@ struct ThemeRow {
                     int customEnd = retainedDoc.toks[customRoot].end;
 
                     if (customStart >= 0 && customEnd > customStart &&
-                        (unsigned)customEnd <= s_state.themeFileSize &&
-                        (unsigned)(customEnd - customStart) < sizeof(retainedCustom)) {
-                        memcpy(retainedCustom, s_state.themeFileData + customStart,
-                               (size_t)(customEnd - customStart));
+                        (unsigned)customEnd <= s_state.themeFileSize) {
+                        retainedCustom = (const char *)(s_state.themeFileData + customStart);
                         retainedCustomSize = (unsigned)(customEnd - customStart);
                     }
                 }
@@ -751,7 +749,7 @@ struct ThemeRow {
             return;
         }
 
-        if (retainedCustomSize > 0) {
+        if (retainedCustom && retainedCustomSize > 0) {
             fprintf(themeFile, "{\"theme\": %d,\n\"custom\": %.*s}\n", s_state.activeTheme,
                     (int)retainedCustomSize, retainedCustom);
         } else {

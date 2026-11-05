@@ -31,7 +31,7 @@ extern "C" {
     TimeServiceType __nx_time_service_type = TimeServiceType_System;
 }
 
-static constexpr size_t kHeapFloor = 96u * 1024u * 1024u; /* 96MB */
+static constexpr size_t kHeapFloor = 60u * 1024u * 1024u; /* 96MB */
 static constexpr size_t kHeapCap = 384u * 1024u * 1024u; /* 384MB (Video/Burst) */
 static size_t g_heapSize = 0;
 extern char *fake_heap_start;

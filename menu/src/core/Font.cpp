@@ -22,12 +22,13 @@ namespace Font {
         int slot; /* Allocated by engine */
         stbtt_bakedchar g[512];
         float px;
+        int w;
+        int h;
         bool ok;
     };
 
     /// @brief All mutable font atlas state, single global.
     struct FontState {
-        uint8_t bitmap[kFontAtlasWidth * kFontAtlasHeight];
         Atlas atlases[3];
         bool isInitialized;
         const uint8_t *latinData;
@@ -70,38 +71,58 @@ namespace Font {
             return packData;
         }
 
-        /// @brief Bake one glyph range into the scratch atlas.
+        struct AtlasSize {
+            int w;
+            int h;
+        };
+
+        /// @brief Bake one glyph range, dynamically allocating the smallest
+        ///        scratch atlas that fits at the highest available quality.
         /// @param atlas Atlas receiving the bake.
         /// @param file Font file bytes.
-        /// @param heights Pixel heights to try.
+        /// @param heights Pixel heights to try (descending quality).
         /// @param heightCount Height count.
-        /// @return True when a height fit.
-        static bool BakeOne(Atlas *atlas, const uint8_t *file, const float *heights, int heightCount)
+        /// @param sizes Candidate atlas dimensions to try (ascending area).
+        /// @param sizeCount Candidate count.
+        /// @return True when baked and uploaded.
+        static bool BakeAndUpload(Atlas *atlas, const uint8_t *file, const float *heights, int heightCount,
+                                  const AtlasSize *sizes, int sizeCount)
         {
-            for (int i = 0; i < heightCount; i++) {
-                memset(s_state.bitmap, 0, sizeof(s_state.bitmap));
+            for (int si = 0; si < sizeCount; si++) {
+                int w = sizes[si].w;
+                int h = sizes[si].h;
+                if (w > kFontAtlasMaxWidth || h > kFontAtlasMaxHeight)
+                    continue;
 
-                int rows = stbtt_BakeFontBitmap(file, 0, heights[i], s_state.bitmap, kFontAtlasWidth, kFontAtlasHeight, atlas->first, atlas->count, atlas->g);
-                Log::Line("[menu] Baked font atlas with %d rows", rows);
+                for (int hi = 0; hi < heightCount; hi++) {
+                    size_t bytes = (size_t)w * (size_t)h;
+                    uint8_t *bitmap = (uint8_t *)malloc(bytes);
+                    if (!bitmap)
+                        return false;
+                    memset(bitmap, 0, bytes);
 
-                if (rows > 0 && rows <= kFontAtlasHeight) {
-                    atlas->px = heights[i];
-                    return true;
+                    int rows = stbtt_BakeFontBitmap(file, 0, heights[hi], bitmap, w, h,
+                                                    atlas->first, atlas->count, atlas->g);
+
+                    if (rows > 0 && rows <= h) {
+                        atlas->px = heights[hi];
+                        atlas->w = w;
+                        atlas->h = h;
+                        atlas->ok = Gfx::TexUpload(atlas->slot, bitmap, w, h, Gfx::TexFormat::R8);
+                        free(bitmap);
+                        if (atlas->ok) {
+                            Log::Line("[menu] Bake atlas range 0x%X: %dx%d @ %.0fpx (%d rows)",
+                                      (unsigned)atlas->first, w, h, heights[hi], rows);
+                        }
+                        return atlas->ok;
+                    }
+                    free(bitmap);
                 }
             }
             atlas->px = 0.0f;
-
+            atlas->w = 0;
+            atlas->h = 0;
             return false;
-        }
-
-        /// @brief Upload a baked atlas into GPU memory.
-        /// @param a Atlas to upload.
-        /// @return True on success.
-        static bool UploadOne(Atlas *atlas) {
-            if (!Gfx::TexUpload(atlas->slot, s_state.bitmap, kFontAtlasWidth, kFontAtlasHeight, Gfx::TexFormat::R8))
-                return false;
-            atlas->ok = true;
-            return true;
         }
 
         /// @brief Shut down font rendering.
@@ -126,8 +147,9 @@ namespace Font {
             s_state.iconData = nullptr;
         }
 
-        /// @brief Initialize font atlases and text buffers.
-        /// @return True on success.
+        /// @brief Give the engine texture slot for a text buffer.
+        /// @param buf Text buffer id (0-2).
+        /// @return Texture slot, or < 0 when unavailable.
         int Slot(int buf)
         {
             if (buf < 0 || buf > 2 || !s_state.atlases[buf].ok)
@@ -142,20 +164,37 @@ namespace Font {
         bool Init(const char *packDir) {
             static const float big[] = { 64.0f, 56.0f, 48.0f, 40.0f };
             static const float sml[] = { 48.0f, 40.0f, 32.0f };
+            /* Atlas size candidates, ascending area. Smaller textures reduce
+               GPU/unified-memory pressure. */
+            static const AtlasSize textSizes[] = {
+                { 512, 256 }, { 512, 384 }, { 512, 512 },
+                { 1024, 256 }, { 1024, 384 }, { 1024, 512 }, { 1024, 768 }, { 1024, 1024 },
+            };
+            static const AtlasSize iconSizes[] = {
+                { 512, 512 }, { 1024, 256 }, { 1024, 384 }, { 1024, 512 },
+                { 1024, 768 }, { 1024, 1024 },
+            };
+
             s_state.atlases[0].first = 32;
             s_state.atlases[0].count = 224;
             s_state.atlases[0].slot = Gfx::TexAlloc();
             s_state.atlases[0].ok = false;
+            s_state.atlases[0].w = 0;
+            s_state.atlases[0].h = 0;
 
             s_state.atlases[1].first = 0x3040;
             s_state.atlases[1].count = 192;
             s_state.atlases[1].slot = Gfx::TexAlloc();
             s_state.atlases[1].ok = false;
+            s_state.atlases[1].w = 0;
+            s_state.atlases[1].h = 0;
 
             s_state.atlases[2].first = 0xE000;
             s_state.atlases[2].count = 512;
             s_state.atlases[2].slot = Gfx::TexAlloc();
             s_state.atlases[2].ok = false;
+            s_state.atlases[2].w = 0;
+            s_state.atlases[2].h = 0;
 
             if (s_state.atlases[0].slot < 0 || s_state.atlases[1].slot < 0 || s_state.atlases[2].slot < 0)
                 return false;
@@ -175,38 +214,25 @@ namespace Font {
                 return false;
             }
 
-            if (!BakeOne(&s_state.atlases[0], s_state.latinData, big, 4)) {
+            if (!BakeAndUpload(&s_state.atlases[0], s_state.latinData, big, 4,
+                               textSizes, (int)(sizeof(textSizes) / sizeof(textSizes[0])))) {
                 return false;
             }
+            Log::Line("[menu] Latin atlas: %dx%d @ %.0fpx", s_state.atlases[0].w, s_state.atlases[0].h, s_state.atlases[0].px);
 
-            if (!UploadOne(&s_state.atlases[0]))
-                return false;
-
-            if (BakeOne(&s_state.atlases[1], s_state.latinData, big, 4))
-                UploadOne(&s_state.atlases[1]);
-
-            if (!BakeOne(&s_state.atlases[2], s_state.iconData, sml, 3)) {
-                return false;
+            if (BakeAndUpload(&s_state.atlases[1], s_state.latinData, big, 4,
+                              textSizes, (int)(sizeof(textSizes) / sizeof(textSizes[0])))) {
+                Log::Line("[menu] Kana atlas: %dx%d @ %.0fpx", s_state.atlases[1].w, s_state.atlases[1].h, s_state.atlases[1].px);
             }
 
-            UploadOne(&s_state.atlases[2]);
+            if (!BakeAndUpload(&s_state.atlases[2], s_state.iconData, sml, 3,
+                               iconSizes, (int)(sizeof(iconSizes) / sizeof(iconSizes[0])))) {
+                return false;
+            }
+            Log::Line("[menu] Icon atlas: %dx%d @ %.0fpx", s_state.atlases[2].w, s_state.atlases[2].h, s_state.atlases[2].px);
 
             s_state.isInitialized = true;
             return true;
-        }
-
-        /// @brief Re-bake an atlas in place and re-upload its descriptor.
-        /// @param a Atlas to refresh.
-        /// @param file Font file bytes.
-        /// @param heights Pixel heights to try.
-        /// @param nHeights Height count.
-        /// @return True on success.
-        static bool RebakeOne(Atlas *a, const uint8_t *file, const float *heights, int nHeights)
-        {
-            if (!BakeOne(a, file, heights, nHeights))
-                return false;
-            return Gfx::TexUpload(a->slot, s_state.bitmap, kFontAtlasWidth, kFontAtlasHeight,
-                                Gfx::TexFormat::R8);
         }
 
         /// @brief Reload system fonts (theme/content change).
@@ -216,10 +242,24 @@ namespace Font {
 
             static const float big[] = { 64.0f, 56.0f, 48.0f, 40.0f };
             static const float sml[] = { 48.0f, 40.0f, 32.0f };
+            static const AtlasSize textSizes[] = {
+                { 512, 256 }, { 512, 384 }, { 512, 512 },
+                { 1024, 256 }, { 1024, 384 }, { 1024, 512 }, { 1024, 768 }, { 1024, 1024 },
+            };
+            static const AtlasSize iconSizes[] = {
+                { 512, 512 }, { 1024, 256 }, { 1024, 384 }, { 1024, 512 },
+                { 1024, 768 }, { 1024, 1024 },
+            };
 
-            RebakeOne(&s_state.atlases[0], s_state.latinData, big, 4);
-            RebakeOne(&s_state.atlases[1], s_state.latinData, big, 4);
-            RebakeOne(&s_state.atlases[2], s_state.iconData, sml, 3);
+            if (s_state.atlases[0].ok)
+                BakeAndUpload(&s_state.atlases[0], s_state.latinData, big, 4,
+                              textSizes, (int)(sizeof(textSizes) / sizeof(textSizes[0])));
+            if (s_state.atlases[1].ok)
+                BakeAndUpload(&s_state.atlases[1], s_state.latinData, big, 4,
+                              textSizes, (int)(sizeof(textSizes) / sizeof(textSizes[0])));
+            if (s_state.atlases[2].ok)
+                BakeAndUpload(&s_state.atlases[2], s_state.iconData, sml, 3,
+                              iconSizes, (int)(sizeof(iconSizes) / sizeof(iconSizes[0])));
         }
 
         /// @brief Whether font rendering is usable.
@@ -313,7 +353,7 @@ namespace Font {
             float ypos = y;
             int buf = (int)(a - s_state.atlases); /* text buffer, not texture slot */
             stbtt_aligned_quad q;
-            stbtt_GetBakedQuad(a->g, kFontAtlasWidth, kFontAtlasHeight,
+            stbtt_GetBakedQuad(a->g, a->w, a->h,
                             (int)(cp - (unsigned)a->first), &xpos, &ypos,
                             &q, 1);
             float x0 = before + (q.x0 - before) * scale;
@@ -374,4 +414,3 @@ namespace Font {
         Draw(s, cx - w * 0.5f, y, px, r, g, b, a);
     }
 } /* namespace Font */
-
