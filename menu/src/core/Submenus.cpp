@@ -752,12 +752,15 @@ namespace Submenus {
             return;
         }
 
-        if (instance->phase != SubmenuPhase::Ready || !instance->callbacks.close) {
+        if (instance->phase != SubmenuPhase::Ready) {
+            RestoreMenuHeap();
             return;
         }
 
-        instance->callbacks.close(s_hostApi);
-        /* Restore after close so the submenu can release cap-heap allocations first. */
+        if (instance->callbacks.close) {
+            instance->callbacks.close(s_hostApi);
+        }
+
         RestoreMenuHeap();
     }
 
