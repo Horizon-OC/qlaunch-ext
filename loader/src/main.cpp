@@ -34,9 +34,10 @@ extern "C" {
 }
 
 /* NOTE: If you use more than 60mb then the browser will fail to load and fatal the console */
+/*       The heap must be 2MB aligned, otherwise it will cause issues and fails to resize   */
 static constexpr size_t kHeapFloor = 60u * 1024u * 1024u; /* 60MB (AppletRequired) */
 static constexpr size_t kHeapCap = 384u * 1024u * 1024u; /* 384MB (High) */
-static constexpr size_t kHeapBurst = 441u * 1024u * 1024u; /* 441MB (Burst) */
+static constexpr size_t kHeapBurst = 440u * 1024u * 1024u; /* 440MB (Burst) */
 static constexpr size_t kHeapSmall = 1u * 1024 * 1024; /* malloc fallback/small heap */
 static constexpr size_t kBigAlloc = 0; /* 0 = route all malloc to arena */
 static size_t g_heapSize = 0;
