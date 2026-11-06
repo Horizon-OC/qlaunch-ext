@@ -224,6 +224,17 @@ namespace Sfx {
             }
         }
 
+        static bool IsPcmPlaying(const short *pcm)
+        {
+            if (!pcm)
+                return false;
+            for (unsigned i = 0; i < kVoices; i++) {
+                if (s_voices[i].on && s_voices[i].pcm == pcm)
+                    return true;
+            }
+            return false;
+        }
+
         static void FreeDecoded(RegClip &r)
         {
             if (r.clip.pcm) {
@@ -234,6 +245,12 @@ namespace Sfx {
             r.clip.frames = 0;
             r.clip.ch = 0;
             r.clip.rate = 0;
+        }
+
+        static void FreeDecodedIfIdle(RegClip &r)
+        {
+            if (r.clip.pcm && !IsPcmPlaying(r.clip.pcm))
+                FreeDecoded(r);
         }
 
         /// @brief Clear the clip registry, freeing owned PCM.
@@ -264,11 +281,14 @@ namespace Sfx {
                 for (int i = 0; i < s_registryCount; i++) {
                     if (i == exceptSlot || !s_registry[i].clip.pcm)
                         continue;
+                    /* Never evict PCM still playing (would cut off SFX). */
+                    if (IsPcmPlaying(s_registry[i].clip.pcm))
+                        continue;
                     if (victim < 0 || s_registry[i].lastUsed < s_registry[victim].lastUsed)
                         victim = i;
                 }
                 if (victim < 0)
-                    break;
+                    break; /* all cached clips playing; allow temporary overage */
                 FreeDecoded(s_registry[victim]);
             }
         }
@@ -676,8 +696,24 @@ namespace Sfx {
     /// @brief Mix one tick and queue it on the SDL audio stream. Call every frame.
     void Tick()
     {
-        if (!s_isReady || !s_audioStream) {
+        if (!s_isReady) {
             return;
+        }
+        if (!s_audioStream) {
+            if (!SDL_WasInit(SDL_INIT_AUDIO)) {
+                SDL_InitSubSystem(SDL_INIT_AUDIO);
+            }
+            SDL_AudioSpec spec;
+            spec.format = SDL_AUDIO_S16;
+            spec.channels = kOutCh;
+            spec.freq = kOutRate;
+            s_audioStream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, NULL, NULL);
+            if (s_audioStream) {
+                SDL_ResumeAudioStreamDevice(s_audioStream);
+                s_appendFailCount = 0;
+            } else {
+                return;
+            }
         }
 
         short *dst = s_mixBuffer;
@@ -773,6 +809,22 @@ namespace Sfx {
                 s_appendCount++;
             } else {
                 s_appendFailCount++;
+                /* Reopen audio device if it was lost (e.g. after game exit). */
+                if (s_appendFailCount > 10) {
+                    SDL_DestroyAudioStream(s_audioStream);
+                    s_audioStream = 0;
+                    SDL_AudioSpec spec;
+                    spec.format = SDL_AUDIO_S16;
+                    spec.channels = kOutCh;
+                    spec.freq = kOutRate;
+                    s_audioStream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, NULL, NULL);
+                    if (s_audioStream) {
+                        SDL_ResumeAudioStreamDevice(s_audioStream);
+                        s_appendFailCount = 0;
+                    } else {
+                        s_isReady = false;
+                    }
+                }
             }
         } else {
             s_appendFailCount++;
@@ -882,12 +934,11 @@ namespace Sfx {
     }
 
     /// @brief Free cached decoded SFX PCM to reduce memory (clips reload on play).
+    ///        Playing clips are preserved so SFX aren't cut off.
     void Trim()
     {
-        for (unsigned i = 0; i < kVoices; i++)
-            s_voices[i].on = false;
         for (int i = 0; i < s_registryCount; i++)
-            FreeDecoded(s_registry[i]);
+            FreeDecodedIfIdle(s_registry[i]);
         /* Free video ring when not in active video mode. */
         pthread_mutex_lock(&s_videoMutex);
         if (!s_videoMode && s_videoBuffer) {

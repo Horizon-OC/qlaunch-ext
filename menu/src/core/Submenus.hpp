@@ -90,6 +90,9 @@ namespace Submenus {
     /// @brief Set heap profile via host API (0=Minimal, 1=Cap, 2=Burst).
     int SetHeapProfile(int profile);
 
+    /// @brief Release free arena heap back to the system (minimize memory).
+    unsigned ReleaseHeap(void);
+
     /// @brief Give a dynamic submenu tab accent color.
     /// @param tabIndex Tabs registry index.
     /// @param redOut Red output.

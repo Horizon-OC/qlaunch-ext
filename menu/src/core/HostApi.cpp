@@ -440,6 +440,38 @@ namespace HostApi {
             return qext_heap_set(heapProfile);
         }
 
+        /* Loader qext heap/arena exports (resolved at load). */
+        extern "C" int qext_heap_set_size(unsigned size_mb);
+        extern "C" unsigned qext_heap_release(void);
+        extern "C" unsigned long qext_arena_free_bytes(void);
+        extern "C" unsigned long qext_arena_size(void);
+        extern "C" unsigned qext_heap_size_mb(void);
+
+        int QextHeapSetSizeThunk(unsigned sizeMb)
+        {
+            return qext_heap_set_size(sizeMb);
+        }
+
+        unsigned QextHeapReleaseThunk(void)
+        {
+            return qext_heap_release();
+        }
+
+        unsigned long QextArenaFreeBytesThunk(void)
+        {
+            return qext_arena_free_bytes();
+        }
+
+        unsigned long QextArenaSizeThunk(void)
+        {
+            return qext_arena_size();
+        }
+
+        unsigned QextHeapSizeMbThunk(void)
+        {
+            return qext_heap_size_mb();
+        }
+
         void GfxPushOverlayPanelThunk(float positionX, float positionY, float width, float height, float cornerRadius,
                                       float red, float green, float blue, float alpha)
         {
@@ -1100,6 +1132,11 @@ namespace HostApi {
             GfxIdentityBindThunk,
             GfxIdentityPurgeThunk,
             GfxIdentityUnregisterThunk,
+            QextHeapSetSizeThunk,
+            QextHeapReleaseThunk,
+            QextArenaFreeBytesThunk,
+            QextArenaSizeThunk,
+            QextHeapSizeMbThunk,
         };
 
     } // namespace

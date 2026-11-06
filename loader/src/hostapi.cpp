@@ -99,6 +99,11 @@
 #include <tuple>
 #include <regex>
 #include <filesystem>
+#include <algorithm>
+#include <iterator>
+#include <numeric>
+#include <utility>
+#include <cstdint>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -183,6 +188,16 @@ __attribute__((used)) static void hostapi_seq(void *opaque)
     v->reserve(64);
     hostapi_sink_int = v->at(hostapi_idx);
     v->resize(8);
+    v->clear();
+    v->shrink_to_fit();
+    std::vector<unsigned char> vb;
+    vb.push_back(0);
+    vb.resize(16);
+    std::vector<std::uint64_t> v64;
+    v64.push_back(1);
+    std::vector<std::string> vs;
+    vs.emplace_back("x");
+    vs.clear();
     std::list<int> l;
     l.push_back(1);
     l.remove(1);
@@ -191,24 +206,39 @@ __attribute__((used)) static void hostapi_seq(void *opaque)
     d.pop_back();
     std::array<int, 4> a;
     a.fill(9);
-    (void)a;
+    std::array<unsigned char, 16> ab{};
+    (void)a; (void)ab;
     std::queue<int> q;
     q.push(3);
     q.pop();
     std::stack<int> s;
     s.push(4);
     s.pop();
+    if (hostapi_never) {
+        std::sort(v->begin(), v->end());
+        (void)std::find(v->begin(), v->end(), 1);
+        (void)std::accumulate(v->begin(), v->end(), 0);
+        std::copy(v->begin(), v->end(), std::back_inserter(vb));
+        std::stable_sort(v64.begin(), v64.end());
+    }
 }
 
 __attribute__((used)) static void hostapi_str(void *opaque)
 {
     std::string *s = (std::string *)opaque;
     s->append("x");
+    s->push_back('y');
+    s->clear();
+    s->reserve(32);
     hostapi_sink_int = s->compare("y");
+    hostapi_sink_int = (int)s->find("a");
     std::string sub = s->substr(0, 1);
     hostapi_sink = (void *)sub.c_str();
     hostapi_sink = (void *)s->c_str();
     hostapi_sink_int = s->at(hostapi_idx);
+    std::string a = std::string("a") + "b";
+    a += 'c';
+    (void)a;
     std::stringstream ss;
     ss << 42 << "x";
     std::string r = ss.str();
@@ -259,8 +289,10 @@ __attribute__((used)) static void hostapi_chrono_rand(void)
 {
     auto t1 = std::chrono::system_clock::now();
     auto t2 = std::chrono::steady_clock::now();
-    (void)t1;
-    (void)t2;
+    auto d = t2 - t2;
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(d).count();
+    auto us = std::chrono::duration_cast<std::chrono::microseconds>(d).count();
+    (void)t1; (void)ms; (void)us;
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
     std::mt19937 rng(42);
     std::uniform_int_distribution<int> dist(1, 6);
@@ -275,6 +307,18 @@ __attribute__((used)) static void hostapi_misc(void)
 {
     std::atomic<int> at{0};
     at.fetch_add(1);
+    at.store(2);
+    (void)at.load();
+    std::atomic<bool> ab{false};
+    ab.store(true);
+    ab.exchange(false);
+    std::atomic<unsigned> au{0};
+    au.fetch_sub(1);
+    std::atomic<std::uint32_t> a32{0};
+    a32.fetch_or(1);
+    std::atomic<std::uint64_t> a64{0};
+    std::uint64_t a64expected = 0;
+    a64.compare_exchange_strong(a64expected, 1);
     std::atomic_thread_fence(std::memory_order_seq_cst);
     std::bitset<64> b;
     b.set(3);
@@ -292,6 +336,8 @@ __attribute__((used)) static void hostapi_misc(void)
     (void)std::any_cast<int>(a);
     auto t = std::make_tuple(1, 2.0);
     (void)t;
+    auto p = std::make_pair(1, 2);
+    (void)p;
 }
 
 __attribute__((used)) static void hostapi_regex_fs(void *opaque)

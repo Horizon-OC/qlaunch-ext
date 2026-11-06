@@ -60,7 +60,7 @@ namespace App {
         };
 
         /// @brief (Re)assign icon slots for all rows, focus first.
-        void AssignIconSlots()
+        void AssignIconSlots(bool eager = false)
         {
             AppState &appState = s_state;
             u64 titleIds[kAppMaxTitles + kAppAppletCount];
@@ -72,7 +72,7 @@ namespace App {
                 iconSlots[rowIndex] = -1;
             }
 
-            Icons::Sync(titleIds, iconSlots, appState.rowCount, appState.sel);
+            Icons::Sync(titleIds, iconSlots, appState.rowCount, appState.sel, eager ? -1 : 2);
 
             for (int rowIndex = 0; rowIndex < appState.rowCount; rowIndex++) {
                 appState.rows[rowIndex].iconSlot = iconSlots[rowIndex];
@@ -971,6 +971,8 @@ namespace App {
             if (Submenus::IsDynamicTab(s_transitionFrom) && s_transitionFrom != s_transitionTo) {
                 Submenus::ExitDynamicTabNoHeap(s_transitionFrom);
             }
+            /* Release arena after unloading to minimize memory, then apply target. */
+            Submenus::ReleaseHeap();
             Submenus::SetHeapProfile(Submenus::TargetHeapProfile(s_transitionTo));
             s_transitionPending = false;
             s_transitionLeavingHome = false;
@@ -995,6 +997,9 @@ namespace App {
             s_iconSync.selection = -1;
             s_iconSync.rowCount = -1;
             RefreshTitles();
+            /* Eagerly load Home icons during the transition (at Burst) to avoid
+               placeholder letters flashing. */
+            AssignIconSlots(true);
         }
 
         s_transitionPending = true;
@@ -1046,6 +1051,8 @@ namespace App {
                 if (Submenus::IsDynamicTab(s_transitionFrom) && s_transitionFrom != s_transitionTo) {
                     Submenus::ExitDynamicTabNoHeap(s_transitionFrom);
                 }
+                /* Release arena after unloading to minimize memory, then apply target. */
+                Submenus::ReleaseHeap();
                 Submenus::SetHeapProfile(Submenus::TargetHeapProfile(s_transitionTo));
                 s_transitionPending = false;
                 s_transitionLeavingHome = false;

@@ -1,8 +1,12 @@
 _Z19qext_titles_changedv
 _ZdlPvm
 _ZN7logging7LogLineEPKcz
+_ZNKSt8__detail20_Prime_rehash_policy11_M_next_bktEm
+_ZNKSt8__detail20_Prime_rehash_policy14_M_need_rehashEmmm
 _Znwm
+_ZSt17__throw_bad_allocv
 _ZSt20__throw_length_errorPKc
+_ZSt28__throw_bad_array_new_lengthv
 acosf
 calloc
 closedir
@@ -58,6 +62,8 @@ qext_album_movie_read
 qext_album_movie_size
 qext_album_refresh
 qext_album_thumb
+qext_arena_free_bytes
+qext_arena_size
 qext_battery_charging
 qext_battery_percent
 qext_colorset
@@ -71,7 +77,10 @@ qext_folder_id
 qext_folder_name
 qext_game_has_foreground
 qext_game_running
+qext_heap_release
 qext_heap_set
+qext_heap_set_size
+qext_heap_size_mb
 qext_launch_applet
 qext_launch_title
 qext_refresh_titles
@@ -116,6 +125,7 @@ SDL_SetPointerProperty
 SDL_SetRenderDrawBlendMode
 SDL_UnlockTexture
 SDL_UpdateTexture
+SDL_WasInit
 sinf
 snprintf
 sqrtf

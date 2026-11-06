@@ -214,6 +214,12 @@ extern "C" {
         void (*gfxIdentityBind)(const char *id, int slot);
         void (*gfxIdentityPurge)(const char *id);
         void (*gfxIdentityUnregister)(const char *id);
+        /* Arena/heap management (append-only). */
+        int (*qextHeapSetSize)(unsigned sizeMb);
+        unsigned (*qextHeapRelease)(void);
+        unsigned long (*qextArenaFreeBytes)(void);
+        unsigned long (*qextArenaSize)(void);
+        unsigned (*qextHeapSizeMb)(void);
     };
 
     /// @brief Fill background, ink, and accent colors from the theme configuration.

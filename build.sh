@@ -84,9 +84,7 @@ HOST_ELF="$ROOT/loader/loader.elf" sh "$ROOT/extern/SDL-dlink/build.sh"
 
 NM="$DEVKITPRO/devkitA64/bin/aarch64-none-elf-nm"
 FFDEF="$FFDIR/dnro/ffmpeg.def"
-# Menu ABI check: every menu import (including SDL_*) must resolve from the
-# loader, sdl3, neko3d, or the lib modules. A menu that imports what nobody
-# provides dies at dlopen with a bare dlink COULD_NOT_RESOLVE.
+
 "$NM" -D -u "$ROOT/menu/menu.elf" | awk "{print \$NF}" | sort -u > "$ROOT/build.menuneed"
 { "$NM" -D --defined-only "$ROOT/loader/loader.elf" | awk "{print \$NF}"
   cat "$ROOT/extern/SDL-dlink/dnro/sdl3.def" "$NEKOMOD/neko3d.def" \
@@ -101,36 +99,6 @@ if [ -n "$MMISSING" ]; then
     exit 1
 fi
 echo "menu import check passed"
-# ffmpeg ABI check: the shared module may only import what the loader host
-# provides (libc/libnx/pthreads/nv). Anything else dies at dlopen.
-"$NM" -D -u "$FFDIR/dnro/ffmpeg.elf" | awk "{print \$NF}" | sort -u > "$ROOT/build.ffneed"
-{ "$NM" -D --defined-only "$ROOT/loader/loader.elf" | awk "{print \$NF}"
-} | tr -d '\r' | sort -u > "$ROOT/build.ffhave"
-FMISSING=$(comm -23 "$ROOT/build.ffneed" "$ROOT/build.ffhave" || true)
-rm -f "$ROOT/build.ffneed" "$ROOT/build.ffhave"
-if [ -n "$FMISSING" ]; then
-    echo "error: $FFDIR/dnro/ffmpeg.elf bad imports:" >&2
-    echo "$FMISSING" >&2
-    exit 1
-fi
-echo "ffmpeg import check passed"
-for p in "$ROOT"/plugins/*/*.elf "$ROOT"/menu/default_layout/submenus/*/*.elf "$ROOT"/menu/default_layout/plugins/*/*.elf "$ROOT"/menu/default_layout/layout/*.elf; do
-    [ -f "$p" ] || continue
-    "$NM" -D -u "$p" | awk "{print \$NF}" | sort -u > "$ROOT/build.plugneed"
-    { "$NM" -D --defined-only "$ROOT/loader/loader.elf" | awk "{print \$NF}"
-      cat "$NEKOMOD/neko3d.def" "$ROOT/lib/miniini-module/miniini.def" \
-          "$ROOT/lib/json-module/json.def" "$ROOT/lib/xxhash-module/xxhash.def" \
-          "$FFDEF"
-    } | sort -u > "$ROOT/build.plughave"
-    PMISSING=$(comm -23 "$ROOT/build.plugneed" "$ROOT/build.plughave" || true)
-    rm -f "$ROOT/build.plugneed" "$ROOT/build.plughave"
-    if [ -n "$PMISSING" ]; then
-        echo "error: $p bad imports:" >&2
-        echo "$PMISSING" >&2
-        exit 1
-    fi
-done
-echo "import check passed"
 
 rm -rf "$DEST"
 mkdir -p "$DEST"

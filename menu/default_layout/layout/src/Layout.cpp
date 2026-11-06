@@ -311,11 +311,43 @@ namespace Layout {
             s_slideOffsetX = 0.0f;
             DrawTab(hostApi->appMenu());
         } else {
+            static int s_maskTex = -1;
+            if (s_maskTex < 0) {
+                s_maskTex = hostApi->gfxTexAlloc();
+                if (s_maskTex >= 0) {
+                    static const unsigned char whitePx[4] = { 255, 255, 255, 255 };
+                    if (!hostApi->gfxTexUploadRgba(s_maskTex, whitePx, 1, 1)) {
+                        hostApi->gfxTexFree(s_maskTex);
+                        s_maskTex = -1;
+                    }
+                }
+            }
+
+            /* Mask uses the destination tab's background so the incoming side has
+               a clean cutoff (side-by-side backgrounds scroll in WBackground). */
+            float bgR = 1.0f, bgG = 1.0f, bgB = 1.0f;
+            {
+                const char *toId = hostApi->tabIdAt(hostApi->appMenu());
+                if (toId)
+                    hostApi->themeTabColor(toId, &bgR, &bgG, &bgB);
+            }
+
             float outgoingX = hostApi->menuSlideX();
             float slideDirection = (float)hostApi->menuDir();
             s_slideOffsetX = outgoingX;
             DrawTab(hostApi->menuFrom());
+            /* Draw incoming tab on top with an opaque mask behind it. Push mask
+               in panel+icon passes (after outgoing, before incoming) so it covers
+               outgoing panels/icons (e.g. gamestrip) but incoming draws over it. */
             s_slideOffsetX = outgoingX + slideDirection * 1920.0f;
+            hostApi->gfxPushPanel(s_slideOffsetX, 0.0f, 1920.0f, 1080.0f, 0.0f,
+                                  bgR, bgG, bgB, 1.0f);
+            if (s_maskTex >= 0) {
+                hostApi->gfxPushIcon(s_slideOffsetX, 0.0f, 1920.0f, 1080.0f,
+                                     0.0f, 0.0f, 0.0f, 0.0f,
+                                     bgR, bgG, bgB, 0.0f,
+                                     s_maskTex, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f);
+            }
             DrawTab(hostApi->appMenu());
             s_slideOffsetX = 0.0f;
         }

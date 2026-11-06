@@ -826,6 +826,14 @@ namespace Submenus {
         return s_hostApi->qextHeapSet(profile);
     }
 
+    /// @brief Release free arena heap back to the system (minimize memory).
+    unsigned ReleaseHeap(void)
+    {
+        if (!s_hostApi || !s_hostApi->qextHeapRelease)
+            return 0;
+        return s_hostApi->qextHeapRelease();
+    }
+
     /// @brief Give a dynamic submenu tab accent color.
     /// @param tabIndex Tabs registry index.
     /// @param redOut Red output.

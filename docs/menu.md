@@ -30,3 +30,22 @@ C++, but bindings for Lua and JavaScript are planned in future
 
 ## Making your own extention to NekoMenu
 TODO
+
+## Heap management
+For full operation, your menu must fit within 62MB heap.
+To allocate memory you must use the qext_* functions, as they are the only ones capable of properly managing and relocating themselves on heap layout differences
+
+## Standard compliance
+libnx and libc are fully linked, so you can freely use their functions.
+FFMpeg, SDL3, Neko3D (deko3D Dynamic), xxhash, JSON for modern C++ and miniIni are dynamically linked as well.
+For libstdc++, it's more complicated.
+Due to agonizing link times with the entire lib linked, only parts of it are linked.
+These include:
+- **Strings/streams:** `<string>` (`std::string`), `<sstream>`, `<iostream>`, `<fstream>`, `<iomanip>`
+- **Containers:** `<vector>` (incl. `int`, `unsigned char`, `uint64_t`, `std::string`), `<array>`, `<deque>`, `<list>`, `<queue>`, `<stack>`, `<map>`, `<set>`, `<unordered_map>`, `<unordered_set>`
+- **Algorithms/utilities:** `<algorithm>` (`sort`/`find`/`stable_sort`/`copy`/`back_inserter`), `<numeric>` (`accumulate`), `<iterator>`, `<utility>` (`pair`), `<tuple>`
+- **Memory/callables:** `<memory>` (`shared_ptr`/`weak_ptr`/`make_shared`), `<functional>` (`std::function`)
+- **Atomics/chrono:** `<atomic>` (`int`, `bool`, `unsigned`, `uint32_t`, `uint64_t`, fences/CAS/`fetch_*`), `<chrono>` (`system_clock`/`steady_clock`, `duration_cast` ms/us, `this_thread::sleep_for`)
+- **Threads:** `<mutex>`/`<lock_guard>`/`<unique_lock>`, `<condition_variable>`, `<thread>`, `<future>`/`<promise>`/`std::async`
+- **Other:** `<random>` (`mt19937`, distributions), `<bitset>`, `<complex>`, `<valarray>`, `<optional>`, `<variant>`, `<any>`, `<regex>`, `<filesystem>` (`path`/`exists`/`file_size`), `<type_traits>`/`<limits>`
+If you need something else, either reimplement it yourself or you must recompile loader

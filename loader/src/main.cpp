@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstring>
 #include <malloc.h>
+#include <unistd.h>
 #include <switch.h>
 #include <switch/display/parcel.h>
 #include <dlink/dlink.h>
@@ -16,6 +17,7 @@
 #include "sys.hpp"
 #include "titles.hpp"
 #include "album.hpp"
+#include "arena.hpp"
 
 extern "C" {
     /* Otherwise nothing will work*/
@@ -31,12 +33,56 @@ extern "C" {
     TimeServiceType __nx_time_service_type = TimeServiceType_System;
 }
 
-static constexpr size_t kHeapFloor = 64u * 1024u * 1024u; /* 96MB */
+/* NOTE: If you use more than 60mb then the browser will fail to load and fatal the console */
+static constexpr size_t kHeapFloor = 60u * 1024u * 1024u; /* 60MB (AppletRequired) */
 static constexpr size_t kHeapCap = 384u * 1024u * 1024u; /* 384MB (High) */
 static constexpr size_t kHeapBurst = 441u * 1024u * 1024u; /* 441MB (Burst) */
+static constexpr size_t kHeapSmall = 1u * 1024 * 1024; /* malloc fallback/small heap */
+static constexpr size_t kBigAlloc = 0; /* 0 = route all malloc to arena */
 static size_t g_heapSize = 0;
 extern char *fake_heap_start;
 extern char *fake_heap_end;
+
+static Mutex s_arenaLock;
+static char *s_arenaStart = nullptr;
+static char *s_arenaEnd = nullptr;
+static bool s_arenaReady = false;
+
+static inline bool InArena(void *p)
+{
+    return s_arenaStart && (char *)p >= s_arenaStart && (char *)p < s_arenaEnd;
+}
+
+static Result heap_set_total(size_t target);
+
+static void *ArenaAlloc(size_t n, size_t align)
+{
+    if (n < kBigAlloc || !s_arenaReady || s_arenaEnd == s_arenaStart)
+        return nullptr;
+    mutexLock(&s_arenaLock);
+    void *p = arena::Alloc(n, align);
+    mutexUnlock(&s_arenaLock);
+    if (p)
+        return p;
+
+    /* No contiguous hole satisfied the request. Grow the kernel heap
+       (up to Burst) and retry, so fragmentation or a trimmed heap turns
+       into growth instead of allocation failure: SDL audio queue chunks
+       and lazily decoded WAVs must not observe NULL when the heap has
+       reserved space left. heap_set_total does its own locking. */
+    size_t toAdd = n + align + arena::kMinBlock + (32u << 20);
+    size_t target = g_heapSize + toAdd;
+    if (target < g_heapSize || target > kHeapBurst)
+        target = kHeapBurst;
+    if (target <= g_heapSize)
+        return nullptr;
+    if (R_FAILED(heap_set_total(target)))
+        return nullptr;
+    mutexLock(&s_arenaLock);
+    p = arena::Alloc(n, align);
+    mutexUnlock(&s_arenaLock);
+    return p; /* still null: hard OOM, caller falls back on malloc's heap */
+}
 
 /* Initialize the heap properly, idk if this is needed */
 extern "C" void __libnx_initheap(void)
@@ -53,57 +99,168 @@ extern "C" void __libnx_initheap(void)
     }
 }
 
-static Result heap_set(size_t target, size_t maxTarget = kHeapCap)
+static unsigned heap_release_arena(FILE *also);
+
+/* Grow or establish heap to `target` (bytes). Splits into small malloc heap
+   + arena on first arena setup; extends arena on grow. Respects out_addr. */
+static Result heap_set_total(size_t target)
 {
     if (target < kHeapFloor)
         target = kHeapFloor;
-    if (maxTarget < kHeapCap)
-        maxTarget = kHeapCap;
-    if (maxTarget > kHeapBurst)
-        maxTarget = kHeapBurst;
-    if (target > maxTarget)
-        target = maxTarget;
-    if (target == g_heapSize)
+    if (target > kHeapBurst)
+        target = kHeapBurst;
+
+    /* Shrink requests: release arena from the top first. */
+    if (s_arenaReady && target < g_heapSize) {
+        heap_release_arena(nullptr);
+        if (g_heapSize <= target)
+            return 0; /* release trimmed as far as possible (may be pinned above target) */
+        /* try to shrink further only if arena is clear down to target */
+        mutexLock(&s_arenaLock);
+        char *newEnd = fake_heap_start + target;
+        if (newEnd < s_arenaStart)
+            newEnd = s_arenaStart;
+        if (newEnd < s_arenaEnd) {
+            /* can only shrink to newEnd if no live blocks above it; TrimEnd/scan
+               already done by release - if s_arenaEnd > newEnd, we're pinned */
+            mutexUnlock(&s_arenaLock);
+            return 0; /* pinned by live arena allocations; caller tolerates RC/failure semantics */
+        }
+        mutexUnlock(&s_arenaLock);
+    }
+
+    if (target == g_heapSize && s_arenaReady)
         return 0;
+
     void *addr = nullptr;
     Result rc = svcSetHeapSize(&addr, target);
     if (R_FAILED(rc))
         return rc;
     if (g_heapSize != 0 && addr != (void *)fake_heap_start)
         return MAKERESULT(Module_Libnx, LibnxError_OutOfMemory);
-    g_heapSize = target;
+
     fake_heap_start = (char *)addr;
-    fake_heap_end = (char *)addr + g_heapSize;
+
+    mutexLock(&s_arenaLock);
+    if (!s_arenaReady) {
+        size_t small = kHeapSmall;
+        char *brk = (char *)sbrk(0);
+        size_t used = (brk > fake_heap_start) ? ((size_t)(brk - fake_heap_start) + 0x1FFFFFu) & ~(size_t)0x1FFFFFu : 0;
+        if (small < used)
+            small = used;
+        if (small > target)
+            small = target;
+        s_arenaStart = fake_heap_start + small;
+        s_arenaEnd = s_arenaStart;
+        fake_heap_end = s_arenaStart; /* confine malloc heap */
+        arena::g_free = nullptr;
+        s_arenaReady = true;
+    }
+    char *end = fake_heap_start + target;
+    if (end > s_arenaEnd) {
+        arena::Insert(s_arenaEnd, (size_t)(end - s_arenaEnd));
+        s_arenaEnd = end;
+    } else if (end < s_arenaEnd) {
+        /* The kernel shrank the heap below the previous arena end.
+           Drop free blocks at/above the new end so the free list can
+           never hand out pointers to unmapped memory. */
+        arena::PruneAbove(end);
+        s_arenaEnd = end;
+        fake_heap_end = s_arenaStart;
+    }
+    g_heapSize = target;
+    mutexUnlock(&s_arenaLock);
     return 0;
 }
 
-static Result heap_set_floor() {
-    Result rc = heap_set(kHeapFloor);
-    if (R_SUCCEEDED(rc))
-        return rc;
-    /* Try to reclaim as much heap as possible */
-    static const size_t kSteps[] = {
-        192u * 1024u * 1024u,
-        128u * 1024u * 1024u,
-        96u * 1024u * 1024u,
-        kHeapFloor,
-    };
-    for (size_t i = 0; i < sizeof(kSteps) / sizeof(kSteps[0]); i++) {
-        if (kSteps[i] >= g_heapSize)
-            continue;
-        Result r2 = heap_set(kSteps[i]);
-        if (R_SUCCEEDED(r2))
-            return 0;
+/* Release arena space from the top (down to highest live block) and shrink
+   heap. Returns resulting heap size in MB (0 on failure to query meaningfully). */
+static unsigned heap_release_arena(FILE *also)
+{
+    if (!s_arenaReady)
+        return (unsigned)(g_heapSize >> 20);
+
+    mutexLock(&s_arenaLock);
+    if (also) {
+        /* Verbose/debug: scan all blocks (slow on large arenas). */
+        for (char *c = s_arenaStart; c < s_arenaEnd; ) {
+            size_t size = *(size_t *)c;
+            if (size < 16 || c + size > s_arenaEnd)
+                break;
+            if (((arena::Head *)c)->magic == arena::kMagic) {
+                char text[33] = {};
+                const char *data = c + sizeof(arena::Head);
+                for (unsigned j = 0; j < 32; j++)
+                    text[j] = (data[j] >= 32 && data[j] < 127) ? data[j] : '.';
+                logging::LogLine("[heap] arena live +%zu KB size %zu: %s",
+                                 (size_t)(c - s_arenaStart) >> 10, size, text);
+                fprintf(also, "[heap] arena live +%zu KB size %zu: %s\n",
+                        (size_t)(c - s_arenaStart) >> 10, size, text);
+            }
+            c += size;
+        }
     }
-    return rc;
+    char *top = arena::TrimEnd(s_arenaEnd);
+    /* Log the highest live block (pinning point) for debugging leaks. */
+    {
+        char *highest = s_arenaStart;
+        for (char *c = s_arenaStart; c < s_arenaEnd; ) {
+            size_t size = *(size_t *)c;
+            if (size < 16 || c + size > s_arenaEnd) break;
+            if (((arena::Head *)c)->magic == arena::kMagic) {
+                if (c + size > highest) highest = c + size;
+            }
+            c += size;
+        }
+        if (highest > s_arenaStart)
+            logging::LogLine("[heap] highest live block ends at +%zu KB (top free tail +%zu KB)", (size_t)(highest - s_arenaStart) >> 10, (size_t)(top - s_arenaStart) >> 10);
+    }
+    /* If the entire arena is free, reset it fast (avoids stale free-list state). */
+    if (top == s_arenaStart) {
+        arena::g_free = nullptr;
+        s_arenaEnd = s_arenaStart;
+        top = s_arenaEnd;
+    }
+    char *targetEnd = fake_heap_start + (((size_t)(top - fake_heap_start) + 0x1FFFFFu) & ~(size_t)0x1FFFFFu);
+    if (targetEnd < fake_heap_start + kHeapFloor)
+        targetEnd = fake_heap_start + kHeapFloor;
+    if (targetEnd < top || targetEnd > s_arenaEnd)
+        targetEnd = s_arenaEnd;
+    if (targetEnd > top)
+        arena::Insert(top, (size_t)(targetEnd - top));
+
+    void *addr = nullptr;
+    if (targetEnd < s_arenaEnd && R_SUCCEEDED(svcSetHeapSize(&addr, (size_t)(targetEnd - fake_heap_start)))) {
+        if (addr == (void *)fake_heap_start || g_heapSize == 0) {
+            s_arenaEnd = targetEnd;
+            g_heapSize = (size_t)(targetEnd - fake_heap_start);
+            if (s_arenaEnd == s_arenaStart)
+                arena::g_free = nullptr;
+        } else {
+            arena::Insert(targetEnd, (size_t)(s_arenaEnd - targetEnd));
+        }
+    } else if (targetEnd < s_arenaEnd) {
+        arena::Insert(targetEnd, (size_t)(s_arenaEnd - targetEnd));
+    } else if (s_arenaEnd == s_arenaStart) {
+        arena::g_free = nullptr;
+    }
+    mutexUnlock(&s_arenaLock);
+    return (unsigned)(g_heapSize >> 20);
+}
+
+static Result heap_set_floor() {
+    /* Reclaim arena, then reclaim the full floor heap; RC failures are common and tolerated. */
+    if (s_arenaReady)
+        heap_release_arena(nullptr);
+    return heap_set_total(kHeapFloor);
 }
 
 static Result heap_set_cap() {
-    return heap_set(kHeapCap);
+    return heap_set_total(kHeapCap);
 }
 
 static Result heap_set_burst() {
-    return heap_set(kHeapBurst, kHeapBurst);
+    return heap_set_total(kHeapBurst);
 }
 
 enum class HeapProfile : int {
@@ -139,6 +296,128 @@ extern "C" int qext_heap_set(int profile)
     }
     return (int)rc;
 }
+
+extern "C" int qext_heap_set_size(unsigned size_mb)
+{
+    size_t target = (size_t)size_mb * 1024u * 1024u;
+    return (int)heap_set_total(target);
+}
+
+extern "C" unsigned qext_heap_release(void)
+{
+    return heap_release_arena(nullptr);
+}
+
+extern "C" unsigned long qext_arena_free_bytes(void)
+{
+    if (!s_arenaReady)
+        return 0;
+    mutexLock(&s_arenaLock);
+    size_t n = arena::FreeBytes();
+    mutexUnlock(&s_arenaLock);
+    return (unsigned long)n;
+}
+
+extern "C" unsigned long qext_arena_size(void)
+{
+    if (!s_arenaReady)
+        return 0;
+    return (unsigned long)(s_arenaEnd - s_arenaStart);
+}
+
+extern "C" unsigned qext_heap_size_mb(void)
+{
+    return (unsigned)(g_heapSize >> 20);
+}
+
+/* Arena-backed allocator overrides (all malloc routed to arena when ready). */
+extern "C" {
+
+void *malloc(size_t n)
+{
+    void *p = ArenaAlloc(n ? n : 1, 16);
+    return p ? p : _malloc_r(_REENT, n);
+}
+
+void free(void *p)
+{
+    if (!p)
+        return;
+    if (InArena(p)) {
+        mutexLock(&s_arenaLock);
+        arena::Release(p);
+        mutexUnlock(&s_arenaLock);
+        return;
+    }
+    _free_r(_REENT, p);
+}
+
+void *calloc(size_t a, size_t b)
+{
+    size_t n;
+    if (__builtin_mul_overflow(a, b, &n))
+        return nullptr;
+    void *p = ArenaAlloc(n ? n : 1, 16);
+    if (p) {
+        memset(p, 0, n);
+        return p;
+    }
+    return _calloc_r(_REENT, a, b);
+}
+
+void *memalign(size_t align, size_t n)
+{
+    void *p = ArenaAlloc(n ? n : 1, align);
+    return p ? p : _memalign_r(_REENT, align, n);
+}
+
+void *aligned_alloc(size_t align, size_t n)
+{
+    if (align == 0 || (n % align) != 0)
+        return nullptr;
+    return memalign(align, n);
+}
+
+int posix_memalign(void **out, size_t align, size_t n)
+{
+    if (align < sizeof(void *) || (align & (align - 1)) != 0)
+        return 22;
+    void *p = memalign(align, n);
+    if (!p)
+        return 12; /* ENOMEM */
+    *out = p;
+    return 0;
+}
+
+size_t malloc_usable_size(void *p)
+{
+    if (!p)
+        return 0;
+    return InArena(p) ? arena::Usable(p) : _malloc_usable_size_r(_REENT, p);
+}
+
+void *realloc(void *p, size_t n)
+{
+    if (!p)
+        return malloc(n);
+    if (n == 0) {
+        free(p);
+        return nullptr;
+    }
+    const size_t old = malloc_usable_size(p);
+    if (!InArena(p) && !s_arenaReady)
+        return _realloc_r(_REENT, p, n);
+    if (InArena(p) && n <= old)
+        return p;
+    void *q = malloc(n);
+    if (!q)
+        return nullptr;
+    memcpy(q, p, old < n ? old : n);
+    free(p);
+    return q;
+}
+
+} /* extern "C" malloc overrides */
 
 #define FB_W 1280
 #define FB_H 720
@@ -867,6 +1146,6 @@ int main(int argc, char **argv)
     plugins::Shutdown();
     gfx_exit();
     /* Stop our heap */
-    heap_set(kHeapFloor);
+    heap_set_floor();
     return 0;
 }

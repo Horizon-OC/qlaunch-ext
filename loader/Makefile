@@ -62,6 +62,10 @@ NEKOMOD := $(TOPDIR)/../extern/SDL-dlink/extern/neko3d/neko3d-module
 NEKO_UNDEFS := $(shell cat $(NEKOMOD)/neko3d.undef 2>/dev/null)
 NEKO_DEFS := $(shell cat $(NEKOMOD)/neko3d.def 2>/dev/null)
 MENU_UNDEFS := $(shell cat $(TOPDIR)/../menu/menu.undef 2>/dev/null)
+# A third-party menu/plugin's imports, so the loader links in what it needs.
+ifneq ($(strip $(QEXT_EXTRA_UNDEF)),)
+MENU_UNDEFS += $(shell cat $(QEXT_EXTRA_UNDEF) 2>/dev/null)
+endif
 # FIXED loader ABI: every libc/libm leaf any menu build (past or future) may
 # import, independent of menu.undef. The loader never needs a relink for menu
 # changes; menus must stay within this surface (build.sh checks and fails
@@ -76,13 +80,15 @@ LDFLAGS	=	-specs=$(DEVKITPRO)/libnx/switch.specs
 # API they provide stays linked and exported via --export-dynamic.
 # Every libnx API, forever, with no lists: libnx.a is self-contained so
 # whole-archive links clean (libc/libm drag POSIX corners libnx cannot
-# satisfy, so those stay curated in src/hostapi.c instead).
+# satisfy, so those stay curated in src/hostapi.cpp instead).
 WA_LIBS := $(LIBNX)/lib/libnx.a
-#WA_LIBS += $(shell $(CXX) -print-file-name=libstdc++.a)
+# libstdc++/libsupc++: not whole-archived (too large/slow to link). Linked
+# normally below and forced via HOST_NEEDS/hostapi.cpp/QEXT_EXTRA_UNDEF; add
+# unresolved menu symbols to menu.undef or QEXT_EXTRA_UNDEF to pull them in.
 LDFLAGS += -Wl,--whole-archive $(WA_LIBS) -Wl,--no-whole-archive
 LDFLAGS += -g $(ARCH) -Wl,-Map,$(notdir $*.map) -Wl,--export-dynamic $(foreach s,$(HOST_NEEDS),-Wl$(comma)-u$(s))
 
-LIBS	:= -ldlink -lnx -lm -lz
+LIBS	:= -ldlink -lnx -lstdc++ -lsupc++ -lm -lz
 
 #---------------------------------------------------------------------------------
 # list of directories containing libraries, this must be the top level containing
