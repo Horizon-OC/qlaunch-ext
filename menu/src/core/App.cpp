@@ -34,6 +34,16 @@ namespace App {
         /// @brief True once Boot() has initialized static storage.
         bool s_booted = false;
 
+        /// @brief Deferred home-strip trim (spread over frames to avoid hitches).
+        static bool s_homeTrimPending = false;
+
+        /* Deferred transition finalization: keep outgoing assets alive during the
+           slide (so it renders correctly), then unload + apply target heap. */
+        static bool s_transitionPending = false;
+        static int s_transitionFrom = -1;
+        static int s_transitionTo = -1;
+        static bool s_transitionLeavingHome = false;
+
         /// @brief Icon sync cache to avoid re-syncing every frame.
         struct IconSyncCache {
             int selection;
@@ -451,7 +461,10 @@ namespace App {
         }
 
         s_booted = true;
-        RefreshTitles();
+        qext_refresh_titles();
+        Reload();
+        s_iconSync.selection = -1;
+        s_iconSync.rowCount = -1;
         return true;
     }
 
@@ -632,6 +645,11 @@ namespace App {
         UpdateMenuAnim();
         UpdateHomeShift();
 
+        if (s_homeTrimPending) {
+            if (!Icons::TrimTitleIconsStep() && !Icons::TrimTitleIconsStep())
+                s_homeTrimPending = false;
+        }
+
         if (appState.focus.topDebounce > 0) {
             appState.focus.topDebounce--;
         }
@@ -647,9 +665,18 @@ namespace App {
             LayoutMod::Input(buttonsDown, buttonsHeld);
         }
 
-        /* Scrolling moves the icon budget; re-sync without reloading. */
-        if (appState.sel != s_iconSync.selection || appState.rowCount != s_iconSync.rowCount)
-            AssignIconSlots();
+        /* Scrolling moves the icon budget; re-sync without reloading. Also
+           tick periodically on Home so icons fill progressively (2/pass). */
+        {
+            bool syncNow = (appState.sel != s_iconSync.selection || appState.rowCount != s_iconSync.rowCount);
+            if (!syncNow && (appState.frame % 4u) == 0u) {
+                int homeIndex = Tabs::FindById("home");
+                if (homeIndex >= 0 && appState.menu.cur == homeIndex && appState.menu.t >= 1.0f)
+                    syncNow = true;
+            }
+            if (syncNow)
+                AssignIconSlots();
+        }
 
         appState.frame++;
         appState.tick++;
@@ -926,11 +953,56 @@ namespace App {
             return;
         }
 
-        if (Submenus::IsDynamicTab(appState.menu.cur) && appState.menu.cur != menuIndex) {
-            Submenus::ExitDynamicTab(appState.menu.cur);
+        const int homeIndex = Tabs::FindById("home");
+        const int fromIndex = appState.menu.cur;
+        const bool leavingHome = (homeIndex >= 0 && fromIndex == homeIndex && menuIndex != homeIndex);
+        const bool enteringHome = (homeIndex >= 0 && menuIndex == homeIndex && fromIndex != homeIndex);
+
+        /* If a transition is already pending, finalize it first so assets/state
+           stay consistent when switching rapidly. */
+        if (s_transitionPending) {
+            if (s_transitionLeavingHome) {
+                s_homeTrimPending = false;
+                Icons::PurgeHome();
+                Sfx::Trim();
+                s_iconSync.selection = -1;
+                s_iconSync.rowCount = -1;
+            }
+            if (Submenus::IsDynamicTab(s_transitionFrom) && s_transitionFrom != s_transitionTo) {
+                Submenus::ExitDynamicTabNoHeap(s_transitionFrom);
+            }
+            Submenus::SetHeapProfile(Submenus::TargetHeapProfile(s_transitionTo));
+            s_transitionPending = false;
+            s_transitionLeavingHome = false;
         }
 
-        appState.menu.from = appState.menu.cur;
+        /* Transition: burst heap -> load target assets. Outgoing assets stay
+           loaded during the slide (rendered as `from`) and are unloaded on
+           animation completion, then target heap config is applied. */
+        Submenus::SetHeapProfile(Submenus::HeapBurst);
+
+        /* Load transitioning-to menu assets. */
+        if (Submenus::IsDynamicTab(menuIndex)) {
+            Submenus::EnterDynamicTabNoHeap(menuIndex);
+        } else {
+            const MenuTab *nextTab = Tabs::Get(menuIndex);
+            if (nextTab && nextTab->onEnter) {
+                nextTab->onEnter();
+            }
+        }
+        if (enteringHome) {
+            s_homeTrimPending = false;
+            s_iconSync.selection = -1;
+            s_iconSync.rowCount = -1;
+            RefreshTitles();
+        }
+
+        s_transitionPending = true;
+        s_transitionFrom = fromIndex;
+        s_transitionTo = menuIndex;
+        s_transitionLeavingHome = leavingHome;
+
+        appState.menu.from = fromIndex;
         appState.menu.cur = menuIndex;
         appState.menu.dir = SlideDir(appState.menu.from, appState.menu.cur);
 
@@ -938,16 +1010,6 @@ namespace App {
         appState.menu.phase = MenuPhase_Animating;
         appState.focus.topSel = menuIndex;
         appState.focus.top = false;
-
-        if (Submenus::IsDynamicTab(menuIndex)) {
-            Submenus::EnterDynamicTab(menuIndex);
-        } else {
-            const MenuTab *nextTab = Tabs::Get(menuIndex);
-
-            if (nextTab && nextTab->onEnter) {
-                nextTab->onEnter();
-            }
-        }
     }
 
     /// @brief Switch to a tab by string id.
@@ -971,6 +1033,25 @@ namespace App {
         if (appState.menu.t >= 1.0f) {
             appState.menu.t = 1.0f;
             appState.menu.phase = MenuPhase_Idle;
+
+            /* Finalize transition: unload outgoing assets, apply target heap. */
+            if (s_transitionPending) {
+                if (s_transitionLeavingHome) {
+                    s_homeTrimPending = false;
+                    Icons::PurgeHome();
+                    Sfx::Trim();
+                    s_iconSync.selection = -1;
+                    s_iconSync.rowCount = -1;
+                }
+                if (Submenus::IsDynamicTab(s_transitionFrom) && s_transitionFrom != s_transitionTo) {
+                    Submenus::ExitDynamicTabNoHeap(s_transitionFrom);
+                }
+                Submenus::SetHeapProfile(Submenus::TargetHeapProfile(s_transitionTo));
+                s_transitionPending = false;
+                s_transitionLeavingHome = false;
+                s_transitionFrom = -1;
+                s_transitionTo = -1;
+            }
 
             if (!Submenus::IsFullTab(appState.menu.cur)) {
                 Submenus::CloseFullTabs();

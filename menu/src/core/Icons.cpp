@@ -41,6 +41,7 @@ namespace {
         Icons::Entry titleEntries[kIconsMax];
         u64 sequenceCounter;
         bool hudReady[kHudCount];
+        bool hudAttempted[kHudCount];
         int hudTextures[kHudCount];
         bool slotsInitialized;
         char packDir[192];
@@ -61,6 +62,7 @@ static void EnsureSlots()
     }
     for (int hudIndex = 0; hudIndex < kHudCount; hudIndex++) {
         s_state.hudTextures[hudIndex] = -1;
+        s_state.hudAttempted[hudIndex] = false;
     }
 }
 
@@ -150,6 +152,10 @@ static uint8_t *Downscale(uint8_t *px, int *w, int *h)
                 if (pixelData && imageWidth > 0 && imageHeight > 0 && imageWidth <= 1024 && imageHeight <= 1024) {
                     if (iconEntry->textureSlot < 0) {
                         iconEntry->textureSlot = Gfx::TexAlloc();
+                        if (iconEntry->textureSlot >= 0) {
+                            Gfx::IdentityRegister("home_strip", 0);
+                            Gfx::IdentityBind("home_strip", iconEntry->textureSlot);
+                        }
                     }
 
                     if (iconEntry->textureSlot >= 0 && Icons::Upload(iconEntry, pixelData, imageWidth, imageHeight)) {
@@ -289,6 +295,8 @@ static uint8_t *Downscale(uint8_t *px, int *w, int *h)
         if (!Gfx::TexUpload(s_state.hudTextures[hudIndex], pixelData, imageWidth, imageHeight,
                             Gfx::TexFormat::RGBA)) {
             stbi_image_free(pixelData);
+            Gfx::TexFree(s_state.hudTextures[hudIndex]);
+            s_state.hudTextures[hudIndex] = -1;
             return false;
         }
 
@@ -334,12 +342,42 @@ bool Icons::UploadPng(const uint8_t *pngData, unsigned pngSize, bool downscale, 
     return true;
 }
 
+static bool LoadHudSlot(int hudIndex)
+{
+    EnsureSlots();
+    if (hudIndex < 0 || hudIndex >= kHudCount)
+        return false;
+    if (s_state.hudReady[hudIndex])
+        return true;
+    if (s_state.hudAttempted[hudIndex] || !s_state.packDir[0])
+        return s_state.hudReady[hudIndex];
+
+    s_state.hudAttempted[hudIndex] = true;
+    const char *stem = HudFileStem(hudIndex);
+    if (!stem)
+        return false;
+
+    char pngPath[256];
+    snprintf(pngPath, sizeof(pngPath), "%s/assets/hud/%s.png", s_state.packDir, stem);
+    pngPath[sizeof(pngPath) - 1] = 0;
+
+    unsigned pngSize = 0;
+    unsigned char *pngData = Packs::ReadFile(pngPath, 0x40000, &pngSize);
+    if (!pngData)
+        return false;
+
+    bool ok = OverrideHudSlot(hudIndex, pngData, pngSize);
+    free(pngData);
+    return ok;
+}
+
 void Icons::ResetHud()
 {
     EnsureSlots();
 
     for (int hudIndex = 0; hudIndex < kHudCount; hudIndex++) {
         s_state.hudReady[hudIndex] = false;
+        s_state.hudAttempted[hudIndex] = false;
         Gfx::TexFree(s_state.hudTextures[hudIndex]);
         s_state.hudTextures[hudIndex] = -1;
     }
@@ -349,62 +387,47 @@ bool Icons::InitHudPack(const char *packDir)
 {
     EnsureSlots();
     s_state.packDir[0] = 0;
+    for (int hudIndex = 0; hudIndex < kHudCount; hudIndex++)
+        s_state.hudAttempted[hudIndex] = false;
 
-    if (!packDir || !packDir[0]) {
+    if (!packDir || !packDir[0])
         return false;
-    }
 
     snprintf(s_state.packDir, sizeof(s_state.packDir), "%s", packDir);
     s_state.packDir[sizeof(s_state.packDir) - 1] = 0;
-    return ReapplyPack();
+    /* HUD icons load lazily on first HudSlot() access to reduce boot/memory
+       pressure. ReapplyPack() remains available for explicit eager reload. */
+    return true;
 }
 
 bool Icons::ReapplyPack()
 {
     EnsureSlots();
 
-    if (!s_state.packDir[0]) {
+    if (!s_state.packDir[0])
         return false;
-    }
 
     bool anyOverridden = false;
-
     for (int hudIndex = 0; hudIndex < kHudCount; hudIndex++) {
-        const char *stem = HudFileStem(hudIndex);
-
-        if (!stem) {
-            continue;
-        }
-
-        char pngPath[256];
-        snprintf(pngPath, sizeof(pngPath), "%s/assets/hud/%s.png", s_state.packDir, stem);
-        pngPath[sizeof(pngPath) - 1] = 0;
-
-        unsigned pngSize = 0;
-        unsigned char *pngData = Packs::ReadFile(pngPath, 0x40000, &pngSize);
-
-        if (!pngData) {
-            continue;
-        }
-
-        if (OverrideHudSlot(hudIndex, pngData, pngSize)) {
+        s_state.hudAttempted[hudIndex] = false;
+        s_state.hudReady[hudIndex] = false;
+        Gfx::TexFree(s_state.hudTextures[hudIndex]);
+        s_state.hudTextures[hudIndex] = -1;
+        if (LoadHudSlot(hudIndex))
             anyOverridden = true;
-        }
-
-        free(pngData);
     }
-
     return anyOverridden;
 }
 
 int Icons::HudSlot(int hudId)
 {
     EnsureSlots();
-
-    if (hudId < 0 || hudId >= kHudCount || !s_state.hudReady[hudId]) {
+    if (hudId < 0 || hudId >= kHudCount)
         return -1;
-    }
-
+    if (!s_state.hudReady[hudId])
+        LoadHudSlot(hudId);
+    if (!s_state.hudReady[hudId])
+        return -1;
     return s_state.hudTextures[hudId];
 }
 
@@ -422,6 +445,8 @@ bool Icons::Upload(Icons::Entry *iconEntry, const uint8_t *pixelData, int imageW
         if (iconEntry->textureSlot < 0) {
             return false;
         }
+        Gfx::IdentityRegister("home_strip", 0);
+        Gfx::IdentityBind("home_strip", iconEntry->textureSlot);
     }
 
     return Gfx::TexUpload(iconEntry->textureSlot, pixelData, imageWidth, imageHeight, Gfx::TexFormat::RGBA);
@@ -440,6 +465,17 @@ void Icons::Free(Icons::Entry *iconEntry)
     iconEntry->textureSlot = -1;
 }
 
+static void ReleaseEntry(Icons::Entry *iconEntry)
+{
+    /* Soft-release for LRU eviction: keep the GPU texture/slot for reuse to
+       avoid dkMemBlock/SDL texture create-destroy churn while scrolling. */
+    if (iconEntry->isUsed) {
+        iconEntry->isUsed = false;
+        iconEntry->titleId = 0;
+        iconEntry->sequence = 0;
+    }
+}
+
 void Icons::FreeAll()
 {
     EnsureSlots();
@@ -453,6 +489,49 @@ void Icons::FreeAll()
         Gfx::TexFree(s_state.hudTextures[hudIndex]);
         s_state.hudTextures[hudIndex] = -1;
     }
+}
+
+void Icons::PurgeHome()
+{
+    EnsureSlots();
+
+    /* Natively unload Home title icon textures via GFX identity registry. */
+    Gfx::IdentityPurge("home_strip");
+
+    for (int entryIndex = 0; entryIndex < kIconsMax; entryIndex++) {
+        Entry *e = &s_state.titleEntries[entryIndex];
+        e->isUsed = false;
+        e->titleId = 0;
+        e->sequence = 0;
+        e->textureSlot = -1;
+    }
+    s_state.sequenceCounter = 0;
+    Gfx::IdentityRegister("home_strip", 0);
+}
+
+void Icons::TrimTitleIcons()
+{
+    EnsureSlots();
+
+    for (int entryIndex = 0; entryIndex < kIconsMax; entryIndex++) {
+        Free(&s_state.titleEntries[entryIndex]);
+    }
+    s_state.sequenceCounter = 0;
+}
+
+bool Icons::TrimTitleIconsStep()
+{
+    EnsureSlots();
+
+    for (int entryIndex = 0; entryIndex < kIconsMax; entryIndex++) {
+        if (s_state.titleEntries[entryIndex].isUsed ||
+            Gfx::TexValid(s_state.titleEntries[entryIndex].textureSlot)) {
+            Free(&s_state.titleEntries[entryIndex]);
+            return true;
+        }
+    }
+    s_state.sequenceCounter = 0;
+    return false;
 }
 
 void Icons::Sync(const u64 *titleIds, int *outputSlots, int rowCount, int focusedRow)
@@ -511,9 +590,9 @@ void Icons::Sync(const u64 *titleIds, int *outputSlots, int rowCount, int focuse
                 continue;
             }
 
-            /* At most a full turnover per pass; the rest keeps
-               fallback tiles until scrolling re-runs the pass. */
-            if (loadCount >= kIconsMax) {
+            /* Limit loads per pass to keep transitions/frame pacing smooth;
+               full cache fills over subsequent passes. */
+            if (loadCount >= 2) {
                 continue;
             }
 
@@ -523,6 +602,18 @@ void Icons::Sync(const u64 *titleIds, int *outputSlots, int rowCount, int focuse
                 if (!s_state.titleEntries[entryIndex].isUsed) {
                     victimEntry = &s_state.titleEntries[entryIndex];
                     break;
+                }
+            }
+
+            /* Prefer reusing an unused entry that already has a texture slot
+               (avoids allocation churn); otherwise take a never-used slot. */
+            if (victimEntry && victimEntry->textureSlot < 0) {
+                for (int entryIndex = 0; entryIndex < kIconsMax; entryIndex++) {
+                    if (!s_state.titleEntries[entryIndex].isUsed &&
+                        s_state.titleEntries[entryIndex].textureSlot >= 0) {
+                        victimEntry = &s_state.titleEntries[entryIndex];
+                        break;
+                    }
                 }
             }
 
@@ -542,7 +633,7 @@ void Icons::Sync(const u64 *titleIds, int *outputSlots, int rowCount, int focuse
                 continue;
             }
 
-            Free(victimEntry);
+            ReleaseEntry(victimEntry);
 
             if (LoadTitleIcon(victimEntry, titleId)) {
                 victimEntry->sequence = ++s_state.sequenceCounter;

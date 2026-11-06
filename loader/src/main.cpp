@@ -31,8 +31,9 @@ extern "C" {
     TimeServiceType __nx_time_service_type = TimeServiceType_System;
 }
 
-static constexpr size_t kHeapFloor = 60u * 1024u * 1024u; /* 96MB */
-static constexpr size_t kHeapCap = 384u * 1024u * 1024u; /* 384MB (Video/Burst) */
+static constexpr size_t kHeapFloor = 64u * 1024u * 1024u; /* 96MB */
+static constexpr size_t kHeapCap = 384u * 1024u * 1024u; /* 384MB (High) */
+static constexpr size_t kHeapBurst = 441u * 1024u * 1024u; /* 441MB (Burst) */
 static size_t g_heapSize = 0;
 extern char *fake_heap_start;
 extern char *fake_heap_end;
@@ -52,12 +53,16 @@ extern "C" void __libnx_initheap(void)
     }
 }
 
-static Result heap_set(size_t target)
+static Result heap_set(size_t target, size_t maxTarget = kHeapCap)
 {
     if (target < kHeapFloor)
         target = kHeapFloor;
-    if (target > kHeapCap)
-        target = kHeapCap;
+    if (maxTarget < kHeapCap)
+        maxTarget = kHeapCap;
+    if (maxTarget > kHeapBurst)
+        maxTarget = kHeapBurst;
+    if (target > maxTarget)
+        target = maxTarget;
     if (target == g_heapSize)
         return 0;
     void *addr = nullptr;
@@ -73,24 +78,64 @@ static Result heap_set(size_t target)
 }
 
 static Result heap_set_floor() {
-    return heap_set(kHeapFloor);
+    Result rc = heap_set(kHeapFloor);
+    if (R_SUCCEEDED(rc))
+        return rc;
+    /* Try to reclaim as much heap as possible */
+    static const size_t kSteps[] = {
+        192u * 1024u * 1024u,
+        128u * 1024u * 1024u,
+        96u * 1024u * 1024u,
+        kHeapFloor,
+    };
+    for (size_t i = 0; i < sizeof(kSteps) / sizeof(kSteps[0]); i++) {
+        if (kSteps[i] >= g_heapSize)
+            continue;
+        Result r2 = heap_set(kSteps[i]);
+        if (R_SUCCEEDED(r2))
+            return 0;
+    }
+    return rc;
 }
 
 static Result heap_set_cap() {
     return heap_set(kHeapCap);
 }
 
+static Result heap_set_burst() {
+    return heap_set(kHeapBurst, kHeapBurst);
+}
+
 enum class HeapProfile : int {
     Minimal = 0,
     Cap = 1,
+    Burst = 2,
 };
 
 extern "C" int qext_heap_set(int profile)
 {
-    Result rc = (profile == (int)HeapProfile::Cap) ? heap_set_cap() : heap_set_floor();
+    static Result s_lastFailRc = 0;
+    static int s_lastFailProfile = -1;
+    static size_t s_lastFailSize = (size_t)-1;
+    Result rc;
+    if (profile == (int)HeapProfile::Burst)
+        rc = heap_set_burst();
+    else if (profile == (int)HeapProfile::Cap)
+        rc = heap_set_cap();
+    else
+        rc = heap_set_floor();
     if (R_FAILED(rc)) {
-        logging::LogLine("[heap] set profile %d failed (rc=0x%X), size=%zu",
-                         profile, rc, g_heapSize);
+        if (rc != s_lastFailRc || profile != s_lastFailProfile || g_heapSize != s_lastFailSize) {
+            logging::LogLine("[heap] set profile %d failed (rc=0x%X), size=%zu",
+                             profile, rc, g_heapSize);
+            s_lastFailRc = rc;
+            s_lastFailProfile = profile;
+            s_lastFailSize = g_heapSize;
+        }
+    } else {
+        s_lastFailRc = 0;
+        s_lastFailProfile = -1;
+        s_lastFailSize = (size_t)-1;
     }
     return (int)rc;
 }

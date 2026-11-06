@@ -3,6 +3,12 @@
 
 namespace Submenus {
 
+    enum HeapProfile : int {
+        HeapMinimal = 0,
+        HeapCap = 1,
+        HeapBurst = 2,
+    };
+
     /// @brief Boot dynamic submenus from a theme pack directory.
     /// @param hostApi Host table with menu functions plus qext.
     /// @param submenuDir Pack submenus dir (for example "sdmc:/qlaunch-ext/NekoMenu/default/submenus").
@@ -71,6 +77,18 @@ namespace Submenus {
     /// @brief Exit a dynamic submenu tab.
     /// @param tabIndex Tabs registry index.
     void ExitDynamicTab(int tabIndex);
+
+    /// @brief Enter a dynamic submenu tab without changing heap (for transitions).
+    void EnterDynamicTabNoHeap(int tabIndex);
+
+    /// @brief Exit a dynamic submenu tab without changing heap (for transitions).
+    void ExitDynamicTabNoHeap(int tabIndex);
+
+    /// @brief Target heap profile for a tab (Cap for Cap dynamic submenus, else Minimal).
+    int TargetHeapProfile(int tabIndex);
+
+    /// @brief Set heap profile via host API (0=Minimal, 1=Cap, 2=Burst).
+    int SetHeapProfile(int profile);
 
     /// @brief Give a dynamic submenu tab accent color.
     /// @param tabIndex Tabs registry index.

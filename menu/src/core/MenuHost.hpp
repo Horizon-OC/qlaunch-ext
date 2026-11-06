@@ -210,6 +210,10 @@ extern "C" {
         const char *(*menuButtonLabel)(int button);
         int (*menuButtonIcon)(int button);
         int (*menuButtonActivate)(int button);
+        void (*gfxIdentityRegister)(const char *id, int persistent);
+        void (*gfxIdentityBind)(const char *id, int slot);
+        void (*gfxIdentityPurge)(const char *id);
+        void (*gfxIdentityUnregister)(const char *id);
     };
 
     /// @brief Fill background, ink, and accent colors from the theme configuration.

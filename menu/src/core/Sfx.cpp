@@ -21,6 +21,9 @@ namespace Sfx {
         /// @brief Maximum data-driven clips in the registry.
         constexpr int kMaxClips = 24;
 
+        /// @brief Maximum decoded SFX clips kept resident (LRU).
+        constexpr int kSfxCacheMax = 4;
+
         /// @brief Maximum length of a clip id string.
         constexpr int kIdMax = 32;
 
@@ -59,11 +62,15 @@ namespace Sfx {
             bool on;
         };
 
-        /// @brief Registry entry: data-driven id plus decoded clip.
+        /// @brief Registry entry: metadata + lazily decoded PCM (LRU cached).
         struct RegClip {
             char id[kIdMax];
+            char asset[32];
+            char packDir[192];
+            float db;
             Clip clip;
             bool jitter;
+            unsigned lastUsed;
         };
 
         /// @brief Clip registry backing store.
@@ -119,8 +126,8 @@ namespace Sfx {
         /// @brief Refill threshold in shorts (0.6s of stereo @48kHz).
         static constexpr unsigned kVidHungry = 48000u * 2u * 6u / 10u;
 
-        /// @brief Video PCM ring buffer (interleaved stereo shorts).
-        short s_videoBuffer[48000u * 2u * 2u];
+        /// @brief Video PCM ring buffer (allocated on VideoBegin to save memory).
+        short *s_videoBuffer = nullptr;
 
         /// @brief Read head into s_videoBuffer.
         unsigned s_videoHead = 0;
@@ -207,92 +214,142 @@ namespace Sfx {
             return true;
         }
 
+        static void StopVoicesUsing(const short *pcm)
+        {
+            if (!pcm)
+                return;
+            for (unsigned i = 0; i < kVoices; i++) {
+                if (s_voices[i].on && s_voices[i].pcm == pcm)
+                    s_voices[i].on = false;
+            }
+        }
+
+        static void FreeDecoded(RegClip &r)
+        {
+            if (r.clip.pcm) {
+                StopVoicesUsing(r.clip.pcm);
+                free((void *)r.clip.pcm);
+                r.clip.pcm = nullptr;
+            }
+            r.clip.frames = 0;
+            r.clip.ch = 0;
+            r.clip.rate = 0;
+        }
+
         /// @brief Clear the clip registry, freeing owned PCM.
         void ClearReg()
         {
-            for (int i = 0; i < s_registryCount; i++) {
-                free((void *)s_registry[i].clip.pcm);
-                s_registry[i].clip.pcm = nullptr;
-            }
-
+            for (unsigned i = 0; i < kVoices; i++)
+                s_voices[i].on = false;
+            for (int i = 0; i < s_registryCount; i++)
+                FreeDecoded(s_registry[i]);
             memset(s_registry, 0, sizeof(s_registry));
             s_registryCount = 0;
         }
 
-        /// @brief Store one decoded clip, replacing any same-id entry.
-        /// @param id Clip id.
-        /// @param clip Decoded clip with gain applied.
-        /// @param jitter True to enable hover-style pitch shimmer.
-        /// @return Slot index, or -1 when the registry is full.
-        int StoreClip(const char *id, const Clip &clip, bool jitter)
+        static int DecodedCount()
         {
-            if (!id || !id[0] || !clip.pcm || !clip.frames || !clip.rate) {
-                return -1;
+            int n = 0;
+            for (int i = 0; i < s_registryCount; i++) {
+                if (s_registry[i].clip.pcm)
+                    n++;
             }
+            return n;
+        }
+
+        static void EvictDecoded(int exceptSlot)
+        {
+            while (DecodedCount() >= kSfxCacheMax) {
+                int victim = -1;
+                for (int i = 0; i < s_registryCount; i++) {
+                    if (i == exceptSlot || !s_registry[i].clip.pcm)
+                        continue;
+                    if (victim < 0 || s_registry[i].lastUsed < s_registry[victim].lastUsed)
+                        victim = i;
+                }
+                if (victim < 0)
+                    break;
+                FreeDecoded(s_registry[victim]);
+            }
+        }
+
+        static bool EnsureDecoded(int slot)
+        {
+            if (slot < 0 || slot >= s_registryCount)
+                return false;
+            RegClip &r = s_registry[slot];
+            if (r.clip.pcm && r.clip.frames && r.clip.rate)
+                return true;
+            if (!r.packDir[0] || !r.asset[0])
+                return false;
+
+            char wavPath[256];
+            snprintf(wavPath, sizeof(wavPath), "%s/assets/sfx/%s.wav", r.packDir, r.asset);
+            wavPath[sizeof(wavPath) - 1] = 0;
+
+            unsigned wavSize = 0;
+            unsigned char *wavData = Packs::ReadFile(wavPath, 4 * 1024 * 1024, &wavSize);
+            if (!wavData) {
+                logging::LogLine("[sfx] missing '%s' for clip '%s'", wavPath, r.id);
+                return false;
+            }
+
+            Clip c;
+            c.gain = 1.0f;
+            c.pcm = 0;
+            c.frames = 0;
+            c.ch = 0;
+            c.rate = 0;
+            bool ok = ParseWav(wavData, wavSize, c) && c.rate >= 8000 && c.rate <= 96000;
+            if (ok) {
+                unsigned pcmBytes = c.frames * (unsigned)c.ch * sizeof(short);
+                short *ownedPcm = (short *)malloc(pcmBytes);
+                if (ownedPcm) {
+                    memcpy(ownedPcm, c.pcm, pcmBytes);
+                    c.pcm = ownedPcm;
+                    c.gain = powf(10.0f, r.db / 20.0f);
+                    EvictDecoded(slot);
+                    r.clip = c;
+                } else {
+                    ok = false;
+                }
+            }
+            free(wavData);
+            return ok && r.clip.pcm != nullptr;
+        }
+
+        /// @brief Store clip metadata, replacing any same-id entry (PCM loaded lazily).
+        /// @return Slot index, or -1 when the registry is full/invalid.
+        int RegisterClip(const char *id, const char *asset, float db, bool jitter,
+                         const char *packDir)
+        {
+            if (!id || !id[0] || !asset || !asset[0] || !packDir || !packDir[0])
+                return -1;
 
             for (int i = 0; i < s_registryCount; i++) {
                 if (strncmp(s_registry[i].id, id, kIdMax) == 0) {
-                    free((void *)s_registry[i].clip.pcm);
-                    s_registry[i].clip = clip;
-                    s_registry[i].jitter = jitter;
+                    FreeDecoded(s_registry[i]);
+                    RegClip &r = s_registry[i];
+                    snprintf(r.asset, sizeof(r.asset), "%s", asset);
+                    snprintf(r.packDir, sizeof(r.packDir), "%s", packDir);
+                    r.db = db;
+                    r.jitter = jitter;
+                    r.lastUsed = 0;
                     return i;
                 }
             }
 
-            if (s_registryCount >= kMaxClips) {
+            if (s_registryCount >= kMaxClips)
                 return -1;
-            }
 
             RegClip *r = &s_registry[s_registryCount];
             memset(r, 0, sizeof(*r));
-            size_t len = strlen(id);
-
-            if (len > (size_t)(kIdMax - 1)) {
-                len = (size_t)(kIdMax - 1);
-            }
-
-            memcpy(r->id, id, len);
-            r->id[len] = 0;
-            r->clip = clip;
+            snprintf(r->id, sizeof(r->id), "%s", id);
+            snprintf(r->asset, sizeof(r->asset), "%s", asset);
+            snprintf(r->packDir, sizeof(r->packDir), "%s", packDir);
+            r->db = db;
             r->jitter = jitter;
             return s_registryCount++;
-        }
-
-        /// @brief Decode one WAV blob and store it under a clip id.
-        /// Takes ownership of a copy of the decoded PCM, so the caller's
-        /// WAV buffer may be freed right after this returns.
-        /// @param id Clip id.
-        /// @param wavData WAV bytes.
-        /// @param wavSize Byte count.
-        /// @param db Gain in decibels.
-        /// @param jitter True to enable pitch shimmer.
-        void StoreDecoded(const char *id, const unsigned char *wavData, unsigned wavSize,
-                          float db, bool jitter)
-        {
-            Clip c;
-            c.gain = 1.0f;
-
-            if (ParseWav(wavData, wavSize, c) && c.rate >= 8000 && c.rate <= 96000) {
-                unsigned pcmBytes = c.frames * (unsigned)c.ch * sizeof(short);
-                short *ownedPcm = (short *)malloc(pcmBytes);
-
-                if (!ownedPcm) {
-                    logging::LogLine("[sfx] out of memory for clip '%s'", id ? id : "?");
-                    return;
-                }
-
-                memcpy(ownedPcm, c.pcm, pcmBytes);
-                c.pcm = ownedPcm;
-                c.gain = powf(10.0f, db / 20.0f);
-
-                if (StoreClip(id, c, jitter) >= 0) {
-                    logging::LogLine("[sfx] clip '%s': %u frames %u ch %u Hz", id, c.frames, c.ch, c.rate);
-                } else {
-                    free(ownedPcm);
-                }
-            } else {
-                logging::LogLine("[sfx] bad clip '%s'", id ? id : "?");
-            }
         }
 
         /// @brief Whether an sfx asset name is safe to join into a pack path.
@@ -300,53 +357,16 @@ namespace Sfx {
         /// @return True when separator/traversal free.
         bool IsAssetNameUsable(const char *assetName)
         {
-            if (!assetName || !assetName[0] || strlen(assetName) > 31) {
+            if (!assetName || !assetName[0] || strlen(assetName) > 31)
                 return false;
-            }
-
             for (const char *cursor = assetName; *cursor; cursor++) {
                 char current = *cursor;
                 bool lower = current >= 'a' && current <= 'z';
                 bool digit = current >= '0' && current <= '9';
-
-                if (!lower && !digit && current != '_') {
+                if (!lower && !digit && current != '_')
                     return false;
-                }
             }
-
             return true;
-        }
-
-        /// @brief Load one clip from its pack wav file (pack-only, no fallback).
-        /// Missing or unreadable wavs log and leave the clip unregistered.
-        /// @param id Clip id.
-        /// @param asset Asset name (pack assets/sfx/<asset>.wav).
-        /// @param db Gain in decibels.
-        /// @param jitter True to enable pitch shimmer.
-        /// @param packDir Theme pack directory (may be null).
-        void LoadOnePack(const char *id, const char *asset, float db, bool jitter,
-                         const char *packDir)
-        {
-            if (!packDir || !packDir[0] || !IsAssetNameUsable(asset)) {
-                logging::LogLine("[sfx] bad asset '%s' for clip '%s'", asset ? asset : "?",
-                                 id ? id : "?");
-                return;
-            }
-
-            char wavPath[256];
-            snprintf(wavPath, sizeof(wavPath), "%s/assets/sfx/%s.wav", packDir, asset);
-            wavPath[sizeof(wavPath) - 1] = 0;
-
-            unsigned wavSize = 0;
-            unsigned char *wavData = Packs::ReadFile(wavPath, 4 * 1024 * 1024, &wavSize);
-
-            if (!wavData) {
-                logging::LogLine("[sfx] missing '%s' for clip '%s'", wavPath, id ? id : "?");
-                return;
-            }
-
-            StoreDecoded(id, wavData, wavSize, db, jitter);
-            free(wavData);
         }
 
         /// @brief Read a float field from a JSON object token.
@@ -412,19 +432,17 @@ namespace Sfx {
         /// @param pitch Playback rate multiplier, clamped 0.25-4.0.
         void StartVoice(int slot, float pitch)
         {
-            if (!s_isReady || slot < 0 || slot >= s_registryCount) {
+            if (!s_isReady || slot < 0 || slot >= s_registryCount)
                 return;
-            }
-
-            if (s_videoMode) {
+            if (s_videoMode)
                 return;
-            }
-
-            const RegClip &r = s_registry[slot];
-
-            if (!r.clip.pcm || !r.clip.frames || !r.clip.rate) {
+            if (!EnsureDecoded(slot))
                 return;
-            }
+
+            RegClip &r = s_registry[slot];
+            r.lastUsed = ++s_tickCount;
+            if (!r.clip.pcm || !r.clip.frames || !r.clip.rate)
+                return;
 
             Voice &v = s_voices[s_voiceCursor];
             s_voiceCursor = (s_voiceCursor + 1u) % kVoices;
@@ -523,6 +541,16 @@ namespace Sfx {
             s_isReady = false;
             SDL_QuitSubSystem(SDL_INIT_AUDIO);
         }
+        ClearReg();
+        pthread_mutex_lock(&s_videoMutex);
+        s_videoMode = false;
+        s_videoPaused = false;
+        s_videoHead = 0;
+        s_videoLength = 0;
+        short *vbuf = s_videoBuffer;
+        s_videoBuffer = nullptr;
+        pthread_mutex_unlock(&s_videoMutex);
+        free(vbuf);
     }
 
     /// @brief Play a clip by its data-driven id.
@@ -608,13 +636,13 @@ namespace Sfx {
             JName(doc, on, "id", id, sizeof(id));
             JName(doc, on, "asset", asset, sizeof(asset));
 
-            if (!id[0] || !asset[0]) {
+            if (!id[0] || !asset[0] || !IsAssetNameUsable(asset))
                 continue;
-            }
 
             float db = JFloat(doc, on, "db", 0.0f);
             bool jitter = JFlag(doc, on, "jitter", false);
-            LoadOnePack(id, asset, db, jitter, packDir);
+            if (RegisterClip(id, asset, db, jitter, packDir) >= 0)
+                logging::LogLine("[sfx] clip '%s' registered (lazy)", id);
         }
 
         return s_registryCount > 0;
@@ -657,7 +685,7 @@ namespace Sfx {
         if (s_videoMode) {
             pthread_mutex_lock(&s_videoMutex);
 
-            if (s_videoPaused) {
+            if (s_videoPaused || !s_videoBuffer) {
                 for (unsigned f = 0; f < (unsigned)kFramesPerTick * (unsigned)kOutCh; f++) {
                     dst[f] = 0;
                 }
@@ -759,7 +787,9 @@ namespace Sfx {
         }
 
         pthread_mutex_lock(&s_videoMutex);
-        s_videoMode = true;
+        if (!s_videoBuffer)
+            s_videoBuffer = (short *)malloc(kVidCap * sizeof(short));
+        s_videoMode = s_videoBuffer != nullptr;
         s_videoPaused = false;
         s_videoHead = 0;
         s_videoLength = 0;
@@ -775,7 +805,10 @@ namespace Sfx {
         s_videoPaused = false;
         s_videoHead = 0;
         s_videoLength = 0;
+        short *buf = s_videoBuffer;
+        s_videoBuffer = nullptr;
         pthread_mutex_unlock(&s_videoMutex);
+        free(buf);
     }
 
     /// @brief Push interleaved stereo PCM into the video buffer.
@@ -789,13 +822,13 @@ namespace Sfx {
 
         pthread_mutex_lock(&s_videoMutex);
 
-        for (unsigned i = 0; i < frames * 2u; i++) {
-            if (s_videoLength >= kVidCap) {
-                break;
+        if (s_videoBuffer) {
+            for (unsigned i = 0; i < frames * 2u; i++) {
+                if (s_videoLength >= kVidCap)
+                    break;
+                s_videoBuffer[(s_videoHead + s_videoLength) % kVidCap] = pcm[i];
+                s_videoLength++;
             }
-
-            s_videoBuffer[(s_videoHead + s_videoLength) % kVidCap] = pcm[i];
-            s_videoLength++;
         }
 
         pthread_mutex_unlock(&s_videoMutex);
@@ -846,6 +879,24 @@ namespace Sfx {
     double VideoTime()
     {
         return (double)s_videoPlayed / 48000.0;
+    }
+
+    /// @brief Free cached decoded SFX PCM to reduce memory (clips reload on play).
+    void Trim()
+    {
+        for (unsigned i = 0; i < kVoices; i++)
+            s_voices[i].on = false;
+        for (int i = 0; i < s_registryCount; i++)
+            FreeDecoded(s_registry[i]);
+        /* Free video ring when not in active video mode. */
+        pthread_mutex_lock(&s_videoMutex);
+        if (!s_videoMode && s_videoBuffer) {
+            free(s_videoBuffer);
+            s_videoBuffer = nullptr;
+            s_videoHead = 0;
+            s_videoLength = 0;
+        }
+        pthread_mutex_unlock(&s_videoMutex);
     }
 
 } /* namespace Sfx */

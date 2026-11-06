@@ -297,4 +297,23 @@ namespace Gfx {
     /// @return Quad count.
     unsigned IconQuads();
 
+    /* Asset identity groups (for load/unload on menu open/close). */
+    /// @brief Register (or update) a named asset identity.
+    /// @param id Identity name (e.g. tab id). Null/empty is ignored.
+    /// @param persistent When true, the identity is not auto-purged on close.
+    void IdentityRegister(const char *id, bool persistent);
+
+    /// @brief Bind a texture slot to an identity (freed when purged).
+    /// @param id Identity name.
+    /// @param slot Texture slot from TexAlloc().
+    void IdentityBind(const char *id, int slot);
+
+    /// @brief Free all texture slots bound to an identity and clear bindings.
+    /// @param id Identity name.
+    void IdentityPurge(const char *id);
+
+    /// @brief Unregister an identity (purges bound slots first).
+    /// @param id Identity name.
+    void IdentityUnregister(const char *id);
+
 } /* namespace Gfx */

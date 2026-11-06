@@ -8,7 +8,7 @@
 
 /* Fixed LRU budget for title icons. Rows outside the budget keep
    fallback tiles until scrolling brings them near the focus. */
-constexpr int kIconsMax = 16;
+constexpr int kIconsMax = 6;
 
 constexpr int kHudUser = 0;
 constexpr int kHudButtonA = 1;
@@ -68,7 +68,7 @@ namespace Icons {
 
     /// @brief Look up a HUD icon slot.
     /// @param hudId kHud* id.
-    /// @return Icon slot, or <= 0 when missing.
+    /// @return Icon slot, or -1 when missing.
     int HudSlot(int hudId);
 
     struct Entry {
@@ -97,4 +97,16 @@ namespace Icons {
     /// @brief Free an icon entry's GPU resources.
     /// @param iconEntry Entry to free.
     void Free(Entry *iconEntry);
+
+    /// @brief Purge Home title icons natively via GFX registry ("home_strip")
+    ///        and reset CPU-side title icon state so they reload on demand.
+    void PurgeHome();
+
+    /// @brief Free cached title icon textures (keeps HUD). Used to trim
+    ///        memory when the home strip is not visible or a game is active.
+    void TrimTitleIcons();
+
+    /// @brief Free one cached title icon texture (for gradual/deferred trim).
+    /// @return True if an icon was freed (more may remain).
+    bool TrimTitleIconsStep();
 } /* namespace Icons */

@@ -196,8 +196,10 @@ namespace Font {
             s_state.atlases[2].w = 0;
             s_state.atlases[2].h = 0;
 
-            if (s_state.atlases[0].slot < 0 || s_state.atlases[1].slot < 0 || s_state.atlases[2].slot < 0)
+            if (s_state.atlases[0].slot < 0 || s_state.atlases[1].slot < 0 || s_state.atlases[2].slot < 0) {
+                for (int i = 0; i < 3; i++) { Gfx::TexFree(s_state.atlases[i].slot); s_state.atlases[i].slot = -1; }
                 return false;
+            }
 
             s_state.latinOwned = ResolveFontFile(packDir, "font.otf", &s_state.latinSize);
             s_state.iconOwned = ResolveFontFile(packDir, "switch_icons.ttf", &s_state.iconSize);
@@ -211,11 +213,16 @@ namespace Font {
                 s_state.iconOwned = nullptr;
                 s_state.latinData = nullptr;
                 s_state.iconData = nullptr;
+                for (int i = 0; i < 3; i++) { Gfx::TexFree(s_state.atlases[i].slot); s_state.atlases[i].slot = -1; }
                 return false;
             }
 
             if (!BakeAndUpload(&s_state.atlases[0], s_state.latinData, big, 4,
                                textSizes, (int)(sizeof(textSizes) / sizeof(textSizes[0])))) {
+                free(s_state.latinOwned); free(s_state.iconOwned);
+                s_state.latinOwned = nullptr; s_state.iconOwned = nullptr;
+                s_state.latinData = nullptr; s_state.iconData = nullptr;
+                for (int i = 0; i < 3; i++) { Gfx::TexFree(s_state.atlases[i].slot); s_state.atlases[i].slot = -1; }
                 return false;
             }
             Log::Line("[menu] Latin atlas: %dx%d @ %.0fpx", s_state.atlases[0].w, s_state.atlases[0].h, s_state.atlases[0].px);
@@ -227,6 +234,10 @@ namespace Font {
 
             if (!BakeAndUpload(&s_state.atlases[2], s_state.iconData, sml, 3,
                                iconSizes, (int)(sizeof(iconSizes) / sizeof(iconSizes[0])))) {
+                free(s_state.latinOwned); free(s_state.iconOwned);
+                s_state.latinOwned = nullptr; s_state.iconOwned = nullptr;
+                s_state.latinData = nullptr; s_state.iconData = nullptr;
+                for (int i = 0; i < 3; i++) { Gfx::TexFree(s_state.atlases[i].slot); s_state.atlases[i].slot = -1; }
                 return false;
             }
             Log::Line("[menu] Icon atlas: %dx%d @ %.0fpx", s_state.atlases[2].w, s_state.atlases[2].h, s_state.atlases[2].px);

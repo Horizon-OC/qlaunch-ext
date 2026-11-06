@@ -83,4 +83,7 @@ namespace Sfx {
     /// @return Seconds played.
     double VideoTime();
 
+    /// @brief Free cached decoded SFX PCM to reduce memory (clips reload on play).
+    void Trim();
+
 } /* namespace Sfx */

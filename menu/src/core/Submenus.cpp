@@ -53,6 +53,7 @@ namespace Submenus {
         enum SubmenuHeapProfile : int {
             SubmenuHeapMinimal = 0,
             SubmenuHeapCap = 1,
+            SubmenuHeapBurst = 2,
         };
 
         struct SubmenuInstance {
@@ -463,7 +464,7 @@ namespace Submenus {
 
             int (*submenuHeapProfile)(void) = (int (*)(void))dlsym(handle, "SubmenuHeapProfile");
             int heapProfile = submenuHeapProfile ? submenuHeapProfile() : SubmenuHeapMinimal;
-            if (heapProfile != SubmenuHeapCap)
+            if (heapProfile != SubmenuHeapCap && heapProfile != SubmenuHeapBurst)
                 heapProfile = SubmenuHeapMinimal;
 
             instance->iconSlot = iconSlot;
@@ -475,8 +476,18 @@ namespace Submenus {
             return true;
         }
 
+        static bool IsBigHeapMenu(SubmenuInstance *instance)
+        {
+            return instance && instance->heapProfile == SubmenuHeapCap;
+        }
+
         static void ApplyHeapProfile(SubmenuInstance *instance) {
             if (!instance || !s_hostApi || !s_hostApi->qextHeapSet)
+                return;
+            /* Only force a heap change for Cap (big-heap) menus; applying
+               Minimal/floor on every enter can fail (e.g. shrinking from Cap)
+               and is unnecessary for normal menus. */
+            if (instance->heapProfile != SubmenuHeapCap)
                 return;
             int rc = s_hostApi->qextHeapSet(instance->heapProfile);
             if (rc != 0) {
@@ -488,10 +499,58 @@ namespace Submenus {
         static void RestoreMenuHeap() {
             if (!s_hostApi || !s_hostApi->qextHeapSet)
                 return;
+            static int s_lastRestoreRc = 0;
             int rc = s_hostApi->qextHeapSet(SubmenuHeapMinimal);
             if (rc != 0) {
-                Log::Line("[submenus] restore menu heap failed (rc=0x%X), keeping current heap", (unsigned)rc);
+                if (rc != s_lastRestoreRc)
+                    Log::Line("[submenus] restore menu heap failed (rc=0x%X), keeping current heap", (unsigned)rc);
+                s_lastRestoreRc = rc;
+                return;
             }
+            s_lastRestoreRc = 0;
+        }
+
+        static void EnterDynamicTabImpl(int tabIndex, bool manageHeap) {
+            SubmenuInstance *instance = FindInstanceByTabIndex(tabIndex);
+            if (!instance || !s_hostApi)
+                return;
+            if (instance->phase != SubmenuPhase::Ready || !instance->callbacks.open)
+                return;
+
+            /* Register GFX identity (non-persistent) and purge stale bindings so
+               assets bound on open unload on close. Big-Heap (Cap) also gets heap
+               profile switching; Home keeps its own assets loaded separately. */
+            if (s_hostApi->gfxIdentityRegister && s_hostApi->gfxIdentityPurge) {
+                s_hostApi->gfxIdentityRegister(instance->tabId, 0);
+                s_hostApi->gfxIdentityPurge(instance->tabId);
+            }
+
+            if (manageHeap)
+                ApplyHeapProfile(instance);
+            instance->callbacks.open(s_hostApi);
+        }
+
+        static void ExitDynamicTabImpl(int tabIndex, bool manageHeap) {
+            SubmenuInstance *instance = FindInstanceByTabIndex(tabIndex);
+            if (!instance || !s_hostApi)
+                return;
+
+            if (instance->phase != SubmenuPhase::Ready) {
+                if (s_hostApi->gfxIdentityPurge)
+                    s_hostApi->gfxIdentityPurge(instance->tabId);
+                if (manageHeap)
+                    RestoreMenuHeap();
+                return;
+            }
+
+            if (instance->callbacks.close)
+                instance->callbacks.close(s_hostApi);
+
+            if (s_hostApi->gfxIdentityPurge)
+                s_hostApi->gfxIdentityPurge(instance->tabId);
+
+            if (manageHeap)
+                RestoreMenuHeap();
         }
 
     } // namespace
@@ -728,40 +787,43 @@ namespace Submenus {
     /// @param tabIndex Tabs registry index.
     void EnterDynamicTab(int tabIndex)
     {
-        SubmenuInstance *instance = FindInstanceByTabIndex(tabIndex);
-
-        if (!instance || !s_hostApi) {
-            return;
-        }
-
-        if (instance->phase != SubmenuPhase::Ready || !instance->callbacks.open) {
-            return;
-        }
-
-        ApplyHeapProfile(instance);
-        instance->callbacks.open(s_hostApi);
+        EnterDynamicTabImpl(tabIndex, true);
     }
 
     /// @brief Exit a dynamic submenu tab.
     /// @param tabIndex Tabs registry index.
     void ExitDynamicTab(int tabIndex)
     {
+        ExitDynamicTabImpl(tabIndex, true);
+    }
+
+    /// @brief Enter a dynamic submenu tab without changing heap (for transitions).
+    void EnterDynamicTabNoHeap(int tabIndex)
+    {
+        EnterDynamicTabImpl(tabIndex, false);
+    }
+
+    /// @brief Exit a dynamic submenu tab without changing heap (for transitions).
+    void ExitDynamicTabNoHeap(int tabIndex)
+    {
+        ExitDynamicTabImpl(tabIndex, false);
+    }
+
+    /// @brief Target heap profile for a tab (Cap for Cap dynamic submenus, else Minimal).
+    int TargetHeapProfile(int tabIndex)
+    {
         SubmenuInstance *instance = FindInstanceByTabIndex(tabIndex);
+        if (!instance)
+            return SubmenuHeapMinimal;
+        return (instance->heapProfile == SubmenuHeapCap) ? SubmenuHeapCap : SubmenuHeapMinimal;
+    }
 
-        if (!instance || !s_hostApi) {
-            return;
-        }
-
-        if (instance->phase != SubmenuPhase::Ready) {
-            RestoreMenuHeap();
-            return;
-        }
-
-        if (instance->callbacks.close) {
-            instance->callbacks.close(s_hostApi);
-        }
-
-        RestoreMenuHeap();
+    /// @brief Set heap profile via host API (0=Minimal, 1=Cap, 2=Burst).
+    int SetHeapProfile(int profile)
+    {
+        if (!s_hostApi || !s_hostApi->qextHeapSet)
+            return -1;
+        return s_hostApi->qextHeapSet(profile);
     }
 
     /// @brief Give a dynamic submenu tab accent color.

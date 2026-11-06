@@ -79,6 +79,26 @@ namespace HostApi {
             return Gfx::TexUpload(textureSlot, pixelData, imageWidth, imageHeight, Gfx::TexFormat::RGBA) ? 1 : 0;
         }
 
+        void GfxIdentityRegisterThunk(const char *id, int persistent)
+        {
+            Gfx::IdentityRegister(id, persistent != 0);
+        }
+
+        void GfxIdentityBindThunk(const char *id, int slot)
+        {
+            Gfx::IdentityBind(id, slot);
+        }
+
+        void GfxIdentityPurgeThunk(const char *id)
+        {
+            Gfx::IdentityPurge(id);
+        }
+
+        void GfxIdentityUnregisterThunk(const char *id)
+        {
+            Gfx::IdentityUnregister(id);
+        }
+
         float FontDrawThunk(const char *text, float positionX, float baselineY, float pixelSize,
                             float red, float green, float blue, float alpha)
         {
@@ -1076,6 +1096,10 @@ namespace HostApi {
             MenuButtonLabelThunk,
             MenuButtonIconThunk,
             MenuButtonActivateThunk,
+            GfxIdentityRegisterThunk,
+            GfxIdentityBindThunk,
+            GfxIdentityPurgeThunk,
+            GfxIdentityUnregisterThunk,
         };
 
     } // namespace

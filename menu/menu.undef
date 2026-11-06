@@ -1,5 +1,8 @@
 _Z19qext_titles_changedv
+_ZdlPvm
 _ZN7logging7LogLineEPKcz
+_Znwm
+_ZSt20__throw_length_errorPKc
 acosf
 calloc
 closedir
@@ -30,6 +33,7 @@ ldexpf
 malloc
 memcmp
 memcpy
+memmove
 memset
 mkdir
 opendir

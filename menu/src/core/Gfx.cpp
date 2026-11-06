@@ -10,12 +10,15 @@
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
+#include <cstdio>
+#include <vector>
+#include <cstdint>
 
 namespace Gfx {
 
     namespace {
 
-        constexpr int kGfxTextureSlotMax = kGfxMaxTextures;
+        constexpr int kGfxTextureHardCap = 4096;
         constexpr int kGfxCornerSegments = 6;
         constexpr int kGfxRingEdgeSegments = 2;
         constexpr int kGfxRingCornerSegments = 6;
@@ -36,12 +39,13 @@ namespace Gfx {
             float ringRotation;
         };
 
-        /// @brief Texture slot store, part of the single graphics state.
+        /// @brief Texture slot store (append-only indices, never reused).
+        /// widths: -1=reserved, -2=tombstone(freed, index never reused), >=0 live.
         struct GfxTextureStore {
-            SDL_Texture *handles[kGfxTextureSlotMax];
-            int widths[kGfxTextureSlotMax];
-            int heights[kGfxTextureSlotMax];
-            bool streaming[kGfxTextureSlotMax];
+            std::vector<SDL_Texture *> handles;
+            std::vector<int> widths;
+            std::vector<int> heights;
+            std::vector<uint8_t> streaming;
         };
 
         static GfxDevice s_device = {};
@@ -104,6 +108,40 @@ namespace Gfx {
         /// @brief Active draw-layer stack (Base at depth 0).
         static int s_layerStack[kGfxLayerStackMax] = { 0 };
         static int s_layerDepth = 0;
+
+        /* Asset identity groups: bind texture slots to a named owner so they
+           can be purged (unloaded) on menu close. Texture slots are append-only
+           (indices never reused), so bound vectors may grow. */
+        constexpr int kGfxIdentityMax = 16;
+        constexpr int kGfxIdentityNameMax = 32;
+        struct GfxIdentity {
+            char name[kGfxIdentityNameMax];
+            bool inUse;
+            bool persistent;
+            std::vector<uint8_t> bound;
+        };
+        static GfxIdentity s_identities[kGfxIdentityMax] = {};
+
+        static GfxIdentity *FindIdentity(const char *id)
+        {
+            if (!id || !id[0])
+                return nullptr;
+            for (int i = 0; i < kGfxIdentityMax; i++) {
+                if (s_identities[i].inUse && strcmp(s_identities[i].name, id) == 0)
+                    return &s_identities[i];
+            }
+            return nullptr;
+        }
+
+        static void UnbindSlotFromIdentities(int slot)
+        {
+            if (slot < 0)
+                return;
+            for (int i = 0; i < kGfxIdentityMax; i++) {
+                if (s_identities[i].inUse && slot < (int)s_identities[i].bound.size())
+                    s_identities[i].bound[slot] = 0;
+            }
+        }
 
         static void Submit(SDL_Texture *textureSlot, SDL_Vertex *v, int n);
 
@@ -677,14 +715,21 @@ namespace Gfx {
     void Destroy()
     {
         s_device.isLive = false;
-        for (int i = 0; i < kGfxTextureSlotMax; i++) {
+        for (size_t i = 0; i < s_textureStore.handles.size(); i++) {
             if (s_textureStore.handles[i]) {
                 SDL_DestroyTexture(s_textureStore.handles[i]);
                 s_textureStore.handles[i] = NULL;
             }
-            s_textureStore.widths[i] = 0;
-            s_textureStore.heights[i] = 0;
-            s_textureStore.streaming[i] = false;
+        }
+        s_textureStore.handles.clear();
+        s_textureStore.widths.clear();
+        s_textureStore.heights.clear();
+        s_textureStore.streaming.clear();
+        for (int i = 0; i < kGfxIdentityMax; i++) {
+            s_identities[i].inUse = false;
+            s_identities[i].persistent = false;
+            s_identities[i].name[0] = 0;
+            s_identities[i].bound.clear();
         }
         if (s_device.renderer) {
             SDL_DestroyRenderer(s_device.renderer);
@@ -734,6 +779,8 @@ namespace Gfx {
         FlushRun();
     }
 
+    static bool TexInRange(int slot);
+
     void DrawPanels(int layer)
     {
         for (int i = 0; i < s_queues.panelCount; i++) {
@@ -769,7 +816,7 @@ namespace Gfx {
             int n;
             if (q->layer != layer)
                 continue;
-            if (!TexValid(q->slot) || q->slot >= kGfxTextureSlotMax || !s_textureStore.handles[q->slot])
+            if (!TexInRange(q->slot) || s_textureStore.widths[q->slot] == -2 || !s_textureStore.handles[q->slot])
                 continue;
             n = TessRRectTex(s_batch.scratch, kGfxTempVertices, q->x, q->y, q->w, q->h,
                              q->rTL, q->rTR, q->rBR, q->rBL,
@@ -828,7 +875,7 @@ namespace Gfx {
     static void EmitTextBuf(int texSlot, const TQ *queue, int count, int layer)
     {
         int n = 0;
-        if (texSlot < 0 || texSlot >= kGfxTextureSlotMax || !s_textureStore.handles[texSlot])
+        if (!TexInRange(texSlot) || s_textureStore.widths[texSlot] == -2 || !s_textureStore.handles[texSlot])
             return;
         for (int i = 0; i + 6 <= count; i += 6) {
             if (queue[i].layer != layer)
@@ -881,41 +928,55 @@ namespace Gfx {
         return v * s_device.displayScale;
     }
 
+    static bool TexInRange(int slot)
+    {
+        return slot >= 0 && slot < (int)s_textureStore.handles.size();
+    }
+
     int TexAlloc()
     {
-        for (int i = 0; i < kGfxTextureSlotMax; i++) {
-            if (!s_textureStore.handles[i] && s_textureStore.widths[i] == 0) {
-                s_textureStore.widths[i] = -1;
-                return i;
-            }
-        }
-        return -1;
+        int slot = (int)s_textureStore.handles.size();
+        if (slot >= kGfxTextureHardCap)
+            return -1;
+        s_textureStore.handles.push_back(NULL);
+        s_textureStore.widths.push_back(-1); /* reserved */
+        s_textureStore.heights.push_back(0);
+        s_textureStore.streaming.push_back(0);
+        return slot;
     }
 
     bool TexValid(int slot)
     {
-        return slot >= 0;
+        if (!TexInRange(slot))
+            return false;
+        if (s_textureStore.widths[slot] == -2)
+            return false; /* tombstone */
+        return s_textureStore.handles[slot] != NULL || s_textureStore.widths[slot] == -1;
     }
 
     void TexFree(int slot)
     {
-        if (slot < 0 || slot >= kGfxTextureSlotMax)
+        if (!TexInRange(slot))
             return;
+        if (s_textureStore.widths[slot] == -2)
+            return; /* already tombstone */
         if (!s_textureStore.handles[slot] && s_textureStore.widths[slot] == 0)
-            return; // never allocated: stale handle, nothing to do
+            return;
+        UnbindSlotFromIdentities(slot);
         if (s_textureStore.handles[slot]) {
             SDL_DestroyTexture(s_textureStore.handles[slot]);
             s_textureStore.handles[slot] = NULL;
         }
-        s_textureStore.widths[slot] = 0;
+        /* Tombstone: index is never reused/replaced. */
+        s_textureStore.widths[slot] = -2;
         s_textureStore.heights[slot] = 0;
-        s_textureStore.streaming[slot] = false;
+        s_textureStore.streaming[slot] = 0;
     }
 
     bool TexUpload(int slot, const uint8_t *px, int w, int h, TexFormat fmt)
     {
         SDL_Rect rect;
-        if (slot < 0 || slot >= kGfxTextureSlotMax || !px || w <= 0 || h <= 0 || !s_device.isLive)
+        if (!TexInRange(slot) || s_textureStore.widths[slot] == -2 || !px || w <= 0 || h <= 0 || !s_device.isLive)
             return false;
         if (s_textureStore.handles[slot] && (s_textureStore.widths[slot] != w || s_textureStore.heights[slot] != h || s_textureStore.streaming[slot])) {
             SDL_DestroyTexture(s_textureStore.handles[slot]);
@@ -928,7 +989,7 @@ namespace Gfx {
                 return false;
             s_textureStore.widths[slot] = w;
             s_textureStore.heights[slot] = h;
-            s_textureStore.streaming[slot] = false;
+            s_textureStore.streaming[slot] = 0;
         }
         rect.x = 0;
         rect.y = 0;
@@ -964,9 +1025,9 @@ namespace Gfx {
 
     bool TexLock(int slot, int w, int h, void **pixels, int *pitch)
     {
-        if (slot < 0 || slot >= kGfxTextureSlotMax || !pixels || !pitch || !s_device.isLive)
+        if (!TexInRange(slot) || s_textureStore.widths[slot] == -2 || !pixels || !pitch || !s_device.isLive)
             return false;
-        if (s_textureStore.handles[slot] && (s_textureStore.widths[slot] != w || s_textureStore.heights[slot] != h || !s_textureStore.streaming[slot])) {
+        if (s_textureStore.handles[slot] && (s_textureStore.widths[slot] != w || s_textureStore.heights[slot] != h || s_textureStore.streaming[slot])) {
             SDL_DestroyTexture(s_textureStore.handles[slot]);
             s_textureStore.handles[slot] = NULL;
         }
@@ -977,14 +1038,14 @@ namespace Gfx {
                 return false;
             s_textureStore.widths[slot] = w;
             s_textureStore.heights[slot] = h;
-            s_textureStore.streaming[slot] = true;
+            s_textureStore.streaming[slot] = 1;
         }
         return SDL_LockTexture(s_textureStore.handles[slot], NULL, pixels, pitch);
     }
 
     void TexUnlock(int slot)
     {
-        if (slot < 0 || slot >= kGfxTextureSlotMax || !s_textureStore.handles[slot])
+        if (!TexInRange(slot) || !s_textureStore.handles[slot])
             return;
         SDL_UnlockTexture(s_textureStore.handles[slot]);
     }
@@ -1365,6 +1426,67 @@ namespace Gfx {
     unsigned IconQuads()
     {
         return (unsigned)s_queues.iconCount;
+    }
+
+    void IdentityRegister(const char *id, bool persistent)
+    {
+        if (!id || !id[0])
+            return;
+        GfxIdentity *entry = FindIdentity(id);
+        if (!entry) {
+            for (int i = 0; i < kGfxIdentityMax; i++) {
+                if (!s_identities[i].inUse) {
+                    entry = &s_identities[i];
+                    entry->name[0] = 0;
+                    entry->inUse = false;
+                    entry->persistent = false;
+                    entry->bound.clear();
+                    snprintf(entry->name, sizeof(entry->name), "%s", id);
+                    entry->name[sizeof(entry->name) - 1] = 0;
+                    entry->inUse = true;
+                    break;
+                }
+            }
+        }
+        if (entry)
+            entry->persistent = persistent;
+    }
+
+    void IdentityBind(const char *id, int slot)
+    {
+        if (slot < 0)
+            return;
+        GfxIdentity *entry = FindIdentity(id);
+        if (!entry)
+            return;
+        if (slot >= (int)entry->bound.size())
+            entry->bound.resize((size_t)slot + 1, 0);
+        entry->bound[slot] = 1;
+    }
+
+    void IdentityPurge(const char *id)
+    {
+        GfxIdentity *entry = FindIdentity(id);
+        if (!entry)
+            return;
+        for (int slot = 0; slot < (int)entry->bound.size(); slot++) {
+            if (entry->bound[slot]) {
+                entry->bound[slot] = 0;
+                TexFree(slot);
+            }
+        }
+    }
+
+    void IdentityUnregister(const char *id)
+    {
+        IdentityPurge(id);
+        GfxIdentity *entry = FindIdentity(id);
+        if (entry) {
+            entry->name[0] = 0;
+            entry->inUse = false;
+            entry->persistent = false;
+            entry->bound.clear();
+        }
     }
 
 } /* namespace Gfx */

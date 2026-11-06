@@ -472,6 +472,8 @@ namespace {
         }
 
         stbi_image_free(pixelData);
+        if (hostApi->gfxIdentityBind)
+            hostApi->gfxIdentityBind("settings", textureSlot);
         s_state.optionIconSlots[optionIndex] = textureSlot;
     }
 
@@ -971,6 +973,13 @@ extern "C" {
         return top_des_settings_png;
     }
 
+    /// @brief Heap profile needed by this submenu (Cap for settings).
+    /// @return 1 = cap (384MB heap on enter, restored on exit).
+    QLAUNCH_HOOK int SubmenuHeapProfile(void)
+    {
+        return 1;
+    }
+
     /// @brief Give the submenu accent color.
     /// @param hostApi Host API for theme-derived colors.
     /// @param redOut Red output.
@@ -1023,7 +1032,6 @@ extern "C" {
         }
 
         s_hostApi = hostApi;
-        LoadOptionIcons(hostApi);
         return 0;
     }
 
@@ -1071,23 +1079,50 @@ extern "C" {
 
     /// @brief Enter the submenu tab.
     /// @param hostApi Host API.
+    static void LoadOptionIconsStep(const MenuHostApi *hostApi, int maxPerCall)
+    {
+        if (!hostApi || maxPerCall <= 0)
+            return;
+        int loaded = 0;
+        for (int optionIndex = 0; optionIndex < kSettingsOptionCount && loaded < maxPerCall; optionIndex++) {
+            if (s_state.optionIconSlots[optionIndex] < 0) {
+                LoadOptionIcon(hostApi, optionIndex);
+                loaded++;
+            }
+        }
+    }
+
     QLAUNCH_HOOK void SubmenuOpen(const MenuHostApi *hostApi)
     {
-        (void)hostApi;
+        if (!hostApi)
+            hostApi = s_hostApi;
+        if (!hostApi)
+            return;
+        s_hostApi = hostApi;
+        DropOptionIcons(hostApi);
+        if (hostApi->gfxIdentityRegister)
+            hostApi->gfxIdentityRegister("settings", 0);
+        /* Icons load lazily over frames in SubmenuTick to avoid a hitch. */
     }
 
     /// @brief Exit the submenu tab.
     /// @param hostApi Host API.
     QLAUNCH_HOOK void SubmenuClose(const MenuHostApi *hostApi)
     {
-        (void)hostApi;
+        if (!hostApi)
+            hostApi = s_hostApi;
+        if (hostApi)
+            DropOptionIcons(hostApi);
     }
 
     /// @brief Tick the submenu once per frame.
     /// @param hostApi Host API.
     QLAUNCH_HOOK void SubmenuTick(const MenuHostApi *hostApi)
     {
-        (void)hostApi;
+        if (!hostApi)
+            hostApi = s_hostApi;
+        if (hostApi)
+            LoadOptionIconsStep(hostApi, 1);
     }
 
     /// @brief Shut down before unload.
